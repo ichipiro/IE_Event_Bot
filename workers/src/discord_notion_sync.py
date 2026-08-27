@@ -1,33 +1,24 @@
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from urllib.parse import quote
+
+from workers import fetch as _runtime_fetch
 
 from google_auth import get_google_access_token
 
-try:
-    from workers import fetch as _runtime_fetch
-except Exception:
-    _runtime_fetch = globals().get("fetch")
 
-if _runtime_fetch is None:
-    async def fetch(*args, **kwargs):
-        raise RuntimeError("fetch_not_available")
-else:
-    async def fetch(url, options=None):
-        opts = options or {}
-        try:
-            return await _runtime_fetch(
-                url,
-                method=opts.get("method"),
-                headers=opts.get("headers"),
-                body=opts.get("body"),
-            )
-        except TypeError:
-            return await _runtime_fetch(url, opts)
-
-if TYPE_CHECKING:
-    fetch: Any
+async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
+    opts = options or {}
+    try:
+        return await _runtime_fetch(
+            url,
+            method=opts.get("method"),
+            headers=opts.get("headers"),
+            body=opts.get("body"),
+        )
+    except TypeError:
+        return await _runtime_fetch(url, opts)
 
 """
 Discord Scheduled Events の一覧をポーリングし、前回スナップショットとの差分を
@@ -826,15 +817,16 @@ async def run_discord_notion_poll_sync(env, state):
     """
     # 現在のDiscord一覧から新スナップショットを生成。
     events, list_error = await _list_discord_scheduled_events(env)
-    if list_error:
+    if list_error or events is None:
+        error = list_error or "discord_list_invalid_response"
         return {
             "ok": False,
-            "error": list_error,
+            "error": error,
             "created": 0,
             "updated": 0,
             "deleted": 0,
             "error_count": 1,
-            "errors": [list_error],
+            "errors": [error],
         }
 
     current_snapshot = {} # フィンガープリント

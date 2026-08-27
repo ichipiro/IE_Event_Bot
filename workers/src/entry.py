@@ -1,5 +1,6 @@
 import json
 import time
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
@@ -41,6 +42,10 @@ def _bool_env(value: str | None, default: bool = False) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _detail_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {"ok": bool(value)}
+
+
 class Default(WorkerEntrypoint):
     """
     Worker のエントリポイント。
@@ -80,7 +85,7 @@ class Default(WorkerEntrypoint):
         if path == "/sync/discord-notion":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
-            result = await run_discord_notion_poll_sync(self.env, state)
+            result = _detail_dict(await run_discord_notion_poll_sync(self.env, state))
             if state.enabled():
                 await state.set_last_result("sync_discord_notion", result)
             return _json_response(result, status=200 if result.get("ok") else 500)
@@ -139,7 +144,7 @@ class Default(WorkerEntrypoint):
         if path == "/jobs/qa-check":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
-            detail = await run_qa_notification_job(self.env, state, return_detail=True)
+            detail = _detail_dict(await run_qa_notification_job(self.env, state, return_detail=True))
             ok = bool(detail.get("ok"))
             if state.enabled():
                 await state.set_last_result(
@@ -152,7 +157,9 @@ class Default(WorkerEntrypoint):
         if path == "/jobs/reminder":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
-            detail = await run_day_before_reminder_job(self.env, state, return_detail=True)
+            detail = _detail_dict(
+                await run_day_before_reminder_job(self.env, state, return_detail=True)
+            )
             ok = bool(detail.get("ok"))
             if state.enabled():
                 await state.set_last_result(
@@ -165,7 +172,7 @@ class Default(WorkerEntrypoint):
         if path == "/jobs/cleanup":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
-            detail = await run_auto_clean_job(self.env, state, return_detail=True)
+            detail = _detail_dict(await run_auto_clean_job(self.env, state, return_detail=True))
             ok = bool(detail.get("ok"))
             if state.enabled():
                 await state.set_last_result(
@@ -186,11 +193,17 @@ class Default(WorkerEntrypoint):
                 return Response("unauthorized", status=401)
             sync_response = await self._run_sync_dispatch(request, state, source="jobs")
             sync_ok = int(sync_response.status) < 300
-            qa_detail = await run_qa_notification_job(self.env, state, return_detail=True)
+            qa_detail = _detail_dict(
+                await run_qa_notification_job(self.env, state, return_detail=True)
+            )
             qa_ok = bool(qa_detail.get("ok"))
-            reminder_detail = await run_day_before_reminder_job(self.env, state, return_detail=True)
+            reminder_detail = _detail_dict(
+                await run_day_before_reminder_job(self.env, state, return_detail=True)
+            )
             reminder_ok = bool(reminder_detail.get("ok"))
-            cleanup_detail = await run_auto_clean_job(self.env, state, return_detail=True)
+            cleanup_detail = _detail_dict(
+                await run_auto_clean_job(self.env, state, return_detail=True)
+            )
             cleanup_ok = bool(cleanup_detail.get("ok"))
             all_ok = sync_ok and qa_ok and reminder_ok and cleanup_ok
             if state.enabled():
@@ -269,22 +282,26 @@ class Default(WorkerEntrypoint):
                 }
             )
         if run_discord_notion_sync:
-            result = await run_discord_notion_poll_sync(self.env, StateStore(self.env))
+            result = _detail_dict(
+                await run_discord_notion_poll_sync(self.env, StateStore(self.env))
+            )
             result["path"] = "/sync/discord-notion"
             results.append(result)
             if StateStore(self.env).enabled():
                 await StateStore(self.env).set_last_result("sync_discord_notion", result)
         if run_watch_ensure:
-            watch_result = await ensure_watch_active(self.env, StateStore(self.env))
+            watch_result = _detail_dict(await ensure_watch_active(self.env, StateStore(self.env)))
             watch_result["path"] = "/admin/gcal/watch/ensure"
             results.append(watch_result)
             if StateStore(self.env).enabled() and str(watch_result.get("action") or "") != "noop_valid":
                 await StateStore(self.env).set_last_result("gcal_watch_ensure", watch_result)
         if run_qa:
-            qa_detail = await run_qa_notification_job(
-                self.env,
-                StateStore(self.env),
-                return_detail=True,
+            qa_detail = _detail_dict(
+                await run_qa_notification_job(
+                    self.env,
+                    StateStore(self.env),
+                    return_detail=True,
+                )
             )
             ok = bool(qa_detail.get("ok"))
             results.append({"ok": ok, "path": "/jobs/qa-check", "status": 200 if ok else 500})
@@ -294,10 +311,12 @@ class Default(WorkerEntrypoint):
                     {"mode": "native", "source": "cron", **qa_detail},
                 )
         if run_reminder:
-            reminder_detail = await run_day_before_reminder_job(
-                self.env,
-                StateStore(self.env),
-                return_detail=True,
+            reminder_detail = _detail_dict(
+                await run_day_before_reminder_job(
+                    self.env,
+                    StateStore(self.env),
+                    return_detail=True,
+                )
             )
             ok = bool(reminder_detail.get("ok"))
             results.append({"ok": ok, "path": "/jobs/reminder", "status": 200 if ok else 500})
@@ -307,10 +326,12 @@ class Default(WorkerEntrypoint):
                     {"mode": "native", "source": "cron", **reminder_detail},
                 )
         if run_cleanup:
-            cleanup_detail = await run_auto_clean_job(
-                self.env,
-                StateStore(self.env),
-                return_detail=True,
+            cleanup_detail = _detail_dict(
+                await run_auto_clean_job(
+                    self.env,
+                    StateStore(self.env),
+                    return_detail=True,
+                )
             )
             ok = bool(cleanup_detail.get("ok"))
             results.append({"ok": ok, "path": "/jobs/cleanup", "status": 200 if ok else 500})

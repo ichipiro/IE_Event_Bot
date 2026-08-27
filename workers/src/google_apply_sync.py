@@ -1,30 +1,21 @@
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
-try:
-    from workers import fetch as _runtime_fetch
-except Exception:
-    _runtime_fetch = globals().get("fetch")
+from workers import fetch as _runtime_fetch
 
-if _runtime_fetch is None:
-    async def fetch(*args, **kwargs):
-        raise RuntimeError("fetch_not_available")
-else:
-    async def fetch(url, options=None):
-        opts = options or {}
-        try:
-            return await _runtime_fetch(
-                url,
-                method=opts.get("method"),
-                headers=opts.get("headers"),
-                body=opts.get("body"),
-            )
-        except TypeError:
-            return await _runtime_fetch(url, opts)
 
-if TYPE_CHECKING:
-    fetch: Any
+async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
+    opts = options or {}
+    try:
+        return await _runtime_fetch(
+            url,
+            method=opts.get("method"),
+            headers=opts.get("headers"),
+            body=opts.get("body"),
+        )
+    except TypeError:
+        return await _runtime_fetch(url, opts)
 
 """
 Google Calendar 差分イベントを Notion / Discord へ適用するモジュール。
@@ -139,7 +130,7 @@ def _build_notion_date(event: dict):
     return payload
 
 
-def _notion_extract_rich_text(page: dict, prop_name: str):
+def _notion_extract_rich_text(page: dict | None, prop_name: str):
     """Notion rich_text の先頭要素を文字列化して返す。"""
     props = (page or {}).get("properties", {}) or {}
     rich = ((props.get(prop_name) or {}).get("rich_text") or [])
@@ -551,7 +542,13 @@ async def _discord_delete_event(env, discord_event_id: str):
     return result is not None
 
 
-async def _sync_to_discord(env, event: dict, notion_page: dict, fallback_page: dict, gcal_discord_map: dict):
+async def _sync_to_discord(
+    env,
+    event: dict,
+    notion_page: dict | None,
+    fallback_page: dict | None,
+    gcal_discord_map: dict,
+):
     """
     Googleイベントを Discord 側へ同期し、DiscordイベントIDを返す。
 ws    Discord ID(message_id / mapped_id) 探索順:

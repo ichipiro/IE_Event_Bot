@@ -1,34 +1,25 @@
 import json
 from datetime import datetime, timezone
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
+from workers import fetch as _runtime_fetch
+
 from google_auth import get_google_access_token
 
-try:
-    from workers import fetch as _runtime_fetch
-except Exception:
-    _runtime_fetch = globals().get("fetch")
 
-if _runtime_fetch is None:
-    async def fetch(*args, **kwargs):
-        raise RuntimeError("fetch_not_available")
-else:
-    async def fetch(url, options=None):
-        opts = options or {}
-        try:
-            return await _runtime_fetch(
-                url,
-                method=opts.get("method"),
-                headers=opts.get("headers"),
-                body=opts.get("body"),
-            )
-        except TypeError:
-            return await _runtime_fetch(url, opts)
-
-if TYPE_CHECKING:
-    fetch: Any
+async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
+    opts = options or {}
+    try:
+        return await _runtime_fetch(
+            url,
+            method=opts.get("method"),
+            headers=opts.get("headers"),
+            body=opts.get("body"),
+        )
+    except TypeError:
+        return await _runtime_fetch(url, opts)
 
 
 def _env_text(env, key: str, default: str = "") -> str:

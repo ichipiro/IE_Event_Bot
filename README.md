@@ -266,5 +266,5 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
 ## 11. 開発メモ
 
 - Python package metadata: `pyproject.toml`
-- 開発依存: `ruff`, `pytest`
+- 開発依存: `ruff`, `pytest`, `pyright`
 - リリース補助: `.release-please-config.json`

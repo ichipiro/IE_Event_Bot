@@ -13,10 +13,15 @@ jobs:
   sync_pr:
     runs-on: ubuntu-latest
     steps:
+      - name: Require automation token
+        env:
+          RELEASE_AUTOMATION_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+        run: test -n "$RELEASE_AUTOMATION_TOKEN"
       - name: Checkout (full history)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
       - name: Determine branch name
         id: vars
         run: |
@@ -31,7 +36,7 @@ jobs:
           git push -u origin "${{ steps.vars.outputs.branch }}" --force
       - name: Create PR if not exists
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
         run: |
           BR="${{ steps.vars.outputs.branch }}"
           TAG="${{ steps.vars.outputs.tag }}"

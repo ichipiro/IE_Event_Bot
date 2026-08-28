@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title discord_notion_sync — メソッド・関数詳細 2/3
+!pragma layout smetana
+left to right direction
+component "<b>P004 discord_notion_sync</b>\n役割: Discord Scheduled Events の差分を Notion と Google Calendar へ反映する。" as P004
+rectangle "<b>F042 discord_notion_sync._fingerprint</b>\n役割: 正規化イベントを JSON 文字列にして指紋化する。" as F042 <<function>>
+P004 -[#64748B]-> F042 : [E1038] 関数を定義
+rectangle "<b>F043 discord_notion_sync._snapshot_status</b>\n役割: 保存済みスナップショット文字列から Discord event status を取り出す。" as F043 <<function>>
+P004 -[#64748B]-> F043 : [E1039] 関数を定義
+rectangle "<b>F044 discord_notion_sync._should_treat_missing_event_as_delete</b>\n役割: 前回スナップショットにしか存在しないイベントを削除扱いにするか判定する。" as F044 <<function>>
+P004 -[#64748B]-> F044 : [E1040] 関数を定義
+rectangle "<b>F045 discord_notion_sync._discord_api_request</b>\n役割: Discord REST API の共通ラッパー。" as F045 <<function>>
+P004 -[#64748B]-> F045 : [E1041] 関数を定義
+rectangle "<b>F046 discord_notion_sync._list_discord_scheduled_events</b>\n役割: ギルド(サーバ)のイベント一覧を取得する。" as F046 <<function>>
+P004 -[#64748B]-> F046 : [E1042] 関数を定義
+rectangle "<b>F047 discord_notion_sync._discord_send_message</b>\n役割: Discord チャンネルへ通常メッセージを投稿し、message_id を返す。" as F047 <<function>>
+P004 -[#64748B]-> F047 : [E1043] 関数を定義
+rectangle "<b>F048 discord_notion_sync._discord_add_reaction</b>\n役割: Discord メッセージへリアクションを追加する。" as F048 <<function>>
+P004 -[#64748B]-> F048 : [E1044] 関数を定義
+rectangle "<b>F049 discord_notion_sync._notion_query_by_message_id</b>\n役割: Notion DB からメッセージID一致のページを1件取得する。" as F049 <<function>>
+P004 -[#64748B]-> F049 : [E1045] 関数を定義
+rectangle "<b>F050 discord_notion_sync._notion_update_event</b>\n役割: Notion イベントページを部分更新する。" as F050 <<function>>
+P004 -[#64748B]-> F050 : [E1046] 関数を定義
+rectangle "<b>F051 discord_notion_sync._notion_create_event</b>\n役割: Notion イベントページを新規作成する。" as F051 <<function>>
+P004 -[#64748B]-> F051 : [E1047] 関数を定義
+rectangle "<b>F052 discord_notion_sync._notion_archive_page</b>\n役割: Notion ページを archived=true に更新する。" as F052 <<function>>
+P004 -[#64748B]-> F052 : [E1048] 関数を定義
+@enduml

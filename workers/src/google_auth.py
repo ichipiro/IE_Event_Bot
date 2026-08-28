@@ -1,32 +1,24 @@
+import importlib
 import json
 import time
 import base64
 from uuid import uuid4
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
-try:
-    from workers import fetch as _runtime_fetch
-except Exception:
-    _runtime_fetch = globals().get("fetch")
+from workers import fetch as _runtime_fetch
 
-if _runtime_fetch is None:
-    async def fetch(*args, **kwargs):
-        raise RuntimeError("fetch_not_available")
-else:
-    async def fetch(url, options=None):
-        opts = options or {}
-        try:
-            return await _runtime_fetch(
-                url,
-                method=opts.get("method"),
-                headers=opts.get("headers"),
-                body=opts.get("body"),
-            )
-        except TypeError:
-            return await _runtime_fetch(url, opts)
 
-if TYPE_CHECKING:
-    fetch: Any
+async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
+    opts = options or {}
+    try:
+        return await _runtime_fetch(
+            url,
+            method=opts.get("method"),
+            headers=opts.get("headers"),
+            body=opts.get("body"),
+        )
+    except TypeError:
+        return await _runtime_fetch(url, opts)
 
 """
 Google API アクセストークン解決モジュール。
@@ -267,12 +259,19 @@ async def _sign_rs256(message: bytes, private_key_pem: str):
     """
     # cryptography
     try:
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
-        from cryptography.hazmat.primitives.serialization import load_pem_private_key
+        crypto_hashes = importlib.import_module("cryptography.hazmat.primitives.hashes")
+        crypto_padding = importlib.import_module(
+            "cryptography.hazmat.primitives.asymmetric.padding"
+        )
+        crypto_serialization = importlib.import_module(
+            "cryptography.hazmat.primitives.serialization"
+        )
 
-        key = load_pem_private_key(private_key_pem.encode("utf-8"), password=None)
-        sig = key.sign(message, padding.PKCS1v15(), hashes.SHA256())
+        key: Any = crypto_serialization.load_pem_private_key(
+            private_key_pem.encode("utf-8"),
+            password=None,
+        )
+        sig = key.sign(message, crypto_padding.PKCS1v15(), crypto_hashes.SHA256())
         return sig
     # 例外 -> exc
     # 失敗した署名方法 : 例外の型 : メッセージ
@@ -282,7 +281,7 @@ async def _sign_rs256(message: bytes, private_key_pem: str):
 
     # RSA
     try:
-        import rsa
+        rsa: Any = importlib.import_module("rsa")
 
         key = rsa.PrivateKey.load_pkcs1(private_key_pem.encode("utf-8"))
         return rsa.sign(message, key, "SHA-256")
@@ -353,7 +352,8 @@ async def _build_service_account_assertion(sa_info: dict, scope: str):
     }
     # google-auth が使える場合は RSA signer 実装に委譲する
     try:
-        from google.auth import crypt as gcrypt, jwt as gjwt
+        gcrypt: Any = importlib.import_module("google.auth.crypt")
+        gjwt: Any = importlib.import_module("google.auth.jwt")
 
         signer = gcrypt.RSASigner.from_service_account_info(sa_info)
         token = gjwt.encode(

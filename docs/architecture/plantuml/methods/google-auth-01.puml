@@ -1,0 +1,25 @@
+@startuml
+!include ../_shared/style.puml
+title google_auth — メソッド・関数詳細 1/2
+!pragma layout smetana
+left to right direction
+component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+rectangle "<b>F095 google_auth.fetch</b>\n役割: Cloudflare Workers の外部 HTTP fetch 実装へ要求を委譲して応答を返す。" as F095 <<function>>
+P005 -[#64748B]-> F095 : [E1109] 関数を定義
+rectangle "<b>F096 google_auth._b64url</b>\n役割: JWT 用 Base64URL エンコード（パディングなし）。" as F096 <<function>>
+P005 -[#64748B]-> F096 : [E1110] 関数を定義
+rectangle "<b>F097 google_auth._env_text</b>\n役割: Worker env から文字列を安全に取得する。" as F097 <<function>>
+P005 -[#64748B]-> F097 : [E1111] 関数を定義
+rectangle "<b>F098 google_auth._get_cached_token</b>\n役割: KV からキャッシュ済みGoogleアクセストークンを取得する。" as F098 <<function>>
+P005 -[#64748B]-> F098 : [E1112] 関数を定義
+rectangle "<b>F099 google_auth._get_cached_token_meta</b>\n役割: キャッシュトークンの存在・有効性メタ情報(健康度)を返す。" as F099 <<function>>
+P005 -[#64748B]-> F099 : [E1113] 関数を定義
+rectangle "<b>F100 google_auth._save_cached_token</b>\n役割: token と任意の有効期限(epoch)を KV に保存する。" as F100 <<function>>
+P005 -[#64748B]-> F100 : [E1114] 関数を定義
+rectangle "<b>F101 google_auth._fetch_token_from_broker</b>\n役割: 外部トークンブローカーからトークンを取得する。" as F101 <<function>>
+P005 -[#64748B]-> F101 : [E1115] 関数を定義
+rectangle "<b>F102 google_auth._load_service_account_info_from_env</b>\n役割: Service Account JSON を env から読み込む。" as F102 <<function>>
+P005 -[#64748B]-> F102 : [E1116] 関数を定義
+rectangle "<b>F103 google_auth._pem_pkcs8_to_der</b>\n役割: PEM 形式の PKCS8 秘密鍵を DER(bytes) に変換する。" as F103 <<function>>
+P005 -[#64748B]-> F103 : [E1117] 関数を定義
+@enduml

@@ -1,0 +1,23 @@
+@startuml
+!include ../_shared/style.puml
+title google_auth — メソッド・関数詳細 2/2
+!pragma layout smetana
+left to right direction
+component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+rectangle "<b>F104 google_auth._js_uint8_array</b>\n役割: Python bytes を JS Uint8Array に変換する。" as F104 <<function>>
+P005 -[#64748B]-> F104 : [E1118] 関数を定義
+rectangle "<b>F105 google_auth._uint8_array_to_bytes</b>\n役割: JS Uint8Array を Python bytes に変換する。" as F105 <<function>>
+P005 -[#64748B]-> F105 : [E1119] 関数を定義
+rectangle "<b>F106 google_auth._sign_rs256</b>\n役割: Web Crypto API を使い、JWT 署名対象を RS256 で署名する。" as F106 <<function>>
+P005 -[#64748B]-> F106 : [E1120] 関数を定義
+rectangle "<b>F107 google_auth._build_service_account_assertion</b>\n役割: OAuth JWT Bearer 用 JWT を生成する。" as F107 <<function>>
+P005 -[#64748B]-> F107 : [E1121] 関数を定義
+rectangle "<b>F108 google_auth._fetch_token_from_service_account</b>\n役割: JWT アサーションを使ってGoogle の OAuth トークンエンドポイントから アクセストークンを取得する。" as F108 <<function>>
+P005 -[#64748B]-> F108 : [E1122] 関数を定義
+rectangle "<b>F004 google_auth.get_google_access_token</b>\n役割: Google API アクセストークン取得試行の順番: 1) GOOGLE_API_BEARER_TOKEN (直接) 2) KVキャッシュ(goog…" as F004 <<function>>
+P005 -[#64748B]-> F004 : [E1123] 関数を定義
+rectangle "<b>F109 google_auth.describe_google_auth_sources</b>\n役割: 現在利用可能な認証ソース状態を返す。" as F109 <<function>>
+P005 -[#64748B]-> F109 : [E1124] 関数を定義
+rectangle "<b>F110 google_auth.set_google_access_token</b>\n役割: 管理API経由で受け取ったトークンを KV キャッシュに保存する。" as F110 <<function>>
+P005 -[#64748B]-> F110 : [E1125] 関数を定義
+@enduml

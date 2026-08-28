@@ -1,0 +1,65 @@
+name: PlantUML Architecture
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "workers/src/**"
+      - "workers/wrangler.jsonc"
+      - "docs/architecture/plantuml/**"
+      - "tools/validate_plantuml.py"
+      - ".github/workflows/plantuml.yml"
+  pull_request:
+    paths:
+      - "workers/src/**"
+      - "workers/wrangler.jsonc"
+      - "docs/architecture/plantuml/**"
+      - "tools/validate_plantuml.py"
+      - ".github/workflows/plantuml.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  PLANTUML_VERSION: "1.2026.7"
+  PLANTUML_SHA256: "40b8173a88ae408a382555a7bbee2f785e79b7493ac5d780bc637402cc213f60"
+
+jobs:
+  validate-and-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download pinned PlantUML LGPL JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          plantuml_jar="${RUNNER_TEMP}/plantuml-lgpl.jar"
+          curl --fail --location --retry 3 \
+            --output "${plantuml_jar}" \
+            "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-lgpl-${PLANTUML_VERSION}.jar"
+          echo "${PLANTUML_SHA256}  ${plantuml_jar}" | sha256sum --check --strict
+
+      - name: Validate model and render SVG
+        env:
+          PLANTUML_SECURITY_PROFILE: ALLOWLIST
+        run: |
+          python3 tools/validate_plantuml.py docs/architecture/plantuml \
+            --plantuml-jar "${RUNNER_TEMP}/plantuml-lgpl.jar" \
+            --require-plantuml \
+            --render-svg
+
+      - name: Upload rendered diagrams
+        uses: actions/upload-artifact@v4
+        with:
+          name: plantuml-architecture-svg
+          path: docs/architecture/plantuml/rendered/
+          if-no-files-found: error

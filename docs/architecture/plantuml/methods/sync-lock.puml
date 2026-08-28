@@ -1,0 +1,15 @@
+@startuml
+!include ../_shared/style.puml
+title sync_lock_do — メソッド・関数詳細 1/1
+!pragma layout smetana
+left to right direction
+component "<b>P010 sync_lock_do</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複判定を Durable Object で直列化する。" as P010
+component "<b>C003 sync_lock_do.SyncCoordinator</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複抑止を Durable Object 上で直列化する。" as C003 <<class>>
+P010 -[#64748B]-> C003 : [E902] クラスを定義
+rectangle "<b>F151 sync_lock_do._decode_lock_record</b>\n役割: storage.get(\"lock\") の返り値を lock 辞書へ正規化する。" as F151 <<function>>
+P010 -[#64748B]-> F151 : [E1202] 関数を定義
+rectangle "<b>F152 sync_lock_do._decode_json_record</b>\n役割: storage 上の JSON 文字列/辞書を dict に正規化する。" as F152 <<function>>
+P010 -[#64748B]-> F152 : [E1203] 関数を定義
+rectangle "<b>M004 sync_lock_do.SyncCoordinator.fetch</b>\n役割: POST body(JSON) の action に応じてロック操作を実行する。" as M004 <<method>>
+C003 -[#64748B]-> M004 : [E1204] メソッドを所有
+@enduml

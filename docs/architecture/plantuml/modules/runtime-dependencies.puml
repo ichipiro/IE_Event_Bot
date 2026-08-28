@@ -1,0 +1,36 @@
+@startuml
+!include ../_shared/style.puml
+title Cloudflare Workers 実行時型への依存
+!pragma layout smetana
+left to right direction
+package "Worker アプリケーション" {
+  component "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001
+  component "<b>P002 google_calendar_sync</b>\n役割: Google Calendar の差分イベントを取得し、次回カーソル候補を返す。" as P002
+  component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+  component "<b>P004 discord_notion_sync</b>\n役割: Discord Scheduled Events の差分を Notion と Google Calendar へ反映する。" as P004
+  component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+  component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
+  component "<b>P007 health_checks</b>\n役割: Google、Notion、Discord への認証付き疎通結果をまとめる。" as P007
+  component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+  component "<b>P010 sync_lock_do</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複判定を Durable Object で直列化する。" as P010
+}
+package "外部実行時契約" {
+  component "<b>P013 workers runtime stubs</b>\n役割: Cloudflare Python Workers 実行時 API の静的型境界を宣言する。" as P013 <<external>>
+}
+P001 -[#64748B]-> P013 : [E320] Workers 実行時 API を import
+P002 -[#64748B]-> P013 : [E321] Workers 実行時 API を import
+P003 -[#64748B]-> P013 : [E322] Workers 実行時 API を import
+P004 -[#64748B]-> P013 : [E323] Workers 実行時 API を import
+P005 -[#64748B]-> P013 : [E324] Workers 実行時 API を import
+P006 -[#64748B]-> P013 : [E325] Workers 実行時 API を import
+P007 -[#64748B]-> P013 : [E326] Workers 実行時 API を import
+P008 -[#64748B]-> P013 : [E327] Workers 実行時 API を import
+P010 -[#64748B]-> P013 : [E328] Workers 実行時 API を import
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 静的型スタブで確認できる依存。Cloudflare 実装内部は runtime-unverified。 |
+endlegend
+@enduml

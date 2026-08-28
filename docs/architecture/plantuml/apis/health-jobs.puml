@@ -1,0 +1,30 @@
+@startuml
+!include ../_shared/style.puml
+title 疎通確認・定期ジョブの API 依存
+!pragma layout smetana
+left to right direction
+component "<b>P007 health_checks</b>\n役割: Google、Notion、Discord への認証付き疎通結果をまとめる。" as P007
+component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+database "<b>D001 STATE_KV</b>\n役割: 同期カーソル、対応表、キュー、キャッシュ、watch 状態、診断結果を保持する。" as D001 <<datastore>>
+component "<b>A002 Google Calendar API</b>\n役割: カレンダーイベント、watch、カレンダー情報の参照と更新を提供する。" as A002 <<external>>
+component "<b>A005 Notion API</b>\n役割: イベントと Q&A データベースの検索、ページ作成・更新・アーカイブを提供する。" as A005 <<external>>
+component "<b>A006 Discord REST API</b>\n役割: Scheduled Events、メッセージ、リアクション、接続診断を提供する。" as A006 <<external>>
+P007 -[#2563EB]-> A005 : [E100] 入力: users/me request
+A005 -[#0F766E]-> P007 : [E101] 出力: Notion 疎通結果
+P007 -[#2563EB]-> A006 : [E102] 入力: users/@me request
+A006 -[#0F766E]-> P007 : [E103] 出力: Discord 疎通結果
+P007 -[#2563EB]-> A002 : [E104] 入力: calendar ID
+A002 -[#0F766E]-> P007 : [E105] 出力: Google 疎通結果
+P008 -[#2563EB]-> A005 : [E106] 入力: Q&A/整理 page request
+A005 -[#0F766E]-> P008 : [E107] 出力: pages/update result
+P008 -[#2563EB]-> A006 : [E108] 入力: guild events/message
+A006 -[#0F766E]-> P008 : [E109] 出力: events/message result
+P008 -[#2563EB]-> D001 : [E110] 入力: job cache key/value
+D001 -[#0F766E]-> P008 : [E111] 出力: cached value/write result
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+endlegend
+@enduml

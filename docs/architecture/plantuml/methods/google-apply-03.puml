@@ -1,0 +1,25 @@
+@startuml
+!include ../_shared/style.puml
+title google_apply_sync — メソッド・関数詳細 3/3
+!pragma layout smetana
+left to right direction
+component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+rectangle "<b>F087 google_apply_sync._discord_api_request</b>\n役割: Discord REST API 共通ラッパー。" as F087 <<function>>
+P003 -[#64748B]-> F087 : [E1100] 関数を定義
+rectangle "<b>F088 google_apply_sync._discord_sync_available</b>\n役割: Discord 反映に必要な設定が揃っているか判定する。" as F088 <<function>>
+P003 -[#64748B]-> F088 : [E1101] 関数を定義
+rectangle "<b>F089 google_apply_sync._build_discord_description</b>\n役割: Discord説明文を組み立てる。" as F089 <<function>>
+P003 -[#64748B]-> F089 : [E1102] 関数を定義
+rectangle "<b>F090 google_apply_sync._build_discord_payload</b>\n役割: Google イベントを Discord イベント payload へ変換する。" as F090 <<function>>
+P003 -[#64748B]-> F090 : [E1103] 関数を定義
+rectangle "<b>F091 google_apply_sync._discord_create_event</b>\n役割: Discord イベントを新規作成する。" as F091 <<function>>
+P003 -[#64748B]-> F091 : [E1104] 関数を定義
+rectangle "<b>F092 google_apply_sync._discord_update_event</b>\n役割: Discord イベントを更新する。" as F092 <<function>>
+P003 -[#64748B]-> F092 : [E1105] 関数を定義
+rectangle "<b>F093 google_apply_sync._discord_delete_event</b>\n役割: Discord イベントを削除する。" as F093 <<function>>
+P003 -[#64748B]-> F093 : [E1106] 関数を定義
+rectangle "<b>F094 google_apply_sync._sync_to_discord</b>\n役割: Googleイベントを Discord 側へ同期し、DiscordイベントIDを返す。" as F094 <<function>>
+P003 -[#64748B]-> F094 : [E1107] 関数を定義
+rectangle "<b>F002 google_apply_sync.apply_google_events</b>\n役割: Google Calendar のイベント一覧を受け取り、Notion と Discord に反映する。" as F002 <<function>>
+P003 -[#64748B]-> F002 : [E1108] 関数を定義
+@enduml

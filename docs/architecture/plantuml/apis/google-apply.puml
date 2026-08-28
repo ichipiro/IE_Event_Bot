@@ -1,0 +1,23 @@
+@startuml
+!include ../_shared/style.puml
+title Google 変更を Notion・Discord へ反映する入出力
+!pragma layout smetana
+left to right direction
+package "Worker 内部 <Z002>" <<trust-boundary>> {
+  component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+}
+package "外部 API <Z004/Z005/Z006/Z007>" <<trust-boundary>> {
+  component "<b>A005 Notion API</b>\n役割: イベントと Q&A データベースの検索、ページ作成・更新・アーカイブを提供する。" as A005 <<external>>
+  component "<b>A006 Discord REST API</b>\n役割: Scheduled Events、メッセージ、リアクション、接続診断を提供する。" as A006 <<external>>
+}
+P003 -[#2563EB]-> A005 : [E034] 入力: Google event・page request
+A005 -[#0F766E]-> P003 : [E035] 出力: Notion page/result
+P003 -[#2563EB]-> A006 : [E036] 入力: Google event・guild event payload
+A006 -[#0F766E]-> P003 : [E037] 出力: Discord event/result
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+endlegend
+@enduml

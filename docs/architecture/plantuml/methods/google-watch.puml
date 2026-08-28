@@ -1,0 +1,23 @@
+@startuml
+!include ../_shared/style.puml
+title google_watch — メソッド・関数詳細 1/1
+!pragma layout smetana
+left to right direction
+component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
+rectangle "<b>F116 google_watch.fetch</b>\n役割: Cloudflare Workers の外部 HTTP fetch 実装へ要求を委譲して応答を返す。" as F116 <<function>>
+P006 -[#64748B]-> F116 : [E1132] 関数を定義
+rectangle "<b>F117 google_watch._env_text</b>\n役割: Worker env から文字列設定を取得する。" as F117 <<function>>
+P006 -[#64748B]-> F117 : [E1133] 関数を定義
+rectangle "<b>F118 google_watch._watch_call</b>\n役割: Google Calendar watch 関連 API 呼び出しの共通ラッパー。" as F118 <<function>>
+P006 -[#64748B]-> F118 : [E1134] 関数を定義
+rectangle "<b>F119 google_watch.register_watch</b>\n役割: Google Calendar events.watch を新規登録する。" as F119 <<function>>
+P006 -[#64748B]-> F119 : [E1135] 関数を定義
+rectangle "<b>F120 google_watch.renew_watch</b>\n役割: 既存 watch を更新する。" as F120 <<function>>
+P006 -[#64748B]-> F120 : [E1136] 関数を定義
+rectangle "<b>F121 google_watch._parse_expiration_epoch_seconds</b>\n役割: Google watch expiration (ミリ秒)を桁を見て秒に変換する。" as F121 <<function>>
+P006 -[#64748B]-> F121 : [E1137] 関数を定義
+rectangle "<b>F122 google_watch._renew_threshold_seconds</b>\n役割: watch 更新しきい値（秒）を返す。" as F122 <<function>>
+P006 -[#64748B]-> F122 : [E1138] 関数を定義
+rectangle "<b>F005 google_watch.ensure_watch_active</b>\n役割: watch が有効な状態を保つ。" as F005 <<function>>
+P006 -[#64748B]-> F005 : [E1139] 関数を定義
+@enduml

@@ -1,35 +1,50 @@
-# AGENTS.md
+# エージェント作業指示
 
-## Purpose
+## 目的
 
-- This file is the first-run guide for AI assistants working in this repository.
-- Optimize for safe, minimal, verifiable changes.
-- Prefer repository-local context over assumptions.
+- この文書は、このリポジトリで作業する AI アシスタントが最初に読む案内である。
+- 安全で最小限かつ検証可能な変更を優先する。
+- 推測より、リポジトリ内で確認できるコード、設定、文書を優先する。
+- 人間向けの説明、コメント、文書は原則として日本語で記述する。
 
-## Workspace Boundary
+## 指示の優先順位
 
-- Do not access files outside the WSL workspace unless the user gives a clear, explicit instruction.
-- Even when the user explicitly asks to access files outside WSL, stop and ask for confirmation before doing so.
-- Treat Windows-side paths, mounted drives, home directories outside the current Linux workspace, cloud-sync folders, and GUI-opened files as out of bounds unless the user has both requested them and confirmed access.
-- If the task can be completed fully inside `/home/products/Git_Products/IE/IE_Event_Bot_fork/IE_Event_Bot_fork`, stay inside it.
+このリポジトリでは、以下の順序で指示を適用する。
 
-## Runtime
+1. `AGENTS.md`
+2. `docs/DEVELOPMENT.md`
+3. その他のプロジェクト文書
+4. 既存コードから推測される慣習
 
-- Primary runtime is Linux / WSL.
-- Preferred Python environment is `.venv` at the repository root.
-- Use the Linux virtual environment for Python work in this repository.
-- Do not replace Linux commands with Windows-only instructions unless the user explicitly asks for Windows steps.
-- Main application target is Cloudflare Python Workers under `workers/`.
+上位の文書と下位の文書が競合する場合は、上位を優先する。
+実装、修正、リファクタリング、テスト、コードレビュー、コミットメッセージ作成の前に、`docs/DEVELOPMENT.md` を読む。
+既存コードの慣習だけを理由に、`docs/DEVELOPMENT.md` の規則を無視してはならない。
 
-## Setup
+## ワークスペース境界
 
-- Activate the Linux virtual environment:
+- ユーザーから明確な指示がない限り、WSL ワークスペース外のファイルへアクセスしない。
+- WSL 外へのアクセスをユーザーが依頼した場合でも、実行前に対象を示して確認を得る。
+- Windows 側のパス、マウントされたドライブ、現在の Linux ワークスペース外のホームディレクトリ、クラウド同期フォルダー、GUI で開かれたファイルは、依頼と確認の両方がない限り対象外とする。
+- このリポジトリ内で完結できる作業は、`/home/products/Git_Products/IE/IE_Event_Bot_fork` の外へ広げない。
+- `workers/service-account.json`、`.dev.vars*`、トークン、秘密鍵などの機密情報を読み取ったり、出力したり、コミットしたりしない。
+
+## 実行環境
+
+- 主な実行環境は Linux / WSL である。
+- Python 作業にはリポジトリルートの `.venv` を使う。
+- Windows 専用の手順は、ユーザーが明示的に求めた場合だけ提示する。
+- 主なアプリケーション対象は `workers/` 配下の Cloudflare Python Workers である。
+- Cloudflare、Discord、Google、Notion の実環境状態は、ローカルの静的検査だけでは確定できない。
+
+## セットアップ
+
+既存の Linux 仮想環境を有効化する。
 
 ```bash
 source .venv/bin/activate
 ```
 
-- Create it if needed:
+仮想環境がない場合は作成する。
 
 ```bash
 python3 -m venv .venv
@@ -39,31 +54,41 @@ python -m pip install -e ".[dev]"
 python -m pip install -r workers/requirements.txt
 ```
 
-## Project Structure
+`README_ENV.md` に記載された `.venv/bin/python` などの直接実行も同じ仮想環境を使用する方法として扱う。
 
-- `workers/src/entry.py`: Worker entrypoint and route handling.
-- `workers/src/google_calendar_sync.py`: Google Calendar delta fetch.
-- `workers/src/google_apply_sync.py`: apply Google changes to Notion and Discord.
-- `workers/src/discord_notion_sync.py`: Discord to Notion sync and Discord to Google path.
-- `workers/src/google_auth.py`: Google token resolution and caching.
-- `workers/src/google_watch.py`: Google watch lifecycle.
-- `workers/src/jobs.py`: periodic jobs.
-- `workers/src/state.py`: KV-backed state handling.
-- `workers/wrangler.jsonc`: Cloudflare Workers config.
-- `README_ENV.md`: Python packages expected in the local venv.
+## プロジェクト構成
 
-## Rules
+- `workers/src/entry.py`: Worker の入口、HTTP ルーティング、Cron、同期ディスパッチ。
+- `workers/src/google_calendar_sync.py`: Google カレンダーの差分取得。
+- `workers/src/google_apply_sync.py`: Google の変更を Notion と Discord へ反映。
+- `workers/src/discord_notion_sync.py`: Discord から Notion および Google への同期。
+- `workers/src/google_auth.py`: Google トークンの解決とキャッシュ。
+- `workers/src/google_watch.py`: Google watch の登録、更新、維持。
+- `workers/src/jobs.py`: Q&A、リマインド、クリーンアップの定期ジョブ。
+- `workers/src/health_checks.py`: 外部サービスへの疎通確認。
+- `workers/src/state.py`: Workers KV と Durable Object を介した状態管理。
+- `workers/src/sync_lock_do.py`: 排他、最終同期時刻、Webhook 重複抑止を扱う Durable Object。
+- `workers/wrangler.jsonc`: Cloudflare Workers のバインディング、変数、Cron 設定。
+- `pyproject.toml`: Python パッケージ情報と開発依存。
+- `README_ENV.md`: リポジトリの仮想環境へ導入する Python パッケージ。
 
-- Prefer small, targeted edits.
-- Preserve existing behavior unless the task explicitly changes it.
-- Do not delete user files, KV-related docs, or generated artifacts unless the user asks.
-- Keep environment and setup instructions aligned with verified Linux / WSL behavior.
-- When changing dependencies, update `README_ENV.md` if the venv contents should change too.
-- When touching Worker behavior, verify the effect against `workers/wrangler.jsonc` and the relevant route or job entrypoint.
+## リポジトリ固有の規則
 
-## Verification
+- 目的に必要な小さな変更だけを行い、無関係な整形やリファクタリングを混ぜない。
+- ユーザーが明示的に変更を求めない限り、既存の振る舞いを保つ。
+- ユーザーファイル、KV 関連文書、生成物を無断で削除しない。
+- 開始時に未コミット変更を確認し、既存変更をユーザーの作業として保持する。
+- 環境・セットアップ手順は、確認済みの Linux / WSL の挙動に合わせる。
+- 依存関係を変更した場合、必要に応じて `README_ENV.md` も更新する。
+- Worker の挙動を変更した場合、`workers/wrangler.jsonc` と、該当する HTTP ルートまたは Cron の入口を併せて確認する。
+- 状態管理を変更した場合、Workers KV の `STATE_KV` と Durable Object の `SYNC_COORDINATOR` の責務分担を保つ。
+- `new_sqlite_classes` は Durable Object のマイグレーションであり、Cloudflare D1 のバインディングではない。
+- コミットと Pull Request のタイトルには、`docs/DEVELOPMENT.md` で定める Conventional Commits 形式を使う。
+- 文書の記述とコードが食い違う場合は、コードと設定を現行実装として確認し、文書の不確実性を明記する。
 
-- Basic dependency check:
+## 検証
+
+依存関係の基本確認:
 
 ```bash
 source .venv/bin/activate
@@ -74,30 +99,81 @@ print("imports ok")
 PY
 ```
 
-- Lint:
+静的検査:
 
 ```bash
 source .venv/bin/activate
 ruff check .
-```
-
-- Type check:
-
-```bash
-source .venv/bin/activate
 pyright
 ```
 
-- Tests:
+テストファイルが存在する場合:
 
 ```bash
 source .venv/bin/activate
 pytest -q
 ```
 
-## Known Pitfalls
+現在はテストファイルがないため、`pytest -q` を未実装テストの成功証明として扱わない。
+文書だけの変更でも、相対リンクの解決、`git diff --check`、意図しないファイル変更の有無を確認する。
+実行できなかった検証は、実行済みとして報告しない。
 
-- This repository should be handled as a Linux / WSL workspace, not a Windows-native one.
-- Paths and shell commands should be written for WSL unless the user explicitly wants Windows guidance.
-- Cloudflare runtime behavior depends on bindings in `workers/wrangler.jsonc`, so code-only changes may still require config awareness.
-- `README_ENV.md` is intentionally limited to Python packages that belong in the repo venv.
+## 既知の注意点
+
+- このリポジトリは Windows ネイティブではなく、Linux / WSL ワークスペースとして扱う。
+- Cloudflare の実行時挙動は `workers/wrangler.jsonc` のバインディングと管理画面側の状態にも依存する。
+- `README_ENV.md` は、リポジトリの仮想環境に属する Python パッケージだけを扱う。
+- `docs/Event_Bot仕様書.md`、`docs/KV.md`、`docs/Operations.md`、`docs/do-kv-design.md` は既存の `.gitignore` 対象である。ローカルでは保持し、標準文書には必要な内容を統合するが、追跡方針は別の明示的な変更なしに変えない。
+- Git のマージ、GitHub Release、Cloudflare Worker のデプロイは別々の工程である。
+
+# Markdown目次
+
+## 入口
+
+- [`README.md`](README.md)
+  - リポジトリの概要、機能、設定、初期確認。
+- [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+  - 開発ルール、変更方針、コミット規則。
+
+## 設計・要件
+
+- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md)
+  - 実行環境、依存パッケージ、外部サービス、検証要件。
+- [`docs/FRONTEND.md`](docs/FRONTEND.md)
+  - フロントエンドの有無と HTTP インターフェースの境界。
+- [`docs/BACKEND.md`](docs/BACKEND.md)
+  - Cloudflare Python Workers の構成と同期フロー。
+- [`docs/SECURITY.md`](docs/SECURITY.md)
+  - 認証、シークレット、外部 API、運用上の安全対策。
+- [`docs/DB-SCHEMA.md`](docs/DB-SCHEMA.md)
+  - Notion、Workers KV、Durable Object のデータ設計。
+- [`docs/REFERENCES.md`](docs/REFERENCES.md)
+  - 実装根拠となるリポジトリ内資料と外部仕様。
+
+## 詳細資料
+
+- [`README_ENV.md`](README_ENV.md)
+  - Linux 仮想環境に導入する Python パッケージ。
+- [`docs/Event_Bot仕様書.md`](docs/Event_Bot仕様書.md)
+  - 既存の機能仕様書。
+- [`docs/KV.md`](docs/KV.md)
+  - Workers KV のキーと運用の詳細。
+- [`docs/Operations.md`](docs/Operations.md)
+  - Worker の設定、デプロイ、監視、障害対応。
+- [`docs/do-kv-design.md`](docs/do-kv-design.md)
+  - Durable Object と Workers KV の責務分担。
+- [`docs/fork-upstream-workflow.md`](docs/fork-upstream-workflow.md)
+  - Fork、Upstream、Pull Request、Release、同期の運用。
+- [`CHANGELOG.md`](CHANGELOG.md)
+  - Release Please が更新する公開リリース履歴。
+
+## 作業管理
+
+- [`docs/ISSUES.md`](docs/ISSUES.md)
+  - コードと設定から確認できる未解決事項。
+- [`docs/GOAL.md`](docs/GOAL.md)
+  - プロジェクトの目標と完了条件。
+- [`docs/WORKLOG.md`](docs/WORKLOG.md)
+  - 文書化を含む作業履歴。
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+  - プロジェクト文書の変更履歴。

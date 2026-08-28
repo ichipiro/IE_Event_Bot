@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title Google 認証ソースの入出力
+!pragma layout smetana
+left to right direction
+package "Worker 内部 <Z002>" <<trust-boundary>> {
+  component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+}
+package "外部 API <Z004/Z005/Z006/Z007>" <<trust-boundary>> {
+  component "<b>A003 Google OAuth token endpoint</b>\n役割: サービスアカウント JWT assertion を検証し、アクセストークンを発行する。" as A003 <<external>>
+  component "<b>A004 設定可能な Google token broker</b>\n役割: 実行時 URL が設定された場合に Calendar スコープのトークンを返す。" as A004 <<inferred>>
+}
+package "Cloudflare managed state <Z003>" <<trust-boundary>> {
+  database "<b>D001 STATE_KV</b>\n役割: 同期カーソル、対応表、キュー、キャッシュ、watch 状態、診断結果を保持する。" as D001 <<datastore>>
+}
+P005 -[#2563EB]-> D001 : [E046] 入力: token cache key/value
+D001 -[#0F766E]-> P005 : [E047] 出力: token metadata/result
+P005 -[#2563EB]-> A003 : [E048] 入力: grant_type・JWT assertion
+A003 -[#0F766E]-> P005 : [E049] 出力: token・expires_in
+P005 -[#C2410C,dashed]-> A004 : [E050] 入力: scope・認証ヘッダ
+A004 -[#C2410C,dashed]-> P005 : [E051] 出力: token・expires_in
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | A004 の実環境設定有無と提供主体は未確認。 |
+endlegend
+@enduml

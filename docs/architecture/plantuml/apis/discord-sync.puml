@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title Discord 差分を Notion・Google へ反映する入出力
+!pragma layout smetana
+left to right direction
+package "Worker 内部 <Z002>" <<trust-boundary>> {
+  component "<b>P004 discord_notion_sync</b>\n役割: Discord Scheduled Events の差分を Notion と Google Calendar へ反映する。" as P004
+  component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+}
+package "外部 API <Z004/Z005/Z006/Z007>" <<trust-boundary>> {
+  component "<b>A002 Google Calendar API</b>\n役割: カレンダーイベント、watch、カレンダー情報の参照と更新を提供する。" as A002 <<external>>
+  component "<b>A005 Notion API</b>\n役割: イベントと Q&A データベースの検索、ページ作成・更新・アーカイブを提供する。" as A005 <<external>>
+  component "<b>A006 Discord REST API</b>\n役割: Scheduled Events、メッセージ、リアクション、接続診断を提供する。" as A006 <<external>>
+}
+P004 -[#2563EB]-> P005 : [E038] 入力: env・state
+P005 -[#0F766E]-> P004 : [E039] 出力: access token または None
+P004 -[#2563EB]-> A006 : [E040] 入力: guild event/message request
+A006 -[#0F766E]-> P004 : [E041] 出力: events/message result
+P004 -[#2563EB]-> A005 : [E042] 入力: Discord event・message ID
+A005 -[#0F766E]-> P004 : [E043] 出力: Notion page/result
+P004 -[#2563EB]-> A002 : [E044] 入力: Google event 操作
+A002 -[#0F766E]-> P004 : [E045] 出力: Google event/result
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+endlegend
+@enduml

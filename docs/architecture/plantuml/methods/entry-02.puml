@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title entry — メソッド・関数詳細 2/2
+!pragma layout smetana
+left to right direction
+component "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001
+component "<b>C001 entry.Default</b>\n役割: HTTP ルーティング、Cron 実行、認可、同期ディスパッチを Worker の入口として調整する。" as C001 <<class>>
+P001 -[#64748B]-> C001 : [E900] クラスを定義
+rectangle "<b>M014 entry.Default._sync_all_include_discord_notion</b>\n役割: /sync/all で Discord->Notion を実行するか。" as M014 <<method>>
+C001 -[#64748B]-> M014 : [E1070] メソッドを所有
+rectangle "<b>M015 entry.Default._durable_lock_enabled</b>\n役割: Durable Object ロック有効/無効。" as M015 <<method>>
+C001 -[#64748B]-> M015 : [E1071] メソッドを所有
+rectangle "<b>M016 entry.Default._acquire_sync_lock</b>\n役割: SyncCoordinator Durable Object で排他ロックを取得する。" as M016 <<method>>
+C001 -[#64748B]-> M016 : [E1072] メソッドを所有
+rectangle "<b>M017 entry.Default._release_sync_lock</b>\n役割: 取得済みロックを解放する。" as M017 <<method>>
+C001 -[#64748B]-> M017 : [E1073] メソッドを所有
+rectangle "<b>M018 entry.Default._sync_lock_ttl_seconds</b>\n役割: ロック TTL を秒で返す（最小 10 秒）。" as M018 <<method>>
+C001 -[#64748B]-> M018 : [E1074] メソッドを所有
+rectangle "<b>M019 entry.Default._migration_status</b>\n役割: 運用診断用ステータスを組み立てる。" as M019 <<method>>
+C001 -[#64748B]-> M019 : [E1075] メソッドを所有
+rectangle "<b>M020 entry.Default._sync_lock_status</b>\n役割: Durable Object から現在のロック状態を取得する。" as M020 <<method>>
+C001 -[#64748B]-> M020 : [E1076] メソッドを所有
+rectangle "<b>M021 entry.Default._get_sync_stub</b>\n役割: Durable Object namespace から \"global\" stub を取得(DO生成)する。" as M021 <<method>>
+C001 -[#64748B]-> M021 : [E1077] メソッドを所有
+rectangle "<b>M022 entry.Default._do_stub_fetch</b>\n役割: Durable Object stub.fetch の呼び出し差分を吸収する。" as M022 <<method>>
+C001 -[#64748B]-> M022 : [E1078] メソッドを所有
+rectangle "<b>M023 entry.Default._to_bool_query</b>\n役割: クエリ文字列中の bool 値（1/true/yes/on）を判定する。" as M023 <<method>>
+C001 -[#64748B]-> M023 : [E1079] メソッドを所有
+@enduml

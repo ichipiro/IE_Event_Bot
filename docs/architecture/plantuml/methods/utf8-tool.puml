@@ -1,0 +1,15 @@
+@startuml
+!include ../_shared/style.puml
+title utf8-no-bom — メソッド・関数詳細 1/1
+!pragma layout smetana
+left to right direction
+component "<b>P012 utf8-no-bom</b>\n役割: Git 対象ファイルの文字コードを検査し、指定時だけ UTF-8 BOM なしへ変換する。" as P012
+rectangle "<b>F010 tools.utf8-no-bom.Get-GitFiles</b>\n役割: 追跡済みまたは未追跡を含む Git 対象ファイル一覧を取得する。" as F010 <<function>>
+P012 -[#64748B]-> F010 : [E1000] 関数を定義
+rectangle "<b>F011 tools.utf8-no-bom.Test-IsLikelyBinary</b>\n役割: 拡張子と NUL バイトからバイナリらしいファイルかを判定する。" as F011 <<function>>
+P012 -[#64748B]-> F011 : [E1001] 関数を定義
+rectangle "<b>F012 tools.utf8-no-bom.Try-DecodeUtf8Strict</b>\n役割: 入力バイト列を厳密な UTF-8 として復号できるかを結果辞書で返す。" as F012 <<function>>
+P012 -[#64748B]-> F012 : [E1002] 関数を定義
+rectangle "<b>F013 tools.utf8-no-bom.Convert-FileToUtf8NoBom</b>\n役割: 対象ファイルを検査し、指定時だけ UTF-8 BOM なしへ変換する。" as F013 <<function>>
+P012 -[#64748B]-> F013 : [E1003] 関数を定義
+@enduml

@@ -1,0 +1,52 @@
+@startuml
+!include _shared/style.puml
+title リポジトリ全体概要 — 起動、同期、状態、外部サービス
+!pragma layout smetana
+left to right direction
+package "外部起動境界 <Z001>" <<trust-boundary>> {
+  actor "<b>X001 運用クライアント</b>\n役割: 認可付き管理・同期・ジョブルートを呼び出し、処理結果を受け取る。" as X001 <<external>>
+  queue "<b>T001 Google Calendar push 通知</b>\n役割: 登録済み watch の変更通知を Webhook へ送り、差分同期を起動する。" as T001 <<external>>
+  queue "<b>T002 Cloudflare Cron Trigger</b>\n役割: Wrangler のスケジュールで scheduled ハンドラを起動する。" as T002 <<external>>
+}
+package "Cloudflare Worker <Z002>" <<trust-boundary>> {
+  component "<b>A001 Worker HTTP API</b>\n役割: ヘルス、Webhook、同期、管理、ジョブの HTTP 要求をルーティングする。" as A001
+  component "<b>C001 entry.Default</b>\n役割: HTTP ルーティング、Cron 実行、認可、同期ディスパッチを Worker の入口として調整する。" as C001
+  component "<b>P014 外部同期サブシステム</b>\n役割: Google、Notion、Discord 間のイベント同期処理を論理的にまとめる。" as P014
+  component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+  component "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009
+}
+package "Cloudflare 管理状態 <Z003>" <<trust-boundary>> {
+  database "<b>P016 Cloudflare 永続状態群</b>\n役割: STATE_KV と SyncCoordinator Durable Object storage を概要図上でまとめる。" as P016 <<datastore>>
+}
+package "外部サービス <Z004/Z005/Z006>" <<trust-boundary>> {
+  component "<b>P015 外部 API 群</b>\n役割: Google、Notion、Discord と任意の token broker を概要図上でまとめる。" as P015 <<external>>
+}
+X001 -[#2563EB]-> A001 : [E001] 1. 入力: method/path・認可情報・要求データ
+A001 -[#0F766E]-> X001 : [E002] 1.1 出力: status・JSON または本文
+T001 -[#2563EB]-> A001 : [E003] 2. 入力: Google push ヘッダ
+A001 -[#0F766E]-> T001 : [E004] 2.1 出力: HTTP 204 または 500
+T002 -[#64748B]-> C001 : [E007] 3. scheduled を起動
+A001 -[#2563EB]-> C001 : [E005] 4. 入力: request
+C001 -[#0F766E]-> A001 : [E006] 4.1 出力: Response
+C001 -[#2563EB]-> P014 : [E008] 5. 入力: env・state・起動元
+P014 -[#0F766E]-> C001 : [E009] 5.1 出力: 同期結果
+C001 -[#2563EB]-> P008 : [E010] 6. 入力: ジョブ実行条件
+P008 -[#0F766E]-> C001 : [E011] 6.1 出力: ジョブ結果
+C001 -[#2563EB]-> P009 : [E012] 7. 入力: 状態キー・値
+P009 -[#0F766E]-> C001 : [E013] 7.1 出力: 状態値・更新結果
+P009 -[#2563EB]-> P016 : [E028] 8. 入力: 状態 key/value/action
+P016 -[#0F766E]-> P009 : [E029] 8.1 出力: 状態 value/result
+P014 -[#2563EB]-> P015 : [E026] 9. 入力: 外部サービス別 request
+P015 -[#0F766E]-> P014 : [E027] 9.1 出力: 外部サービス別 result
+note bottom of P016
+  new_sqlite_classes は Durable Object の移行指定。
+  Cloudflare D1 バインディングではない。
+end note
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 先頭番号はこの概要図で読む標準順序。Edge ID は共通モデルの安定 ID。 |
+endlegend
+@enduml

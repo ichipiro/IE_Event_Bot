@@ -1,0 +1,38 @@
+@startuml
+!include _shared/style.puml
+title リポジトリ内モジュール依存
+!pragma layout smetana
+left to right direction
+package "アプリケーション" {
+  component "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001
+  component "<b>P002 google_calendar_sync</b>\n役割: Google Calendar の差分イベントを取得し、次回カーソル候補を返す。" as P002
+  component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+  component "<b>P004 discord_notion_sync</b>\n役割: Discord Scheduled Events の差分を Notion と Google Calendar へ反映する。" as P004
+  component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+  component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
+  component "<b>P007 health_checks</b>\n役割: Google、Notion、Discord への認証付き疎通結果をまとめる。" as P007
+  component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+  component "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009
+  component "<b>P010 sync_lock_do</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複判定を Durable Object で直列化する。" as P010
+}
+P001 -[#64748B]-> P002 : [E300] Google 差分取得を import
+P001 -[#64748B]-> P003 : [E301] Google 反映を import
+P001 -[#64748B]-> P004 : [E302] Discord 同期を import
+P001 -[#64748B]-> P005 : [E303] 認証管理を import
+P001 -[#64748B]-> P006 : [E304] watch 維持を import
+P001 -[#64748B]-> P007 : [E305] 疎通確認を import
+P001 -[#64748B]-> P008 : [E306] 定期ジョブを import
+P001 -[#64748B]-> P009 : [E307] 状態管理を import
+P001 -[#64748B]-> P010 : [E308] Durable Object クラスを import
+P002 -[#64748B]-> P005 : [E309] トークン解決を import
+P004 -[#64748B]-> P005 : [E310] トークン解決を import
+P006 -[#64748B]-> P005 : [E311] トークン解決を import
+P007 -[#64748B]-> P005 : [E312] トークン解決を import
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 矢印はアプリケーション内の静的 import。実行時型依存は modules/runtime-dependencies に分割。 |
+endlegend
+@enduml

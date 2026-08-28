@@ -1,0 +1,38 @@
+@startuml
+!include _shared/style.puml
+title 主要 API 依存索引 — 入出力は用途別詳細図へ分割
+!pragma layout smetana
+left to right direction
+package "Worker 内部 <Z002>" <<trust-boundary>> {
+  component "<b>P002 google_calendar_sync</b>\n役割: Google Calendar の差分イベントを取得し、次回カーソル候補を返す。" as P002
+  component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+  component "<b>P004 discord_notion_sync</b>\n役割: Discord Scheduled Events の差分を Notion と Google Calendar へ反映する。" as P004
+  component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+  component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
+}
+package "外部 API とキャッシュ <Z003/Z004/Z005/Z006/Z007>" <<trust-boundary>> {
+  database "<b>D001 STATE_KV</b>\n役割: 同期カーソル、対応表、キュー、キャッシュ、watch 状態、診断結果を保持する。" as D001 <<datastore>>
+  component "<b>A002 Google Calendar API</b>\n役割: カレンダーイベント、watch、カレンダー情報の参照と更新を提供する。" as A002 <<external>>
+  component "<b>A003 Google OAuth token endpoint</b>\n役割: サービスアカウント JWT assertion を検証し、アクセストークンを発行する。" as A003 <<external>>
+  component "<b>A004 設定可能な Google token broker</b>\n役割: 実行時 URL が設定された場合に Calendar スコープのトークンを返す。" as A004 <<inferred>>
+  component "<b>A005 Notion API</b>\n役割: イベントと Q&A データベースの検索、ページ作成・更新・アーカイブを提供する。" as A005 <<external>>
+  component "<b>A006 Discord REST API</b>\n役割: Scheduled Events、メッセージ、リアクション、接続診断を提供する。" as A006 <<external>>
+}
+P002 -[#64748B]-> A002 : [E200] 差分取得 → apis/google-calendar
+P003 -[#64748B]-> A005 : [E201] Notion 反映 → apis/google-apply
+P003 -[#64748B]-> A006 : [E202] Discord 反映 → apis/google-apply
+P004 -[#64748B]-> A006 : [E203] イベント取得・通知 → apis/discord-sync
+P004 -[#64748B]-> A005 : [E204] Notion 反映 → apis/discord-sync
+P004 -[#64748B]-> A002 : [E205] Calendar 反映 → apis/discord-sync
+P005 -[#64748B]-> D001 : [E206] トークンキャッシュ → apis/google-auth
+P005 -[#64748B]-> A003 : [E207] OAuth token → apis/google-auth
+P005 -[#C2410C,dashed]-> A004 : [E208] 任意 broker → apis/google-auth
+P006 -[#64748B]-> A002 : [E209] watch → apis/google-calendar
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | この図は依存方向の索引。要求と応答の2本の矢印は各詳細図に掲載。 |
+endlegend
+@enduml

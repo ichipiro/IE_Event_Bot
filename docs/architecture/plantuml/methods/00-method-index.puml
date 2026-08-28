@@ -1,0 +1,32 @@
+@startuml
+!include ../_shared/style.puml
+title メソッド・関数網羅索引 — 53 メソッド / 152 関数
+!pragma layout smetana
+left to right direction
+package "Worker アプリケーション" {
+  component "<b>P001 entry</b>\n16 メソッド / 4 関数\n詳細: methods/entry*.puml" as P001
+  component "<b>P002 google_calendar_sync</b>\n0 メソッド / 6 関数\n詳細: methods/google-calendar*.puml" as P002
+  component "<b>P003 google_apply_sync</b>\n0 メソッド / 29 関数\n詳細: methods/google-apply*.puml" as P003
+  component "<b>P004 discord_notion_sync</b>\n0 メソッド / 33 関数\n詳細: methods/discord-sync*.puml" as P004
+  component "<b>P005 google_auth</b>\n0 メソッド / 17 関数\n詳細: methods/google-auth*.puml" as P005
+  component "<b>P006 google_watch</b>\n0 メソッド / 8 関数\n詳細: methods/google-watch*.puml" as P006
+  component "<b>P007 health_checks</b>\n0 メソッド / 6 関数\n詳細: methods/health-checks*.puml" as P007
+  component "<b>P008 jobs</b>\n0 メソッド / 24 関数\n詳細: methods/jobs*.puml" as P008
+  component "<b>P009 state</b>\n30 メソッド / 2 関数\n詳細: methods/state*.puml" as P009
+  component "<b>P010 sync_lock_do</b>\n1 メソッド / 2 関数\n詳細: methods/sync-lock*.puml" as P010
+}
+package "開発ツール" {
+  component "<b>P011 validate_plantuml</b>\n3 メソッド / 16 関数\n詳細: methods/validator*.puml" as P011
+  component "<b>P012 utf8-no-bom</b>\n0 メソッド / 4 関数\n詳細: methods/utf8-tool*.puml" as P012
+}
+package "実行時型境界" {
+  component "<b>P013 workers runtime stubs</b>\n3 メソッド / 1 関数\n詳細: methods/runtime-stubs*.puml" as P013
+}
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 索引は件数と分割先を示す。全シンボルは各詳細図に掲載。 |
+endlegend
+@enduml

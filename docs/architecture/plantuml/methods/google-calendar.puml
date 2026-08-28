@@ -1,0 +1,19 @@
+@startuml
+!include ../_shared/style.puml
+title google_calendar_sync — メソッド・関数詳細 1/1
+!pragma layout smetana
+left to right direction
+component "<b>P002 google_calendar_sync</b>\n役割: Google Calendar の差分イベントを取得し、次回カーソル候補を返す。" as P002
+rectangle "<b>F111 google_calendar_sync.fetch</b>\n役割: Cloudflare Workers の外部 HTTP fetch 実装へ要求を委譲して応答を返す。" as F111 <<function>>
+P002 -[#64748B]-> F111 : [E1126] 関数を定義
+rectangle "<b>F112 google_calendar_sync._env_text</b>\n役割: Worker env から文字列を安全に取得する。" as F112 <<function>>
+P002 -[#64748B]-> F112 : [E1127] 関数を定義
+rectangle "<b>F113 google_calendar_sync._parse_rfc3339</b>\n役割: RFC3339 文字列を datetime へ変換する。" as F113 <<function>>
+P002 -[#64748B]-> F113 : [E1128] 関数を定義
+rectangle "<b>F114 google_calendar_sync._to_rfc3339_z</b>\n役割: 日時を UTC の RFC3339 Z 形式へ変換する。" as F114 <<function>>
+P002 -[#64748B]-> F114 : [E1129] 関数を定義
+rectangle "<b>F115 google_calendar_sync._google_events_list</b>\n役割: Google Calendar events.list をページングし、イベント一覧を取得する。" as F115 <<function>>
+P002 -[#64748B]-> F115 : [E1130] 関数を定義
+rectangle "<b>F001 google_calendar_sync.run_google_delta_fetch</b>\n役割: Googleカレンダーの差分イベントを取る KV の同期カーソル(updated_min)を更新する ただし Notion/Discord への同期は…" as F001 <<function>>
+P002 -[#64748B]-> F001 : [E1131] 関数を定義
+@enduml

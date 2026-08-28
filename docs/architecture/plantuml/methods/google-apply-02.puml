@@ -1,0 +1,27 @@
+@startuml
+!include ../_shared/style.puml
+title google_apply_sync — メソッド・関数詳細 2/3
+!pragma layout smetana
+left to right direction
+component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+rectangle "<b>F077 google_apply_sync._notion_extract_rich_text</b>\n役割: Notion rich_text の先頭要素を文字列化して返す。" as F077 <<function>>
+P003 -[#64748B]-> F077 : [E1090] 関数を定義
+rectangle "<b>F078 google_apply_sync._resolve_discord_event_id_for_google_event</b>\n役割: Googleイベントに対応する Discord event id を既知情報から推定する。" as F078 <<function>>
+P003 -[#64748B]-> F078 : [E1091] 関数を定義
+rectangle "<b>F079 google_apply_sync._google_private_props</b>\n役割: Google event.extendedProperties.private を辞書で返す。" as F079 <<function>>
+P003 -[#64748B]-> F079 : [E1092] 関数を定義
+rectangle "<b>F080 google_apply_sync._google_origin_discord_event_id</b>\n役割: Discord 由来で Google に作られたイベントなら元の Discord event id を返す。" as F080 <<function>>
+P003 -[#64748B]-> F080 : [E1093] 関数を定義
+rectangle "<b>F081 google_apply_sync._notion_query_by_google_event_id</b>\n役割: GoogleイベントID一致で Notion ページを1件検索する。" as F081 <<function>>
+P003 -[#64748B]-> F081 : [E1094] 関数を定義
+rectangle "<b>F082 google_apply_sync._notion_query_by_message_id</b>\n役割: message_id一致で Notion ページを1件検索する（外部DB互換用途）。" as F082 <<function>>
+P003 -[#64748B]-> F082 : [E1095] 関数を定義
+rectangle "<b>F083 google_apply_sync._notion_get_page</b>\n役割: Notion page_id からページを直接取得する。" as F083 <<function>>
+P003 -[#64748B]-> F083 : [E1096] 関数を定義
+rectangle "<b>F084 google_apply_sync._notion_update_event</b>\n役割: Notion イベントページを部分更新する。" as F084 <<function>>
+P003 -[#64748B]-> F084 : [E1097] 関数を定義
+rectangle "<b>F085 google_apply_sync._notion_create_event</b>\n役割: Notion イベントページを新規作成する。" as F085 <<function>>
+P003 -[#64748B]-> F085 : [E1098] 関数を定義
+rectangle "<b>F086 google_apply_sync._notion_archive_page</b>\n役割: Notion ページを archived=true に更新(削除)する。" as F086 <<function>>
+P003 -[#64748B]-> F086 : [E1099] 関数を定義
+@enduml

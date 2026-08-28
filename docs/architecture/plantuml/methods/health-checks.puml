@@ -1,0 +1,19 @@
+@startuml
+!include ../_shared/style.puml
+title health_checks — メソッド・関数詳細 1/1
+!pragma layout smetana
+left to right direction
+component "<b>P007 health_checks</b>\n役割: Google、Notion、Discord への認証付き疎通結果をまとめる。" as P007
+rectangle "<b>F123 health_checks.fetch</b>\n役割: Cloudflare Workers の外部 HTTP fetch 実装へ要求を委譲して応答を返す。" as F123 <<function>>
+P007 -[#64748B]-> F123 : [E1140] 関数を定義
+rectangle "<b>F124 health_checks._env_text</b>\n役割: Worker env から文字列設定を取得する。" as F124 <<function>>
+P007 -[#64748B]-> F124 : [E1141] 関数を定義
+rectangle "<b>F125 health_checks.check_notion</b>\n役割: Notion API 疎通確認。" as F125 <<function>>
+P007 -[#64748B]-> F125 : [E1142] 関数を定義
+rectangle "<b>F126 health_checks.check_discord</b>\n役割: Discord API 疎通確認。" as F126 <<function>>
+P007 -[#64748B]-> F126 : [E1143] 関数を定義
+rectangle "<b>F127 health_checks.check_google_calendar</b>\n役割: Google Calendar API 疎通確認。" as F127 <<function>>
+P007 -[#64748B]-> F127 : [E1144] 関数を定義
+rectangle "<b>F006 health_checks.run_connectivity_checks</b>\n役割: 3サービスの疎通確認をまとめて実行し、結果を返す。" as F006 <<function>>
+P007 -[#64748B]-> F006 : [E1145] 関数を定義
+@enduml

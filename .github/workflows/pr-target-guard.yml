@@ -22,11 +22,14 @@ jobs:
             release/*|hotfix/*)
               EXPECTED_BASE="main"
               ;;
+            release-please--*)
+              EXPECTED_BASE="main"
+              ;;
             sync/*)
               EXPECTED_BASE="develop"
               ;;
             *)
-              echo "::error::Unsupported head branch '$HEAD'. Allowed prefixes: feature/*, release/*, hotfix/*, sync/*"
+              echo "::error::Unsupported head branch '$HEAD'. Allowed prefixes: feature/*, release/*, hotfix/*, sync/*, release-please--*"
               exit 1
               ;;
           esac

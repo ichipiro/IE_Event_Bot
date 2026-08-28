@@ -20,6 +20,8 @@ jobs:
           pip install -e .[dev]
       - name: Lint (ruff)
         run: ruff check .
+      - name: Type check (pyright)
+        run: pyright
       - name: Detect test files
         id: detect_tests
         run: |

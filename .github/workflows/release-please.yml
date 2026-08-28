@@ -1,9 +1,9 @@
-name: Release Please (only on release/* merged to main)
+name: Release Please
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -11,12 +11,14 @@ permissions:
 
 jobs:
   release:
-    if: >
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: ubuntu-latest
     steps:
+      - name: Require automation token
+        env:
+          RELEASE_AUTOMATION_TOKEN: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
+        run: test -n "$RELEASE_AUTOMATION_TOKEN"
       - uses: googleapis/release-please-action@v4
         with:
+          token: ${{ secrets.RELEASE_AUTOMATION_TOKEN }}
           config-file: .release-please-config.json
           manifest-file: release-please-manifest.json

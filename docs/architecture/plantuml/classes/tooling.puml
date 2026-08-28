@@ -1,0 +1,9 @@
+@startuml
+!include ../_shared/style.puml
+title PlantUML 検証ツールのクラス
+!pragma layout smetana
+left to right direction
+class "<b>P011 validate_plantuml</b>\n役割: モデル、カタログ、図、ローカル PlantUML 描画を一括検証する。" as P011 <<module>>
+class "<b>C004 tools.validate_plantuml.Findings</b>\n役割: PlantUML 成果物の検証中に見つかったエラーと警告を分類して保持する。" as C004
+P011 -[#64748B]-> C004 : [E903] クラスを定義
+@enduml

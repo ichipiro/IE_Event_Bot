@@ -1,0 +1,28 @@
+@startuml
+!include ../_shared/style.puml
+title Google Calendar 差分取得・watch の入出力
+!pragma layout smetana
+left to right direction
+package "Worker 内部 <Z002>" <<trust-boundary>> {
+  component "<b>P002 google_calendar_sync</b>\n役割: Google Calendar の差分イベントを取得し、次回カーソル候補を返す。" as P002
+  component "<b>P005 google_auth</b>\n役割: Google API 用アクセストークンを設定、キャッシュ、ブローカー、サービスアカウントから解決する。" as P005
+  component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
+}
+package "外部 API <Z004/Z005/Z006/Z007>" <<trust-boundary>> {
+  component "<b>A002 Google Calendar API</b>\n役割: カレンダーイベント、watch、カレンダー情報の参照と更新を提供する。" as A002 <<external>>
+}
+P002 -[#2563EB]-> P005 : [E030] 入力: env・state
+P005 -[#0F766E]-> P002 : [E031] 出力: access token または None
+P002 -[#2563EB]-> A002 : [E032] 入力: calendar ID・updatedMin
+A002 -[#0F766E]-> P002 : [E033] 出力: items・nextPageToken
+P006 -[#2563EB]-> P005 : [E052] 入力: env・state
+P005 -[#0F766E]-> P006 : [E053] 出力: access token または None
+P006 -[#2563EB]-> A002 : [E054] 入力: watch 登録・停止条件
+A002 -[#0F766E]-> P006 : [E055] 出力: resource ID・expiration
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+endlegend
+@enduml

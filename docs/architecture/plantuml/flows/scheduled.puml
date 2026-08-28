@@ -1,0 +1,27 @@
+@startuml
+!include ../_shared/style.puml
+title Cron scheduled — 実行順序
+hide footbox
+autonumber
+participant "Cron Trigger\n<T002>" as T002
+participant "Default.scheduled\n<C001>" as C001
+participant "外部同期\n<P014>" as P014
+participant "google_watch\n<P006>" as P006
+participant "Q&A job\n<F007>" as F007
+participant "Reminder job\n<F008>" as F008
+participant "Cleanup job\n<F009>" as F009
+participant "StateStore\n<C002>" as C002
+T002 -> C001: [E007] scheduled を起動
+C001 -> P014: [E008] 入力: env・state・source=cron
+P014 --> C001: [E009] 出力: 同期結果
+C001 -> P006: [E150] 入力: env・state
+P006 --> C001: [E151] 出力: register・renew・noop 結果
+C001 -> F007: [E152] 入力: env・state・return_detail=True
+F007 --> C001: [E153] 出力: Q&A 通知結果
+C001 -> F008: [E154] 入力: env・state・return_detail=True
+F008 --> C001: [E155] 出力: リマインド結果
+C001 -> F009: [E156] 入力: env・state・return_detail=True
+F009 --> C001: [E157] 出力: 整理結果
+C001 -> C002: [E130] 入力: 各処理の last_result
+C002 --> C001: [E131] 出力: 保存完了
+@enduml

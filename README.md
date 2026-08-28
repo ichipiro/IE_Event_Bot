@@ -43,6 +43,7 @@ Google Calendar webhook と Discord Bot を入口にして、差分同期、通�
 - watch 管理: `workers/src/google_watch.py`
 - 定期ジョブ: `workers/src/jobs.py`
 - 外部疎通確認: `workers/src/health_checks.py`
+- PlantUML図: [リポジトリ全体概要](docs/architecture/plantuml/rendered/00-repository-overview.svg) / [`architecture-catalog.md`](docs/architecture/plantuml/architecture-catalog.md) / [信頼境界図](docs/architecture/plantuml/rendered/01-context-trust.svg)
 
 ## 3. エンドポイント一覧
 
@@ -266,5 +267,6 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
 ## 11. 開発メモ
 
 - Python package metadata: `pyproject.toml`
-- 開発依存: `ruff`, `pytest`
+- 開発依存: `ruff`, `pytest`, `pyright`
 - リリース補助: `.release-please-config.json`
+- Git/Fork/Upstream/Release運用: [`docs/fork-upstream-workflow.md`](docs/fork-upstream-workflow.md)

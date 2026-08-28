@@ -1,0 +1,27 @@
+@startuml
+!include ../_shared/style.puml
+title google_apply_sync — メソッド・関数詳細 1/3
+!pragma layout smetana
+left to right direction
+component "<b>P003 google_apply_sync</b>\n役割: Google Calendar の変更を Notion と Discord へ反映する。" as P003
+rectangle "<b>F067 google_apply_sync.fetch</b>\n役割: Cloudflare Workers の外部 HTTP fetch 実装へ要求を委譲して応答を返す。" as F067 <<function>>
+P003 -[#64748B]-> F067 : [E1080] 関数を定義
+rectangle "<b>F068 google_apply_sync._env_text</b>\n役割: Worker env から文字列設定を取得する。" as F068 <<function>>
+P003 -[#64748B]-> F068 : [E1081] 関数を定義
+rectangle "<b>F069 google_apply_sync._env_bool</b>\n役割: Worker env の bool 設定を取得する。" as F069 <<function>>
+P003 -[#64748B]-> F069 : [E1082] 関数を定義
+rectangle "<b>F070 google_apply_sync._prop</b>\n役割: Notion プロパティ名の env 上書きを解決する。" as F070 <<function>>
+P003 -[#64748B]-> F070 : [E1083] 関数を定義
+rectangle "<b>F071 google_apply_sync._notion_headers</b>\n役割: Notion API 共通ヘッダを返す。" as F071 <<function>>
+P003 -[#64748B]-> F071 : [E1084] 関数を定義
+rectangle "<b>F072 google_apply_sync._parse_rfc3339</b>\n役割: RFC3339 文字列を datetime へ変換する。" as F072 <<function>>
+P003 -[#64748B]-> F072 : [E1085] 関数を定義
+rectangle "<b>F073 google_apply_sync._to_discord_iso</b>\n役割: Discord API 向けの UTC ISO8601(Z) へ変換する。" as F073 <<function>>
+P003 -[#64748B]-> F073 : [E1086] 関数を定義
+rectangle "<b>F074 google_apply_sync._parse_google_event_times</b>\n役割: Googleイベントの開始/終了時刻を datetime として返す。" as F074 <<function>>
+P003 -[#64748B]-> F074 : [E1087] 関数を定義
+rectangle "<b>F075 google_apply_sync._parse_google_event_times.parse_part</b>\n役割: Google イベントの date または dateTime 部分を日時と終日フラグへ変換する。" as F075 <<function>>
+P003 -[#64748B]-> F075 : [E1088] 関数を定義
+rectangle "<b>F076 google_apply_sync._build_notion_date</b>\n役割: Google の start/end を Notion date 形式へ変換する。" as F076 <<function>>
+P003 -[#64748B]-> F076 : [E1089] 関数を定義
+@enduml

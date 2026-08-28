@@ -1,0 +1,25 @@
+@startuml
+!include ../_shared/style.puml
+title validate_plantuml — メソッド・関数詳細 2/2
+!pragma layout smetana
+left to right direction
+component "<b>P011 validate_plantuml</b>\n役割: モデル、カタログ、図、ローカル PlantUML 描画を一括検証する。" as P011
+rectangle "<b>F021 tools.validate_plantuml.validate_coverage</b>\n役割: ソースと全クラス・メソッド・関数の網羅数を相互照合する。" as F021 <<function>>
+P011 -[#64748B]-> F021 : [E1014] 関数を定義
+rectangle "<b>F022 tools.validate_plantuml.validate_exchange_edges</b>\n役割: 双方向エッジの向き、入出力、図上ラベルを照合する。" as F022 <<function>>
+P011 -[#64748B]-> F022 : [E1015] 関数を定義
+rectangle "<b>F023 tools.validate_plantuml.validate_model</b>\n役割: JSON モデル全体をカタログおよび図の内容と照合する。" as F023 <<function>>
+P011 -[#64748B]-> F023 : [E1016] 関数を定義
+rectangle "<b>F024 tools.validate_plantuml.resolve_local_include</b>\n役割: PlantUML include を成果物ルート内のローカルパスへ解決する。" as F024 <<function>>
+P011 -[#64748B]-> F024 : [E1017] 関数を定義
+rectangle "<b>F025 tools.validate_plantuml.validate_puml</b>\n役割: 全 PlantUML ソースの安全性、構造、表記を検査する。" as F025 <<function>>
+P011 -[#64748B]-> F025 : [E1018] 関数を定義
+rectangle "<b>F026 tools.validate_plantuml.plantuml_base_command</b>\n役割: ローカル JAR または実行ファイルから安全設定付きコマンドを組み立てる。" as F026 <<function>>
+P011 -[#64748B]-> F026 : [E1019] 関数を定義
+rectangle "<b>F027 tools.validate_plantuml.run_plantuml</b>\n役割: 全図の構文を検査し、指定時は階層を保って SVG を描画する。" as F027 <<function>>
+P011 -[#64748B]-> F027 : [E1020] 関数を定義
+rectangle "<b>F028 tools.validate_plantuml.parse_args</b>\n役割: 検証対象、PlantUML 実体、描画オプションをコマンドラインから読む。" as F028 <<function>>
+P011 -[#64748B]-> F028 : [E1021] 関数を定義
+rectangle "<b>F029 tools.validate_plantuml.main</b>\n役割: 成果物検証を順に実行し、警告とエラー件数に応じた終了コードを返す。" as F029 <<function>>
+P011 -[#64748B]-> F029 : [E1022] 関数を定義
+@enduml

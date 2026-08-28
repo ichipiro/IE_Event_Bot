@@ -1,0 +1,31 @@
+@startuml
+!include ../_shared/style.puml
+title Cloudflare 状態管理 — KV と Durable Object の責務境界
+!pragma layout smetana
+left to right direction
+package "Worker runtime <Z002>" <<trust-boundary>> {
+  component "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009
+  component "<b>P010 sync_lock_do</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複判定を Durable Object で直列化する。" as P010
+}
+package "Cloudflare managed state <Z003>" <<trust-boundary>> {
+  database "<b>D001 STATE_KV</b>\n役割: 同期カーソル、対応表、キュー、キャッシュ、watch 状態、診断結果を保持する。" as D001 <<datastore>>
+  database "<b>D002 SyncCoordinator storage</b>\n役割: 同期ロック、最終同期時刻、期限付き Webhook 重複キーを保持する。" as D002 <<datastore>>
+}
+P009 -[#2563EB]-> D001 : [E014] 入力: KV key/value
+D001 -[#0F766E]-> P009 : [E015] 出力: KV value/write result
+P009 -[#2563EB]-> P010 : [E016] 入力: action・owner・TTL/message key
+P010 -[#0F766E]-> P009 : [E017] 出力: lock/status/dedup result
+P010 -[#2563EB]-> D002 : [E018] 入力: storage key/value operation
+D002 -[#0F766E]-> P010 : [E019] 出力: stored value/update result
+note bottom of D002
+  new_sqlite_classes は SyncCoordinator の Durable Object 移行指定。
+  D1 database binding ではない。
+end note
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 低頻度の対応表・カーソルは KV、直列化が必要な状態は Durable Object。 |
+endlegend
+@enduml

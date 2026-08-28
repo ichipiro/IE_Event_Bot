@@ -21,8 +21,12 @@ jobs:
         run: |
           printf '%s\n' "$PR_TITLE" | commitlint --extends @commitlint/config-conventional
       - name: Lint commits in PR
+        if: ${{ !startsWith(github.event.pull_request.head.ref, 'sync/') }}
         run: |
           commitlint \
             --from "${{ github.event.pull_request.base.sha }}" \
             --to   "${{ github.event.pull_request.head.sha }}" \
             --extends @commitlint/config-conventional
+      - name: Skip commit lint for sync branches
+        if: ${{ startsWith(github.event.pull_request.head.ref, 'sync/') }}
+        run: echo "External or generated commits are allowed on sync branches; the PR title is still linted."

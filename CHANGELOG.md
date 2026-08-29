@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0](https://github.com/ichipiro/IE_Event_Bot/compare/ie-event-bot-v0.1.0...ie-event-bot-v0.2.0) (2026-08-29)
+## [0.2.0](https://github.com/ichipiro/IE_Event_Bot/releases/tag/v0.2.0) (2026-08-29)
 
 
 ### Features

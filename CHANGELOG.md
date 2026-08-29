@@ -1,4 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0](https://github.com/ichipiro/IE_Event_Bot/compare/ie-event-bot-v0.1.0...ie-event-bot-v0.2.0) (2026-08-29)
 
+
+### Features
+
+* release ([#1](https://github.com/ichipiro/IE_Event_Bot/issues/1)) ([780866e](https://github.com/ichipiro/IE_Event_Bot/commit/780866e24c902d22052b7631d388fbdee5268b93))
+* release v2 ([#3](https://github.com/ichipiro/IE_Event_Bot/issues/3)) ([84d050d](https://github.com/ichipiro/IE_Event_Bot/commit/84d050d12deab1df9362ad64d60c595e7202b633))
+* release v2 ([#3](https://github.com/ichipiro/IE_Event_Bot/issues/3)) ([#4](https://github.com/ichipiro/IE_Event_Bot/issues/4)) ([8777242](https://github.com/ichipiro/IE_Event_Bot/commit/8777242248dcf7fcfb78c8fb8c1be031113ef4d6))
+* release v2 ([#3](https://github.com/ichipiro/IE_Event_Bot/issues/3)) ([#4](https://github.com/ichipiro/IE_Event_Bot/issues/4)) ([#5](https://github.com/ichipiro/IE_Event_Bot/issues/5)) ([57ed4c4](https://github.com/ichipiro/IE_Event_Bot/commit/57ed4c407cebcb03eb87c124b905dc74be2387c9))
+
+
+### Bug Fixes
+
+* make release workflow and tooling reproducible ([63874da](https://github.com/ichipiro/IE_Event_Bot/commit/63874dabdcdeae05f5e18e82e3598a9f2c0b753a))
+* make repository workflow reproducible ([43d5924](https://github.com/ichipiro/IE_Event_Bot/commit/43d5924745508cca238bb0de02e7e9e824e0980d))
+* **release:** define manifest package ([786e334](https://github.com/ichipiro/IE_Event_Bot/commit/786e3348b38c2960492e0105b867b33c02a81356))
+* **release:** define manifest package ([551b39e](https://github.com/ichipiro/IE_Event_Bot/commit/551b39ee14ee6f87e6465f08e6e856730dda63c8))
+* repair merge and release workflow ([1ebd88c](https://github.com/ichipiro/IE_Event_Bot/commit/1ebd88c83f95bdc22f6da99680581b0fd845fa35))
+
+## [Unreleased]

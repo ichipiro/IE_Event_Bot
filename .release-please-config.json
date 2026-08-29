@@ -3,5 +3,9 @@
   "package-name": "ie-event-bot",
   "changelog-path": "CHANGELOG.md",
   "include-v-in-tag": true,
-  "pull-request-title-pattern": "chore(release): ${version}"
+  "include-component-in-tag": false,
+  "pull-request-title-pattern": "chore(release): ${version}",
+  "packages": {
+    ".": {}
+  }
 }

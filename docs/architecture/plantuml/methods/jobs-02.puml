@@ -1,0 +1,31 @@
+@startuml
+!include ../_shared/style.puml
+title jobs — メソッド・関数詳細 2/2
+!pragma layout smetana
+left to right direction
+component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+rectangle "<b>F140 jobs._discord_api_request</b>\n役割: Discord REST API 共通ラッパー。" as F140 <<function>>
+P008 -[#64748B]-> F140 : [E1158] 関数を定義
+rectangle "<b>F141 jobs._discord_send_message</b>\n役割: Discord チャンネルへメッセージ送信する。" as F141 <<function>>
+P008 -[#64748B]-> F141 : [E1159] 関数を定義
+rectangle "<b>F142 jobs.ensure_qa_question_numbers</b>\n役割: Q&A DB の `質問番号` 欠番を埋める。" as F142 <<function>>
+P008 -[#64748B]-> F142 : [E1160] 関数を定義
+rectangle "<b>F007 jobs.run_qa_notification_job</b>\n役割: QA通知ジョブ本体。" as F007 <<function>>
+P008 -[#64748B]-> F007 : [E1161] 関数を定義
+rectangle "<b>F143 jobs._list_discord_events</b>\n役割: Discord ギルド(サーバ)のイベント一覧を取得する。" as F143 <<function>>
+P008 -[#64748B]-> F143 : [E1162] 関数を定義
+rectangle "<b>F144 jobs._discord_event_url</b>\n役割: Discord event URL を組み立てる。" as F144 <<function>>
+P008 -[#64748B]-> F144 : [E1163] 関数を定義
+rectangle "<b>F008 jobs.run_day_before_reminder_job</b>\n役割: 前日リマインド。" as F008 <<function>>
+P008 -[#64748B]-> F008 : [E1164] 関数を定義
+rectangle "<b>F145 jobs._utc_now</b>\n役割: UTC 現在時刻を返す。" as F145 <<function>>
+P008 -[#64748B]-> F145 : [E1165] 関数を定義
+rectangle "<b>F146 jobs._notion_archive_page</b>\n役割: Notion ページを archived=true に更新する。" as F146 <<function>>
+P008 -[#64748B]-> F146 : [E1166] 関数を定義
+rectangle "<b>F147 jobs._archive_internal_due</b>\n役割: 内部DBのアーカイブ判定。" as F147 <<function>>
+P008 -[#64748B]-> F147 : [E1167] 関数を定義
+rectangle "<b>F148 jobs._cleanup_interval_seconds</b>\n役割: cleanup ジョブ最小実行間隔（秒）を返す。" as F148 <<function>>
+P008 -[#64748B]-> F148 : [E1168] 関数を定義
+rectangle "<b>F009 jobs.run_auto_clean_job</b>\n役割: Notion cleanup ジョブ本体。" as F009 <<function>>
+P008 -[#64748B]-> F009 : [E1169] 関数を定義
+@enduml

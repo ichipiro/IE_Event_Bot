@@ -1,0 +1,24 @@
+@startuml
+!include ../_shared/style.puml
+title workers runtime stubs — メソッド・関数詳細 1/1
+!pragma layout smetana
+left to right direction
+component "<b>P013 workers runtime stubs</b>\n役割: Cloudflare Python Workers 実行時 API の静的型境界を宣言する。" as P013 <<external>>
+component "<b>C005 workers.Response</b>\n役割: Cloudflare Workers の HTTP 応答を表し、本文、状態、ヘッダを保持する。" as C005 <<inferred>>
+P013 -[#C2410C,dashed]-> C005 : [E904] クラスを定義
+rectangle "<b>M008 workers.Response.__init__</b>\n役割: HTTP 応答の本文、状態コード、ヘッダを初期化する。" as M008 <<inferred>>
+C005 -[#C2410C,dashed]-> M008 : [E1023] メソッドを所有
+rectangle "<b>M009 workers.Response.text</b>\n役割: HTTP 応答本文を文字列として返す実行時契約を表す。" as M009 <<inferred>>
+C005 -[#C2410C,dashed]-> M009 : [E1024] メソッドを所有
+rectangle "<b>M010 workers.Response.json</b>\n役割: HTTP 応答本文を JSON として返す実行時契約を表す。" as M010 <<inferred>>
+C005 -[#C2410C,dashed]-> M010 : [E1025] メソッドを所有
+rectangle "<b>F030 workers.fetch</b>\n役割: Cloudflare Workers 実行時の外部 HTTP fetch 契約を表す。" as F030 <<inferred>>
+P013 -[#C2410C,dashed]-> F030 : [E1026] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | runtime-unverified: 型契約のみを図示。 |
+endlegend
+@enduml

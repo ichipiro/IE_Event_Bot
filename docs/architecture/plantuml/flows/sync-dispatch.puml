@@ -1,0 +1,43 @@
+@startuml
+!include ../_shared/style.puml
+title 同期ディスパッチ — 排他、差分取得、反映、確定
+hide footbox
+autonumber
+participant "Worker HTTP API\n<A001>" as A001
+participant "Default._run_sync_dispatch\n<C001>" as C001
+participant "SyncCoordinator\n<P010>" as P010
+participant "run_google_delta_fetch\n<F001>" as F001
+participant "apply_google_events\n<F002>" as F002
+participant "run_discord_notion_poll_sync\n<F003>" as F003
+participant "StateStore\n<C002>" as C002
+A001 -> C001: [E005] 入力: request・source
+C001 -> P010: [E120] 入力: action=acquire・source・TTL
+P010 --> C001: [E121] 出力: ok・owner・lock state
+alt ロック取得成功
+  C001 -> F001: [E122] 入力: env・state・commit_cursor=False
+  F001 --> C001: [E123] 出力: ok・items・next_updated_min
+  alt Google 差分取得成功
+    C001 -> F002: [E124] 入力: env・state・items
+    F002 --> C001: [E125] 出力: ok・processed・pending・errors
+    alt Google 反映成功
+      C001 -> C002: [E126] 入力: next_updated_min
+      C002 --> C001: [E127] 出力: 保存完了
+    else Google 反映失敗
+      note right of C001: カーソルを確定せず再実行可能にする
+    end
+  else Google 差分取得失敗
+    note right of C001: apply をスキップする
+  end
+  opt SYNC_ALL_INCLUDE_DISCORD_NOTION が有効
+    C001 -> F003: [E128] 入力: env・state
+    F003 --> C001: [E129] 出力: ok・created・updated・deleted
+  end
+  C001 -> C002: [E130] 入力: sync:last_epoch・result:sync_all
+  C002 --> C001: [E131] 出力: 保存完了
+  C001 -> P010: [E132] 入力: action=release・owner
+  P010 --> C001: [E133] 出力: ok・released
+else ロック取得失敗
+  note right of C001: in_progress_skip を返す
+end
+C001 --> A001: [E006] 出力: JSON Response
+@enduml

@@ -1,0 +1,31 @@
+@startuml
+!include ../_shared/style.puml
+title jobs — メソッド・関数詳細 1/2
+!pragma layout smetana
+left to right direction
+component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+rectangle "<b>F128 jobs.fetch</b>\n役割: Cloudflare Workers の外部 HTTP fetch 実装へ要求を委譲して応答を返す。" as F128 <<function>>
+P008 -[#64748B]-> F128 : [E1146] 関数を定義
+rectangle "<b>F129 jobs._env_text</b>\n役割: Worker env から文字列設定を取得する。" as F129 <<function>>
+P008 -[#64748B]-> F129 : [E1147] 関数を定義
+rectangle "<b>F130 jobs._header_json</b>\n役割: Notion API 用の共通 JSON ヘッダを返す。" as F130 <<function>>
+P008 -[#64748B]-> F130 : [E1148] 関数を定義
+rectangle "<b>F131 jobs._parse_rfc3339</b>\n役割: RFC3339 文字列を datetime へ変換する。" as F131 <<function>>
+P008 -[#64748B]-> F131 : [E1149] 関数を定義
+rectangle "<b>F132 jobs._event_location</b>\n役割: Discord イベントから location を抽出する。" as F132 <<function>>
+P008 -[#64748B]-> F132 : [E1150] 関数を定義
+rectangle "<b>F133 jobs._format_japanese_datetime</b>\n役割: 日時を `YYYY年M月D日 曜日 HH:MM` 形式へ整形する。" as F133 <<function>>
+P008 -[#64748B]-> F133 : [E1151] 関数を定義
+rectangle "<b>F134 jobs._extract_rich_text</b>\n役割: Notion page の rich_text プロパティ先頭を文字列化して返す。" as F134 <<function>>
+P008 -[#64748B]-> F134 : [E1152] 関数を定義
+rectangle "<b>F135 jobs._extract_title</b>\n役割: Notion ページの title プロパティ先頭を文字列化して返す。" as F135 <<function>>
+P008 -[#64748B]-> F135 : [E1153] 関数を定義
+rectangle "<b>F136 jobs._extract_number</b>\n役割: Notion ページの number プロパティ値を返す。" as F136 <<function>>
+P008 -[#64748B]-> F136 : [E1154] 関数を定義
+rectangle "<b>F137 jobs._extract_date</b>\n役割: Notion ページの date プロパティ(dict)を返す。" as F137 <<function>>
+P008 -[#64748B]-> F137 : [E1155] 関数を定義
+rectangle "<b>F138 jobs._notion_query_all_pages</b>\n役割: Notion DB 全件取得（ページネーション対応）。" as F138 <<function>>
+P008 -[#64748B]-> F138 : [E1156] 関数を定義
+rectangle "<b>F139 jobs._notion_patch_page_number</b>\n役割: Q&A ページの `質問番号` を更新する。" as F139 <<function>>
+P008 -[#64748B]-> F139 : [E1157] 関数を定義
+@enduml

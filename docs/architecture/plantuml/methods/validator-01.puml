@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title validate_plantuml — メソッド・関数詳細 1/2
+!pragma layout smetana
+left to right direction
+component "<b>P011 validate_plantuml</b>\n役割: モデル、カタログ、図、ローカル PlantUML 描画を一括検証する。" as P011
+component "<b>C004 tools.validate_plantuml.Findings</b>\n役割: PlantUML 成果物の検証中に見つかったエラーと警告を分類して保持する。" as C004 <<class>>
+P011 -[#64748B]-> C004 : [E903] クラスを定義
+rectangle "<b>M005 tools.validate_plantuml.Findings.__init__</b>\n役割: エラー一覧と警告一覧を空の状態で初期化する。" as M005 <<method>>
+C004 -[#64748B]-> M005 : [E1004] メソッドを所有
+rectangle "<b>M006 tools.validate_plantuml.Findings.error</b>\n役割: 検証エラーをエラー一覧へ追加する。" as M006 <<method>>
+C004 -[#64748B]-> M006 : [E1005] メソッドを所有
+rectangle "<b>M007 tools.validate_plantuml.Findings.warn</b>\n役割: 検証警告を警告一覧へ追加する。" as M007 <<method>>
+C004 -[#64748B]-> M007 : [E1006] メソッドを所有
+rectangle "<b>F014 tools.validate_plantuml.is_non_empty_string</b>\n役割: 値が空でない文字列かを判定する。" as F014 <<function>>
+P011 -[#64748B]-> F014 : [E1007] 関数を定義
+rectangle "<b>F015 tools.validate_plantuml.normalized_text</b>\n役割: 比較用に記号と大小文字の差を除いた文字列へ正規化する。" as F015 <<function>>
+P011 -[#64748B]-> F015 : [E1008] 関数を定義
+rectangle "<b>F016 tools.validate_plantuml.validate_source_refs</b>\n役割: 根拠参照が非空かつリポジトリ相対かを検査する。" as F016 <<function>>
+P011 -[#64748B]-> F016 : [E1009] 関数を定義
+rectangle "<b>F017 tools.validate_plantuml.validate_evidence</b>\n役割: 根拠種別と確実性が許可値かを検査する。" as F017 <<function>>
+P011 -[#64748B]-> F017 : [E1010] 関数を定義
+rectangle "<b>F018 tools.validate_plantuml.require_fields</b>\n役割: モデル項目に必須フィールドが揃うかを検査する。" as F018 <<function>>
+P011 -[#64748B]-> F018 : [E1011] 関数を定義
+rectangle "<b>F019 tools.validate_plantuml.validate_nonnegative_integer</b>\n役割: 網羅数が 0 以上の整数かを検査する。" as F019 <<function>>
+P011 -[#64748B]-> F019 : [E1012] 関数を定義
+rectangle "<b>F020 tools.validate_plantuml.validate_exclusions</b>\n役割: 除外項目の件数、理由、対象指定を検査して合計する。" as F020 <<function>>
+P011 -[#64748B]-> F020 : [E1013] 関数を定義
+@enduml

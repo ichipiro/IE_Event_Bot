@@ -1,0 +1,20 @@
+@startuml
+!include ../_shared/style.puml
+title Cloudflare Workers 実行時型スタブ
+!pragma layout smetana
+left to right direction
+class "<b>P013 workers runtime stubs</b>\n役割: Cloudflare Python Workers 実行時 API の静的型境界を宣言する。" as P013 <<module>>
+class "<b>C005 workers.Response</b>\n役割: Cloudflare Workers の HTTP 応答を表し、本文、状態、ヘッダを保持する。" as C005 <<inferred>>
+P013 -[#C2410C,dashed]-> C005 : [E904] 型契約を定義
+class "<b>C006 workers.WorkerEntrypoint</b>\n役割: Cloudflare Python Worker のエントリポイント基底型を表す。" as C006 <<inferred>>
+P013 -[#C2410C,dashed]-> C006 : [E905] 型契約を定義
+class "<b>C007 workers.DurableObject</b>\n役割: Cloudflare Durable Object の基底型と実行時状態を表す。" as C007 <<inferred>>
+P013 -[#C2410C,dashed]-> C007 : [E906] 型契約を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 型スタブの存在は確認済み。実行時実装の内部動作は対象外。 |
+endlegend
+@enduml

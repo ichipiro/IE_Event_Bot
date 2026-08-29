@@ -1,0 +1,32 @@
+@startuml
+!include ../_shared/style.puml
+title アプリケーションクラス依存
+!pragma layout smetana
+left to right direction
+class "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001 <<module>>
+class "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009 <<module>>
+class "<b>P010 sync_lock_do</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複判定を Durable Object で直列化する。" as P010 <<module>>
+class "<b>C001 entry.Default</b>\n役割: HTTP ルーティング、Cron 実行、認可、同期ディスパッチを Worker の入口として調整する。" as C001
+class "<b>C002 state.StateStore</b>\n役割: Workers KV への状態アクセスを集約し、整合性が必要な状態を Durable Object へ委譲する。" as C002
+class "<b>C003 sync_lock_do.SyncCoordinator</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複抑止を Durable Object 上で直列化する。" as C003
+class "<b>C005 workers.Response</b>\n役割: Cloudflare Workers の HTTP 応答を表し、本文、状態、ヘッダを保持する。" as C005 <<inferred>>
+class "<b>C006 workers.WorkerEntrypoint</b>\n役割: Cloudflare Python Worker のエントリポイント基底型を表す。" as C006 <<inferred>>
+class "<b>C007 workers.DurableObject</b>\n役割: Cloudflare Durable Object の基底型と実行時状態を表す。" as C007 <<inferred>>
+P001 -[#64748B]-> C001 : [E900] クラスを定義
+P009 -[#64748B]-> C002 : [E901] クラスを定義
+P010 -[#64748B]-> C003 : [E902] クラスを定義
+C001 --|> C006 : [E400] WorkerEntrypoint を継承
+C003 --|> C007 : [E401] DurableObject を継承
+C001 --> C002 : [E402] 状態アクセスを利用
+C001 --> C003 : [E403] Worker から公開
+C001 --> C005 : [E404] HTTP Response を生成
+C003 --> C005 : [E405] 内部 Response を生成
+C002 --> C003 : [E406] stub.fetch へ委譲
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 実行時型スタブは契約のみで、Cloudflare 上の実装は未検証。 |
+endlegend
+@enduml

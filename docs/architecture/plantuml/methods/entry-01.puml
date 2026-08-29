@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title entry — メソッド・関数詳細 1/2
+!pragma layout smetana
+left to right direction
+component "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001
+component "<b>C001 entry.Default</b>\n役割: HTTP ルーティング、Cron 実行、認可、同期ディスパッチを Worker の入口として調整する。" as C001 <<class>>
+P001 -[#64748B]-> C001 : [E900] クラスを定義
+rectangle "<b>F063 entry._json_response</b>\n役割: JSON レスポンスを統一フォーマットで返す。" as F063 <<function>>
+P001 -[#64748B]-> F063 : [E1060] 関数を定義
+rectangle "<b>F064 entry._header</b>\n役割: HTTP ヘッダ値を trim して取得する。" as F064 <<function>>
+P001 -[#64748B]-> F064 : [E1061] 関数を定義
+rectangle "<b>F065 entry._bool_env</b>\n役割: 環境変数文字列を bool として解釈する。" as F065 <<function>>
+P001 -[#64748B]-> F065 : [E1062] 関数を定義
+rectangle "<b>F066 entry._detail_dict</b>\n役割: 任意の処理結果を詳細応答用の辞書へ正規化する。" as F066 <<function>>
+P001 -[#64748B]-> F066 : [E1063] 関数を定義
+rectangle "<b>M001 entry.Default.fetch</b>\n役割: HTTP エンドポイントを振り分ける。" as M001 <<method>>
+C001 -[#64748B]-> M001 : [E1064] メソッドを所有
+rectangle "<b>M002 entry.Default.scheduled</b>\n役割: Cron Trigger 実行エントリ。" as M002 <<method>>
+C001 -[#64748B]-> M002 : [E1065] メソッドを所有
+rectangle "<b>M011 entry.Default._authorized</b>\n役割: Bearer 認可判定。" as M011 <<method>>
+C001 -[#64748B]-> M011 : [E1066] メソッドを所有
+rectangle "<b>M003 entry.Default._run_sync_dispatch</b>\n役割: 同期処理の中核ディスパッチ。" as M003 <<method>>
+C001 -[#64748B]-> M003 : [E1067] メソッドを所有
+rectangle "<b>M012 entry.Default._sync_interval_seconds</b>\n役割: 同期クールダウン秒数を返す。" as M012 <<method>>
+C001 -[#64748B]-> M012 : [E1068] メソッドを所有
+rectangle "<b>M013 entry.Default._sync_all_mode</b>\n役割: 同期モード名を返す。" as M013 <<method>>
+C001 -[#64748B]-> M013 : [E1069] メソッドを所有
+@enduml

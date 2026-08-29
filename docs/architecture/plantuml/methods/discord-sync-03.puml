@@ -1,0 +1,29 @@
+@startuml
+!include ../_shared/style.puml
+title discord_notion_sync — メソッド・関数詳細 3/3
+!pragma layout smetana
+left to right direction
+component "<b>P004 discord_notion_sync</b>\n役割: Discord Scheduled Events の差分を Notion と Google Calendar へ反映する。" as P004
+rectangle "<b>F053 discord_notion_sync._discord_event_url</b>\n役割: Discordイベントの公開URLを組み立てる。" as F053 <<function>>
+P004 -[#64748B]-> F053 : [E1049] 関数を定義
+rectangle "<b>F054 discord_notion_sync._build_event_created_message</b>\n役割: 新規作成イベントの通知メッセージ本文を組み立てる。" as F054 <<function>>
+P004 -[#64748B]-> F054 : [E1050] 関数を定義
+rectangle "<b>F055 discord_notion_sync._notify_discord_event_created</b>\n役割: 新規作成された Discord イベントを通知チャンネルへ投稿する。" as F055 <<function>>
+P004 -[#64748B]-> F055 : [E1051] 関数を定義
+rectangle "<b>F056 discord_notion_sync._google_sync_enabled</b>\n役割: Discord -> Google 同期を有効化する条件判定。" as F056 <<function>>
+P004 -[#64748B]-> F056 : [E1052] 関数を定義
+rectangle "<b>F057 discord_notion_sync._google_event_body</b>\n役割: Discordイベント情報を Google Calendar events API 用のボディに変換する。" as F057 <<function>>
+P004 -[#64748B]-> F057 : [E1053] 関数を定義
+rectangle "<b>F058 discord_notion_sync._google_create_event</b>\n役割: Google Calendar にイベントを新規作成する。" as F058 <<function>>
+P004 -[#64748B]-> F058 : [E1054] 関数を定義
+rectangle "<b>F059 discord_notion_sync._google_update_event</b>\n役割: Google Calendar イベントを PATCH 更新する。" as F059 <<function>>
+P004 -[#64748B]-> F059 : [E1055] 関数を定義
+rectangle "<b>F060 discord_notion_sync._google_delete_event</b>\n役割: Google Calendar イベントを削除する。" as F060 <<function>>
+P004 -[#64748B]-> F060 : [E1056] 関数を定義
+rectangle "<b>F061 discord_notion_sync._sync_discord_event_upsert</b>\n役割: Discordの単一イベントを Notion/Google に同期する。" as F061 <<function>>
+P004 -[#64748B]-> F061 : [E1057] 関数を定義
+rectangle "<b>F062 discord_notion_sync._sync_discord_event_delete</b>\n役割: Discord から削除されたイベントを Google/Notion から除去する。" as F062 <<function>>
+P004 -[#64748B]-> F062 : [E1058] 関数を定義
+rectangle "<b>F003 discord_notion_sync.run_discord_notion_poll_sync</b>\n役割: 定期ポーリングのメイン処理。" as F003 <<function>>
+P004 -[#64748B]-> F003 : [E1059] 関数を定義
+@enduml

@@ -1,0 +1,80 @@
+' ローカル PlantUML 共通スタイル
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam defaultFontSize 13
+skinparam defaultFontColor #0F172A
+skinparam ArrowColor #475569
+skinparam ArrowFontColor #334155
+skinparam ArrowThickness 1
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam wrapWidth 260
+skinparam maxMessageSize 160
+skinparam package {
+  BackgroundColor #F8FAFC
+  BorderColor #64748B
+  FontColor #0F172A
+}
+skinparam package<<trust-boundary>> {
+  BackgroundColor #FFFBEB
+  BorderColor #D97706
+  FontColor #78350F
+}
+skinparam component {
+  BackgroundColor #E0F2FE
+  BorderColor #0369A1
+  FontColor #0F172A
+}
+skinparam component<<external>> {
+  BackgroundColor #F1F5F9
+  BorderColor #64748B
+}
+skinparam component<<inferred>> {
+  BackgroundColor #FFF7ED
+  BorderColor #C2410C
+}
+skinparam component<<class>> {
+  BackgroundColor #FFFFFF
+  BorderColor #0369A1
+}
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #0369A1
+}
+skinparam class<<module>> {
+  BackgroundColor #E0F2FE
+  BorderColor #0369A1
+}
+skinparam class<<inferred>> {
+  BackgroundColor #FFF7ED
+  BorderColor #C2410C
+}
+skinparam rectangle<<function>> {
+  BackgroundColor #E0F2FE
+  BorderColor #0369A1
+}
+skinparam rectangle<<method>> {
+  BackgroundColor #FFFFFF
+  BorderColor #0369A1
+}
+skinparam database {
+  BackgroundColor #DCFCE7
+  BorderColor #15803D
+  FontColor #14532D
+}
+skinparam queue {
+  BackgroundColor #F1F5F9
+  BorderColor #64748B
+}
+skinparam note {
+  BackgroundColor #FFFBEB
+  BorderColor #D97706
+  FontColor #78350F
+}
+skinparam sequence {
+  ArrowColor #475569
+  LifeLineBorderColor #64748B
+  ParticipantBackgroundColor #E0F2FE
+  ParticipantBorderColor #0369A1
+}

@@ -73,6 +73,8 @@ artifact は JUnit XML、マスク済み MCP 監査要約、run manifest だけ�
 
 この workflow が現時点で行うのは service 単位の CRUD smoke である。削除前に fixture 自身を cleanup するため、サービス間同期、実 webhook / Cron 配信、Playwright によるブラウザ表示までは保証しない。
 
+MCP の `trigger_sync`、`trigger_webhook`、`trigger_job` は将来の orchestration 用に固定 route として登録されているが、下流資源と KV 状態を run ID で所有・回収できるまでは実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で該当 route を `404` にし、preflight はこの既定拒否が維持されていることを確認する。追跡は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で行う。
+
 ## テスト構成
 
 | ファイル | 対象 |

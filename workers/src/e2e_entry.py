@@ -194,6 +194,11 @@ def _e2e_notion_crud_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_orchestration_enabled(env) -> bool:
+    value = getattr(env, "E2E_ORCHESTRATED_WRITES_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -207,6 +212,10 @@ class Default(ApplicationDefault):
         webhook_route = path == _TRIGGER_WEBHOOK_PATH
         orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
         if path in _BLOCKED_APPLICATION_WRITE_PATHS:
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if (webhook_route or orchestrated_write_route) and not _e2e_orchestration_enabled(
+            self.env
+        ):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not any(
             (
@@ -275,6 +284,7 @@ class Default(ApplicationDefault):
                     "required_envs": _required_env_summary(self.env),
                     "google_auth": _google_auth_summary(google_auth),
                     "sync_lock": _sync_lock_summary(sync_lock),
+                    "orchestrated_writes_enabled": _e2e_orchestration_enabled(self.env),
                     "routes_enabled": {
                         "google": _e2e_google_crud_enabled(self.env),
                         "discord": _e2e_discord_crud_enabled(self.env),

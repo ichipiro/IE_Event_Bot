@@ -1,6 +1,6 @@
 @startuml
 !include ../_shared/style.puml
-title state — メソッド・関数詳細 2/3
+title state 02 — メソッド・関数詳細
 !pragma layout smetana
 left to right direction
 component "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009
@@ -12,6 +12,12 @@ rectangle "<b>M034 state.StateStore.put_json</b>\n役割: Python オブジェク
 C002 -[#64748B]-> M034 : [E1182] メソッドを所有
 rectangle "<b>M035 state.StateStore.put_json_if_changed</b>\n役割: 現在値と異なる場合だけ JSON を KV へ保存する。" as M035 <<method>>
 C002 -[#64748B]-> M035 : [E1183] メソッドを所有
+rectangle "<b>M056 state.StateStore.get_e2e_manifest</b>\n役割: E2E cleanup manifest を強整合な Durable Object から取得する。" as M056 <<method>>
+C002 -[#64748B]-> M056 : [E1212] メソッドを所有
+rectangle "<b>M057 state.StateStore.put_e2e_manifest</b>\n役割: E2E cleanup manifest を強整合な Durable Object へ保存する。" as M057 <<method>>
+C002 -[#64748B]-> M057 : [E1213] メソッドを所有
+rectangle "<b>M058 state.StateStore.get_legacy_e2e_manifest</b>\n役割: 旧 KV manifest を移行判定専用に読み、所有権の正本と分離する。" as M058 <<method>>
+C002 -[#64748B]-> M058 : [E1214] メソッドを所有
 rectangle "<b>M036 state.StateStore.mark_google_message_seen</b>\n役割: Google webhook 重複通知抑止用。" as M036 <<method>>
 C002 -[#64748B]-> M036 : [E1184] メソッドを所有
 rectangle "<b>M037 state.StateStore.get_sync_updated_min</b>\n役割: Google差分同期カーソル(updatedMin)を取得する。" as M037 <<method>>
@@ -24,8 +30,11 @@ rectangle "<b>M040 state.StateStore.set_sync_last_epoch_now</b>\n役割: 最後�
 C002 -[#64748B]-> M040 : [E1188] メソッドを所有
 rectangle "<b>M041 state.StateStore.should_skip_sync_by_cooldown</b>\n役割: クールダウン判定。" as M041 <<method>>
 C002 -[#64748B]-> M041 : [E1189] メソッドを所有
-rectangle "<b>M042 state.StateStore.get_gcal_discord_map</b>\n役割: GoogleイベントID -> DiscordイベントID の対応表を取得する。" as M042 <<method>>
-C002 -[#64748B]-> M042 : [E1190] メソッドを所有
-rectangle "<b>M043 state.StateStore.set_gcal_discord_map</b>\n役割: GoogleイベントID -> DiscordイベントID の対応表を保存する。" as M043 <<method>>
-C002 -[#64748B]-> M043 : [E1191] メソッドを所有
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
 @enduml

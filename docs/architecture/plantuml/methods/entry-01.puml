@@ -1,6 +1,6 @@
 @startuml
 !include ../_shared/style.puml
-title entry — メソッド・関数詳細 1/2
+title entry 01 — メソッド・関数詳細
 !pragma layout smetana
 left to right direction
 component "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001
@@ -26,4 +26,13 @@ rectangle "<b>M012 entry.Default._sync_interval_seconds</b>\n役割: 同期ク�
 C001 -[#64748B]-> M012 : [E1068] メソッドを所有
 rectangle "<b>M013 entry.Default._sync_all_mode</b>\n役割: 同期モード名を返す。" as M013 <<method>>
 C001 -[#64748B]-> M013 : [E1069] メソッドを所有
+rectangle "<b>M014 entry.Default._sync_all_include_discord_notion</b>\n役割: /sync/all で Discord->Notion を実行するか。" as M014 <<method>>
+C001 -[#64748B]-> M014 : [E1070] メソッドを所有
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
 @enduml

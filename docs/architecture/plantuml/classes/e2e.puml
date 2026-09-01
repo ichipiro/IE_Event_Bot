@@ -1,0 +1,22 @@
+@startuml
+!include ../_shared/style.puml
+title E2E Worker クラス境界
+!pragma layout smetana
+left to right direction
+class "<b>P018 e2e_entry</b>\n役割: 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。" as P018 <<module>>
+class "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001 <<module>>
+class "<b>C008 e2e_entry.Default</b>\n役割: 通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。" as C008
+class "<b>C001 entry.Default</b>\n役割: HTTP ルーティング、Cron 実行、認可、同期ディスパッチを Worker の入口として調整する。" as C001
+class "<b>C006 workers.WorkerEntrypoint</b>\n役割: Cloudflare Python Worker のエントリポイント基底型を表す。" as C006 <<inferred>>
+P018 -[#64748B]-> C008 : [E1209] E2E クラスを定義
+C008 --|> C001 : [E1336] 通常 Worker を継承
+P001 -[#64748B]-> C001 : [E900] 通常 Worker を定義
+C001 --|> C006 : [E400] WorkerEntrypoint を継承
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

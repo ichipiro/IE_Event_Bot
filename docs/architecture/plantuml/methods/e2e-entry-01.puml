@@ -1,0 +1,28 @@
+@startuml
+!include ../_shared/style.puml
+title e2e entry 01 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P018 e2e_entry</b>\n役割: 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。" as P018
+rectangle "<b>F187 e2e_entry._request_run_id</b>\n役割: 要求ヘッダから形式検証済みの E2E run ID を取得する。" as F187 <<function>>
+P018 -[#64748B]-> F187 : [E1247] 関数を定義
+rectangle "<b>F188 e2e_entry._manifest_summary</b>\n役割: E2E manifest を秘密値を含まない状態応答へ要約する。" as F188 <<function>>
+P018 -[#64748B]-> F188 : [E1248] 関数を定義
+rectangle "<b>F189 e2e_entry._binding_value</b>\n役割: Workers binding の辞書・属性形式を安全な文字列へ正規化する。" as F189 <<function>>
+P018 -[#64748B]-> F189 : [E1249] 関数を定義
+rectangle "<b>F190 e2e_entry._worker_version_summary</b>\n役割: Worker version metadata を存在状態と SHA-256 指紋へ要約する。" as F190 <<function>>
+P018 -[#64748B]-> F190 : [E1250] 関数を定義
+rectangle "<b>F191 e2e_entry._watch_summary</b>\n役割: Google watch 状態を値そのものではなく SHA-256 指紋へ要約する。" as F191 <<function>>
+P018 -[#64748B]-> F191 : [E1251] 関数を定義
+rectangle "<b>F192 e2e_entry._required_env_summary</b>\n役割: E2E 公開操作に必要な環境設定の有無だけを要約する。" as F192 <<function>>
+P018 -[#64748B]-> F192 : [E1252] 関数を定義
+rectangle "<b>F193 e2e_entry._google_auth_summary</b>\n役割: Google 認証源の設定・キャッシュ状態を真偽値だけで要約する。" as F193 <<function>>
+P018 -[#64748B]-> F193 : [E1253] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

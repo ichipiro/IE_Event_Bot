@@ -37,7 +37,7 @@ assert_expected_environment_names() {
   while IFS= read -r name
   do
     case "$name" in
-      CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_API_TOKEN|INTERNAL_API_TOKEN)
+      CLOUDFLARE_ACCOUNT_ID|CLOUDFLARE_API_TOKEN|INTERNAL_API_TOKEN|E2E_WORKER_URL|E2E_WORKER_URL_SHA256)
         ;;
       *)
         fail "unexpected_environment_secret"
@@ -179,9 +179,21 @@ printf '%s' "$cf_api_token" |
 printf '%s' "$internal_api_token" |
   gh secret set INTERNAL_API_TOKEN --env "$ENVIRONMENT_NAME" --repo "$repo"
 printf '%s' "$worker_url" |
-  gh variable set E2E_WORKER_URL --env "$ENVIRONMENT_NAME" --repo "$repo"
+  gh secret set E2E_WORKER_URL --env "$ENVIRONMENT_NAME" --repo "$repo"
 printf '%s' "$worker_url_sha256" |
-  gh variable set E2E_WORKER_URL_SHA256 --env "$ENVIRONMENT_NAME" --repo "$repo"
+  gh secret set E2E_WORKER_URL_SHA256 --env "$ENVIRONMENT_NAME" --repo "$repo"
+
+for name in E2E_WORKER_URL E2E_WORKER_URL_SHA256
+do
+  variable_present=$(
+    gh variable list --env "$ENVIRONMENT_NAME" --repo "$repo" --json name \
+      --jq "any(.[]; .name == \"$name\")"
+  )
+  if [[ "$variable_present" == "true" ]]
+  then
+    gh variable delete "$name" --env "$ENVIRONMENT_NAME" --repo "$repo"
+  fi
+done
 
 secret_count=$(
   gh secret list --env "$ENVIRONMENT_NAME" --repo "$repo" --json name --jq 'length'
@@ -189,8 +201,8 @@ secret_count=$(
 variable_count=$(
   gh variable list --env "$ENVIRONMENT_NAME" --repo "$repo" --json name --jq 'length'
 )
-[[ "$secret_count" -eq 3 ]] || fail "environment_secret_count_mismatch"
-[[ "$variable_count" -eq 2 ]] || fail "environment_variable_count_mismatch"
+[[ "$secret_count" -eq 5 ]] || fail "environment_secret_count_mismatch"
+[[ "$variable_count" -eq 0 ]] || fail "environment_variable_count_mismatch"
 
 printf 'github_e2e_environment_configured secrets=%s variables=%s\n' \
   "$secret_count" \

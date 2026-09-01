@@ -256,7 +256,57 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
     assert.equal(serialized.includes(ENV.INTERNAL_API_TOKEN), false);
     assert.equal(serialized.includes(ENV.E2E_WORKER_URL), false);
     assert.equal(Object.values(payload.checks).every(Boolean), true);
+    assert.equal(payload.error, null);
   });
+});
+
+
+test("preflightとevidenceはstatusの固定エラーだけを伝える", async () => {
+  const sensitiveDetail = "sensitive-worker-status-detail";
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/health")) {
+      return jsonResponse({ ok: true, kv_state_enabled: true });
+    }
+    return jsonResponse(
+      {
+        ok: false,
+        error: "sync_coordinator_required",
+        detail: sensitiveDetail,
+      },
+      503,
+    );
+  };
+
+  await withClient(
+    {
+      env: ENV,
+      fetchImpl,
+      readAuditImpl: async () => [],
+      repositoryMetadataImpl: async () => ({
+        git_sha: "c".repeat(40),
+        dirty: false,
+      }),
+    },
+    async (client) => {
+      const preflightResult = await client.callTool({
+        name: "preflight",
+        arguments: { run_id: RUN_ID },
+      });
+      const preflightPayload = parseToolResult(preflightResult);
+      assert.equal(preflightPayload.ok, false);
+      assert.equal(preflightPayload.error, "sync_coordinator_required");
+      assert.equal(JSON.stringify(preflightPayload).includes(sensitiveDetail), false);
+
+      const evidenceResult = await client.callTool({
+        name: "collect_evidence",
+        arguments: { run_id: RUN_ID },
+      });
+      const evidencePayload = parseToolResult(evidenceResult);
+      assert.equal(evidencePayload.ok, false);
+      assert.equal(evidencePayload.error, "sync_coordinator_required");
+      assert.equal(JSON.stringify(evidencePayload).includes(sensitiveDetail), false);
+    },
+  );
 });
 
 

@@ -103,6 +103,13 @@ def _check_workflow(text: str) -> list[str]:
     )
     for secret in FORBIDDEN_RUNTIME_SECRETS:
         _expect(errors, secret not in text, f"runtime_secret_copied_to_github:{secret}")
+    _expect(errors, "vars.E2E_WORKER_URL" not in text, "worker_url_not_masked")
+    for name in ("E2E_WORKER_URL", "E2E_WORKER_URL_SHA256"):
+        _expect(
+            errors,
+            text.count(f"${{{{ secrets.{name} }}}}") == 4,
+            f"worker_origin_secret_scope_changed:{name}",
+        )
 
     deploy_block = _step_block(text, "Deploy and run service CRUD smoke")
     cleanup_block = _step_block(text, "Always cleanup resources created by this run")

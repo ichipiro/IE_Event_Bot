@@ -163,6 +163,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
         "cache_valid": False,
     }
     assert payload["sync_lock"] == {"enabled": True, "ok": True, "status": 200}
+    assert payload["orchestrated_writes_enabled"] is False
     serialized = json.dumps(payload)
     assert "must-not-be-returned" not in serialized
     assert "sensitive-watch-channel-id" not in serialized
@@ -213,6 +214,7 @@ def test_e2e_webhook_simulation_requires_run_id(monkeypatch) -> None:
         SimpleNamespace(
             INTERNAL_API_TOKEN="test-token",
             STATE_KV=MemoryKV(),
+            E2E_ORCHESTRATED_WRITES_ENABLED="true",
         )
     )
     dispatch_sources: list[str] = []
@@ -272,6 +274,7 @@ def test_orchestrated_write_routes_require_post_and_run_id(monkeypatch) -> None:
             SimpleNamespace(
                 INTERNAL_API_TOKEN="test-token",
                 STATE_KV=MemoryKV(),
+                E2E_ORCHESTRATED_WRITES_ENABLED="true",
             )
         )
         missing = run(
@@ -312,6 +315,54 @@ def test_orchestrated_write_routes_require_post_and_run_id(monkeypatch) -> None:
         assert success.status == 200
 
     assert delegated_paths == [f"https://bot.test{path}" for path in paths]
+
+
+def test_orchestrated_write_routes_are_hidden_by_default(monkeypatch) -> None:
+    delegated_paths: list[str] = []
+    dispatch_sources: list[str] = []
+
+    async def fake_base_fetch(self, request):
+        delegated_paths.append(request.url)
+        return e2e_entry._json_response({"ok": True})
+
+    async def fake_dispatch(request, state, source):
+        dispatch_sources.append(source)
+        return e2e_entry._json_response({"ok": True})
+
+    monkeypatch.setattr(e2e_entry.ApplicationDefault, "fetch", fake_base_fetch)
+    worker = make_worker(
+        SimpleNamespace(
+            INTERNAL_API_TOKEN="test-token",
+            STATE_KV=MemoryKV(),
+        )
+    )
+    monkeypatch.setattr(worker, "_run_sync_dispatch", fake_dispatch)
+
+    for path in (
+        "/admin/e2e/trigger-webhook",
+        "/sync/all",
+        "/gcal/sync",
+        "/sync/discord-notion",
+        "/jobs/qa-check",
+        "/jobs/reminder",
+        "/jobs/cleanup",
+        "/jobs/run-all",
+    ):
+        response = run(
+            worker.fetch(
+                Request(
+                    f"https://bot.test{path}",
+                    method="POST",
+                    headers=AUTH_HEADERS,
+                )
+            )
+        )
+
+        assert response.status == 404
+        assert response_json(response) == {"ok": False, "error": "not_found"}
+
+    assert delegated_paths == []
+    assert dispatch_sources == []
 
 
 def test_unmanaged_mutating_routes_are_hidden(monkeypatch) -> None:

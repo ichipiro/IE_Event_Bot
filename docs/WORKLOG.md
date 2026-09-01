@@ -6,6 +6,65 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-08-29: 5件の課題解決
+
+### 目的
+
+`docs/ISSUES.md` に記録された5件を解決し、ローカル検証と実環境確認の境界を明確にする。
+
+### 変更
+
+- 外部通信を遮断した単体テスト基盤を追加し、CI で `pytest -q` を常時実行。
+- `INTERNAL_API_TOKEN` 未設定時も同期、管理、ジョブ API を拒否する fail-closed へ変更。
+- `GCAL_WEBHOOK_TOKEN` を Google watch の channel token として登録・照合し、旧 watch と token 変更時の再登録を追加。
+- Google watch API の外部エラー本文を管理応答や状態履歴へ流さず、Secret の反射を防止。
+- `package.json` と `package-lock.json` で Wrangler `4.127.1` を固定。
+- 4つの詳細文書は削除・追跡追加・本文変更をせず、追跡対象外のローカル補助として維持。
+
+### 検証
+
+- Python 依存の基本インポートが成功。
+- `.venv/bin/ruff check .` が成功。
+- `.venv/bin/pyright` がエラー0件、警告0件で成功。
+- `.venv/bin/pytest -q` が26件成功。
+- `npm ci --ignore-scripts` が成功し、npm の依存監査は既知の脆弱性0件。
+- 固定 Wrangler の版確認と `deploy --dry-run --config workers/wrangler.jsonc` が成功。
+- `git diff --check` が成功。
+
+### 未確認
+
+- Cloudflare 上の `INTERNAL_API_TOKEN` と `GCAL_WEBHOOK_TOKEN` の登録状態
+- token 付き Google watch の再登録と Webhook の実配信
+- Cloudflare WAF、レート制限、Workers KV、Durable Objects の実ランタイム動作
+- Discord、Google、Notion の実 API 疎通と権限
+
+## 2026-08-29: ローカル単体テスト基盤の追加
+
+### 目的
+
+Cloudflare や外部 API へ接続せず、同期制御と状態管理の主要な回帰を Linux / WSL で検出できるようにする。
+
+### 変更
+
+- Cloudflare Workers の Response、Worker、Durable Object と、KV / DO storage のローカル代替を追加。
+- 意図しない外部通信を即時失敗にする既定の `fetch` を追加。
+- 認可、クールダウン、ロック、Webhook 重複、Google / Discord キュー繰り越しのテストを追加。
+- CI のテスト検出・スキップを廃止し、`pytest -q` を常時実行するように変更。
+- `docs/TESTING.md` に実行方法と検証境界を記載。
+
+### 検証
+
+- `.venv/bin/pytest -q` が成功。
+- `.venv/bin/ruff check .` が成功。
+- `.venv/bin/pyright` が成功。
+- `git diff --check` と Markdown 相対リンク検査が成功。
+
+### 未確認
+
+- Cloudflare Python Workers、Workers KV、Durable Objects の実ランタイム動作
+- Discord、Google、Notion の実 API 疎通と権限
+- Cron、Google watch、Webhook の実配信
+
 ## 2026-08-29: エージェント指示と文書構成の標準化
 
 ### 目的

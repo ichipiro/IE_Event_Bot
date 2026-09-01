@@ -24,10 +24,11 @@ DEVELOPMENT.md
 - Python の変更では、型ヒント、非同期処理、既存のモジュール分割を尊重する。
 - Worker の挙動を変更するときは、`workers/src/entry.py` の HTTP または Cron の入口と、`workers/wrangler.jsonc` のバインディング・変数・トリガーを併せて確認する。
 - 依存関係を変更するときは、`pyproject.toml`、`workers/requirements.txt`、`README_ENV.md` の整合を確認する。
+- Wrangler は `npm ci` で導入した `package.json` / `package-lock.json` の固定版を使い、グローバル版を前提にしない。
 - 人間向けの説明、コメント、文書は原則として日本語で書く。API 名、識別子、コマンド、規格名などは原文の表記を保ってよい。
 - TypeScript など他言語のコード例は設計意図の例示であり、Python に存在しない構文を要求するものではない。
 - コミットと Pull Request のタイトルは、この文書の「コミットメッセージ」に定める Conventional Commits 形式を使う。
-- 現在はテストファイルが存在しない。テストを追加した後は `pytest -q` を通常の検証へ含め、追加前はテスト未実装であることを報告する。
+- `tests/` のローカル単体テストを変更後の通常検証へ含める。外部 API はスタブ化し、ローカル結果と実環境の確認を区別する。
 - 実行を伴わない文書・静的検査と、Cloudflare、Discord、Google、Notion へ接続する実動確認を区別して報告する。
 
 ---

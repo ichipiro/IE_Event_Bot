@@ -17,7 +17,7 @@ P002 -[#2563EB]-> A002 : [E032] 入力: calendar ID・updatedMin
 A002 -[#0F766E]-> P002 : [E033] 出力: items・nextPageToken
 P006 -[#2563EB]-> P005 : [E052] 入力: env・state
 P005 -[#0F766E]-> P006 : [E053] 出力: access token または None
-P006 -[#2563EB]-> A002 : [E054] 入力: watch 登録・停止条件
+P006 -[#2563EB]-> A002 : [E054] 入力: watch 登録・停止条件・channel token
 A002 -[#0F766E]-> P006 : [E055] 出力: resource ID・expiration
 legend bottom
   |= 表記 |= 意味 |

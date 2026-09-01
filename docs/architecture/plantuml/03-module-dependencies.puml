@@ -1,6 +1,6 @@
 @startuml
 !include _shared/style.puml
-title リポジトリ内モジュール依存
+title 通常 Worker のリポジトリ内モジュール依存
 !pragma layout smetana
 left to right direction
 package "アプリケーション" {
@@ -33,6 +33,6 @@ legend bottom
   | 青の実線 | 入力または内部依存 |
   | 緑の実線 | 出力または処理結果 |
   | 橙の破線 | 実行時未確認 |
-  | 補足 | 矢印はアプリケーション内の静的 import。実行時型依存は modules/runtime-dependencies に分割。 |
+  | 補足 | 矢印は通常 Worker 内の静的 import。E2E 依存は modules/e2e-dependencies に分割。実行時型依存は modules/runtime-dependencies に分割。 |
 endlegend
 @enduml

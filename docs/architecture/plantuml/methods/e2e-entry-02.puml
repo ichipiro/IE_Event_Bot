@@ -1,0 +1,28 @@
+@startuml
+!include ../_shared/style.puml
+title e2e entry 02 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P018 e2e_entry</b>\n役割: 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。" as P018
+component "<b>C008 e2e_entry.Default</b>\n役割: 通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。" as C008 <<class>>
+P018 -[#64748B]-> C008 : [E1209] クラスを定義
+rectangle "<b>F194 e2e_entry._sync_lock_summary</b>\n役割: SyncCoordinator の利用可否と応答状態を要約する。" as F194 <<function>>
+P018 -[#64748B]-> F194 : [E1254] 関数を定義
+rectangle "<b>F195 e2e_entry._e2e_google_crud_enabled</b>\n役割: Google Calendar E2E CRUD ルートの有効設定を判定する。" as F195 <<function>>
+P018 -[#64748B]-> F195 : [E1255] 関数を定義
+rectangle "<b>F196 e2e_entry._e2e_discord_crud_enabled</b>\n役割: Discord E2E CRUD ルートの有効設定を判定する。" as F196 <<function>>
+P018 -[#64748B]-> F196 : [E1256] 関数を定義
+rectangle "<b>F197 e2e_entry._e2e_notion_crud_enabled</b>\n役割: Notion E2E CRUD ルートの有効設定を判定する。" as F197 <<function>>
+P018 -[#64748B]-> F197 : [E1257] 関数を定義
+rectangle "<b>M061 e2e_entry.Default.fetch</b>\n役割: E2E 専用状態・CRUD ルートを認可し、通常 Worker の許可済みルートへ委譲する。" as M061 <<method>>
+C008 -[#64748B]-> M061 : [E1258] メソッドを所有
+rectangle "<b>M062 e2e_entry.Default.scheduled</b>\n役割: E2E Worker の Cron 実行を常に無効化する。" as M062 <<method>>
+C008 -[#64748B]-> M062 : [E1259] メソッドを所有
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

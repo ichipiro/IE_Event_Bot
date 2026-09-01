@@ -21,7 +21,7 @@ C001 --> C002 : [E402] 状態アクセスを利用
 C001 --> C003 : [E403] Worker から公開
 C001 --> C005 : [E404] HTTP Response を生成
 C003 --> C005 : [E405] 内部 Response を生成
-C002 --> C003 : [E406] stub.fetch へ委譲
+C002 --> C003 : [E406] SyncCoordinator RPC へ委譲
 legend bottom
   |= 表記 |= 意味 |
   | 青の実線 | 入力または内部依存 |

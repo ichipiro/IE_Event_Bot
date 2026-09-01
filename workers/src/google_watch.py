@@ -1,5 +1,7 @@
 import json
 from datetime import datetime, timezone
+from hashlib import sha256
+from hmac import compare_digest
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -7,6 +9,9 @@ from uuid import uuid4
 from workers import fetch as _runtime_fetch
 
 from google_auth import get_google_access_token
+
+
+MAX_CHANNEL_TOKEN_LENGTH = 256
 
 
 async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
@@ -36,6 +41,28 @@ def _env_text(env, key: str, default: str = "") -> str:
     return text or default
 
 
+def _channel_token(env) -> str:
+    return _env_text(env, "GCAL_WEBHOOK_TOKEN", "")
+
+
+def _channel_token_error(token: str) -> str | None:
+    if not token:
+        return "missing_gcal_webhook_token"
+    if len(token) > MAX_CHANNEL_TOKEN_LENGTH:
+        return "gcal_webhook_token_too_long"
+    return None
+
+
+def _token_fingerprint(token: str) -> str:
+    return sha256(token.encode("utf-8")).hexdigest()
+
+
+def _watch_state_for_response(watch_state: dict[str, Any]) -> dict[str, Any]:
+    response_state = dict(watch_state)
+    response_state.pop("webhook_token_sha256", None)
+    return response_state
+
+
 async def _watch_call(env, state, method: str, path: str, payload=None):
     """
     Google Calendar watch 関連 API 呼び出しの共通ラッパー。
@@ -44,7 +71,7 @@ async def _watch_call(env, state, method: str, path: str, payload=None):
         method: HTTP メソッド
         path: `/events/watch` など calendar 配下パス
         payload: JSON ボディ
-    返り値: (data_or_none, status_code, error_text)
+    返り値: (data_or_none, status_code, error_code)。外部 API のエラー本文は返さない。
     """
     calendar_id = _env_text(env, "GOOGLE_CALENDAR_ID", "")
     if not calendar_id:
@@ -79,7 +106,7 @@ async def _watch_call(env, state, method: str, path: str, payload=None):
     status = int(response.status)
     text = await response.text()
     if status >= 400:
-        return None, status, text[:300]
+        return None, status, f"google_watch_http_{status}"
     try:
         data = json.loads(text or "{}")
     except Exception:
@@ -98,12 +125,17 @@ async def register_watch(env, state):
     webhook_url = _env_text(env, "GCAL_WEBHOOK_URL", "")
     if not webhook_url:
         return {"ok": False, "error": "missing_gcal_webhook_url"}
+    channel_token = _channel_token(env)
+    token_error = _channel_token_error(channel_token)
+    if token_error:
+        return {"ok": False, "error": token_error}
 
     channel_id = _env_text(env, "WATCH_CHANNEL_ID", "") or f"gcal-{uuid4()}"
     payload = {
         "id": channel_id,
         "type": "web_hook",
         "address": webhook_url,
+        "token": channel_token,
     }
     data, status, error = await _watch_call(env, state, "POST", "/events/watch", payload=payload)
     if data is None:
@@ -114,12 +146,13 @@ async def register_watch(env, state):
         "resource_id": data.get("resourceId"),
         "expiration": data.get("expiration"),
         "calendar_id": _env_text(env, "GOOGLE_CALENDAR_ID", ""),
+        "webhook_token_sha256": _token_fingerprint(channel_token),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     # watch保存
     if state.enabled():
         await state.put_json_if_changed("gcal_watch_state", state_payload)
-    return {"ok": True, "watch_state": state_payload}
+    return {"ok": True, "watch_state": _watch_state_for_response(state_payload)}
 
 
 async def renew_watch(env, state):
@@ -204,6 +237,11 @@ async def ensure_watch_active(env, state):
     - 期限がしきい値以下: renew
     - それ以外: noop
     """
+    channel_token = _channel_token(env)
+    token_error = _channel_token_error(channel_token)
+    if token_error:
+        return {"ok": False, "action": "configuration_error", "error": token_error}
+
     # state が無効(watch 保存比較不可)なら register
     if not state.enabled():
         result = await register_watch(env, state)
@@ -221,6 +259,15 @@ async def ensure_watch_active(env, state):
         result = await register_watch(env, state)
         return {"ok": bool(result.get("ok")), "action": "register_missing", "result": result}
 
+    current_fingerprint = str(current.get("webhook_token_sha256") or "").strip()
+    expected_fingerprint = _token_fingerprint(channel_token)
+    if not compare_digest(
+        current_fingerprint.encode("utf-8"),
+        expected_fingerprint.encode("ascii"),
+    ):
+        result = await renew_watch(env, state)
+        return {"ok": bool(result.get("ok")), "action": "renew_token_changed", "result": result}
+
     # 期限不明なら renew
     if expires_at <= 0:
         result = await renew_watch(env, state)
@@ -235,6 +282,6 @@ async def ensure_watch_active(env, state):
     return {
         "ok": True,
         "action": "noop_valid",
-        "watch_state": current,
+        "watch_state": _watch_state_for_response(current),
         "seconds_until_expiration": int(expires_at - now),
     }

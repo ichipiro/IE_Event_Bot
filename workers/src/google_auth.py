@@ -34,6 +34,13 @@ _last_service_account_error = None
 _last_assertion_error = None
 _last_sign_error = None
 
+_GOOGLE_CALENDAR_SCOPES = " ".join(
+    (
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.calendars.readonly",
+    )
+)
+
 
 def _b64url(data: bytes) -> str:
     """
@@ -143,7 +150,7 @@ async def _fetch_token_from_broker(env, state):
         {
             "method": "POST",
             "headers": headers,
-            "body": json.dumps({"scope": "https://www.googleapis.com/auth/calendar"}),
+            "body": json.dumps({"scope": _GOOGLE_CALENDAR_SCOPES}),
         },
     )
     # 読み取り
@@ -402,7 +409,7 @@ async def _fetch_token_from_service_account(env, state):
         return None
     assertion = await _build_service_account_assertion(
         sa_info,
-        "https://www.googleapis.com/auth/calendar",
+        _GOOGLE_CALENDAR_SCOPES,
     )
     if not assertion:
         detail = _last_assertion_error or "unknown"

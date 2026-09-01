@@ -1,5 +1,6 @@
 {
-  "include": ["workers/src"],
+  "include": ["workers/src", "tests"],
+  "extraPaths": ["workers/src"],
   "pythonVersion": "3.10",
   "typeCheckingMode": "basic",
   "stubPath": "typings",

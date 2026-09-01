@@ -9,6 +9,7 @@
 - 開発環境: Linux / WSL
 - Python: `3.10` 以上
 - CI の Python: `3.12`
+- Node.js: `22.0.0` 以上
 - アプリケーション実行基盤: Cloudflare Python Workers
 - Worker の互換日付: `workers/wrangler.jsonc` の `compatibility_date`
 - Python 仮想環境: リポジトリルートの `.venv`
@@ -33,6 +34,14 @@ Windows 専用の環境は必須要件ではない。
 | `google-auth` | `2.38.0` | Google 認証 |
 
 依存関係を変更した場合は、設定ファイルと `README_ENV.md` を同時に確認する。
+
+Node.js 開発依存:
+
+| パッケージ | バージョン | 用途 |
+| --- | --- | --- |
+| `wrangler` | `4.127.1` | Worker 設定検証、開発、デプロイ |
+
+Wrangler の正本は `package.json` と `package-lock.json` であり、グローバル版は前提にしない。`README_ENV.md` は Python 仮想環境専用のため、Node.js 依存は記載しない。
 
 ## Cloudflare バインディング
 
@@ -59,6 +68,7 @@ Windows 専用の環境は必須要件ではない。
 最低限の本番シークレット:
 
 - `INTERNAL_API_TOKEN`
+- `GCAL_WEBHOOK_TOKEN`
 - `NOTION_TOKEN`
 - `DISCORD_TOKEN`
 - Google 認証に使用するシークレット
@@ -80,6 +90,7 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 python -m pip install -r workers/requirements.txt
+npm ci
 ```
 
 ## 検証要件
@@ -93,13 +104,14 @@ print("imports ok")
 PY
 ruff check .
 pyright
+npm run wrangler -- --version
+npm run wrangler -- deploy --dry-run --config workers/wrangler.jsonc
 git diff --check
 ```
 
-テストファイルが存在する場合は `pytest -q` も実行する。2026-08-29 の確認時点ではテストファイルが存在せず、CI は pytest をスキップする。
+`pytest -q` も実行する。テストは外部通信を遮断した CPython 上の単体テストであり、実際の Cloudflare ランタイムや外部サービスの疎通は保証しない。詳細は [`TESTING.md`](TESTING.md) を参照する。
 
-## 未固定の要件
+## 実環境で確認する要件
 
-- Wrangler と Node.js のローカル版はリポジトリで固定されていない。
 - Cloudflare、Discord、Google、Notion の本番設定値と権限は、ローカルファイルだけでは確定できない。
 - 実デプロイや外部 API 疎通は、認証情報と明示的な実行許可がある場合だけ検証する。

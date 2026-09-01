@@ -1,0 +1,19 @@
+{
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "e2e:workflow": "node tools/run_e2e_workflow.mjs",
+    "mcp:e2e": "node tools/e2e_mcp_server.mjs",
+    "mcp:playwright": "playwright-mcp --isolated --browser chromium --block-service-workers --codegen none --console-level warning --image-responses omit --output-dir test-results/playwright-mcp --output-max-size 52428800 --timeout-action 10000 --timeout-navigation 60000",
+    "test:mcp": "node --test tools/e2e_mcp_server.test.mjs tools/run_e2e_workflow.test.mjs",
+    "wrangler": "wrangler"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@playwright/mcp": "0.0.80",
+    "wrangler": "4.127.1",
+    "zod": "4.5.4"
+  }
+}

@@ -47,7 +47,7 @@
 | `sync:discord_notion_queue` | JSON 配列 | Discord 同期の繰り越し |
 | `google:access_token` | 文字列 | Google アクセストークン |
 | `google:expires_at` | Epoch 秒 | Google トークン期限 |
-| `gcal_watch_state` | JSON | Google watch の状態 |
+| `gcal_watch_state` | JSON | Google watch の channel、resource、期限、Webhook token の SHA-256 fingerprint |
 | `qa_cache` | JSON | Q&A 通知済み状態 |
 | `reminder_cache` | JSON | リマインド送信済み状態 |
 | `cleanup:last_epoch` | Epoch 秒 | クリーンアップ最終実行時刻 |
@@ -56,6 +56,8 @@
 Durable Object がない場合、`gcal_msg:<channel_id>:<message_number>` を KV の Webhook 重複抑止キーとして使用する。
 
 KV の JSON は安定した文字列表現で保存し、同じ内容の不要な再書き込みを避ける。KV は最終的整合性であり、厳密な一意制約や複数キーのトランザクションを提供する前提ではない。
+
+旧E2E実装の `e2e:google_calendar_crud`、`e2e:discord_crud`、`e2e:notion_crud` がKVに残っている場合、新しいE2E probeは外部操作前に停止する。値を応答へ出さず、既存資源のcleanup状態を人が確認して旧キーを処理するまで自動移行しない。
 
 ## Durable Object
 
@@ -66,8 +68,13 @@ KV の JSON は安定した文字列表現で保存し、同じ内容の不要�
 | `lock` | 所有者と期限の JSON | 同期の排他 |
 | `sync:last_epoch` | 最終時刻の JSON | クールダウン |
 | `gcal_msg:<channel_id>:<message_number>` | 期限の JSON | Google Webhook 重複抑止 |
+| `e2e:manifest:google` | E2E cleanup manifest の JSON | Google fixture の所有権と復旧 |
+| `e2e:manifest:discord` | E2E cleanup manifest の JSON | Discord fixture の所有権と復旧 |
+| `e2e:manifest:notion` | E2E cleanup manifest の JSON | Notion fixture の所有権と復旧 |
 
-Durable Object は高頻度かつ整合性が必要な状態に限定し、イベント本文や大きな対応表は KV または外部サービスへ置く。
+E2E manifest は cleanup が必要な間だけ実 ID を保持し、clean 化後は SHA-256 fingerprint へ置き換える。run ID、service、kind、サイズを Durable Object 側でも検証し、`SYNC_COORDINATOR` がない場合は KV へフォールバックせず失敗させる。
+
+Durable Object は高頻度かつ整合性が必要な状態に限定し、イベント本文や大きな対応表は KV または外部サービスへ置く。Workers KV は結果整合で同一キーの短時間連続更新にも不向きなため、E2E の cleanup 所有権には使わない。
 
 ## データの正本
 

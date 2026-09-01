@@ -435,7 +435,11 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
             env,
             channel_id,
             msg,
-            allowed_mentions={"parse": ["roles"], "users": [], "everyone": False},
+            allowed_mentions={
+                "parse": [],
+                "roles": [role_id],
+                "replied_user": False,
+            },
         )
         # 読み取り
         if sent:

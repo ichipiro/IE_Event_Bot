@@ -1,6 +1,6 @@
 @startuml
 !include ../_shared/style.puml
-title state — メソッド・関数詳細 1/3
+title state 01 — メソッド・関数詳細
 !pragma layout smetana
 left to right direction
 component "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009
@@ -18,9 +18,11 @@ rectangle "<b>M026 state.StateStore._kv</b>\n役割: 内部ヘルパー: KV バ�
 C002 -[#64748B]-> M026 : [E1174] メソッドを所有
 rectangle "<b>M027 state.StateStore._sync_do</b>\n役割: 内部ヘルパー: SyncCoordinator Durable Object namespace を返す。" as M027 <<method>>
 C002 -[#64748B]-> M027 : [E1175] メソッドを所有
+rectangle "<b>M055 state.StateStore.e2e_manifest_enabled</b>\n役割: E2E cleanup 所有権用 Durable Object binding の有無を返す。" as M055 <<method>>
+C002 -[#64748B]-> M055 : [E1211] メソッドを所有
 rectangle "<b>M028 state.StateStore._sync_do_stub</b>\n役割: Durable Object namespace から global stub を取得する。" as M028 <<method>>
 C002 -[#64748B]-> M028 : [E1176] メソッドを所有
-rectangle "<b>M029 state.StateStore._sync_do_fetch</b>\n役割: SyncCoordinator へ JSON POST し、結果辞書を返す。" as M029 <<method>>
+rectangle "<b>M029 state.StateStore._sync_do_rpc</b>\n役割: SyncCoordinator RPC を JSON 文字列で呼び出して結果辞書へ復元する。" as M029 <<method>>
 C002 -[#64748B]-> M029 : [E1177] メソッドを所有
 rectangle "<b>M030 state.StateStore.get_text</b>\n役割: KV から文字列を取得し、空文字は None として扱う。" as M030 <<method>>
 C002 -[#64748B]-> M030 : [E1178] メソッドを所有
@@ -28,4 +30,11 @@ rectangle "<b>M031 state.StateStore.put_text</b>\n役割: KV へ文字列を書�
 C002 -[#64748B]-> M031 : [E1179] メソッドを所有
 rectangle "<b>M032 state.StateStore.put_text_if_changed</b>\n役割: 現在値と異なる場合だけ KV へ文字列を書き込む。" as M032 <<method>>
 C002 -[#64748B]-> M032 : [E1180] メソッドを所有
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
 @enduml

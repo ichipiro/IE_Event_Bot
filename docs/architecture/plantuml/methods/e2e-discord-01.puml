@@ -1,0 +1,34 @@
+@startuml
+!include ../_shared/style.puml
+title e2e discord 01 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P017 e2e_discord_probe</b>\n役割: 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。" as P017
+rectangle "<b>F157 e2e_discord_probe.fetch</b>\n役割: Workers fetch の呼び出し形式差を吸収する。" as F157 <<function>>
+P017 -[#64748B]-> F157 : [E1217] 関数を定義
+rectangle "<b>F158 e2e_discord_probe._env_text</b>\n役割: Worker 環境変数から文字列設定を安全に取得する。" as F158 <<function>>
+P017 -[#64748B]-> F158 : [E1218] 関数を定義
+rectangle "<b>F159 e2e_discord_probe._fingerprint</b>\n役割: 正規化した検証対象を SHA-256 指紋へ変換する。" as F159 <<function>>
+P017 -[#64748B]-> F159 : [E1219] 関数を定義
+rectangle "<b>F160 e2e_discord_probe._int_value</b>\n役割: 入力値を既定値付きの整数へ変換する。" as F160 <<function>>
+P017 -[#64748B]-> F160 : [E1220] 関数を定義
+rectangle "<b>F161 e2e_discord_probe._new_run_id</b>\n役割: 時刻と乱数から形式制約を満たす E2E run ID を生成する。" as F161 <<function>>
+P017 -[#64748B]-> F161 : [E1221] 関数を定義
+rectangle "<b>F162 e2e_discord_probe._run_marker</b>\n役割: E2E 資源を run ID に結び付ける識別マーカーを生成する。" as F162 <<function>>
+P017 -[#64748B]-> F162 : [E1222] 関数を定義
+rectangle "<b>F163 e2e_discord_probe._discord_iso</b>\n役割: 日時を Discord API 用 ISO 8601 文字列へ変換する。" as F163 <<function>>
+P017 -[#64748B]-> F163 : [E1223] 関数を定義
+rectangle "<b>F164 e2e_discord_probe._event_payload</b>\n役割: Discord Scheduled Event の作成 payload を組み立てる。" as F164 <<function>>
+P017 -[#64748B]-> F164 : [E1224] 関数を定義
+rectangle "<b>F165 e2e_discord_probe._event_update_payload</b>\n役割: Discord Scheduled Event の更新 payload を組み立てる。" as F165 <<function>>
+P017 -[#64748B]-> F165 : [E1225] 関数を定義
+rectangle "<b>F166 e2e_discord_probe._allowed_mentions</b>\n役割: Discord 通知で許可する role mention を最小範囲で組み立てる。" as F166 <<function>>
+P017 -[#64748B]-> F166 : [E1226] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

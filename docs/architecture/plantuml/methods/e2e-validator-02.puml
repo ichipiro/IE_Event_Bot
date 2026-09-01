@@ -1,0 +1,24 @@
+@startuml
+!include ../_shared/style.puml
+title e2e validator 02 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P023 validate_e2e_workflow</b>\n役割: E2E GitHub Actions workflow の固定 action、手順、失敗条件を静的検証する。" as P023
+rectangle "<b>F257 tools.validate_e2e_workflow._expect</b>\n役割: 条件を検査し、不一致を検証エラーとして収集する。" as F257 <<function>>
+P023 -[#64748B]-> F257 : [E1319] 関数を定義
+rectangle "<b>F258 tools.validate_e2e_workflow._step_block</b>\n役割: GitHub Actions workflow から指定 step の YAML ブロックを抽出する。" as F258 <<function>>
+P023 -[#64748B]-> F258 : [E1320] 関数を定義
+rectangle "<b>F259 tools.validate_e2e_workflow._check_action_pins</b>\n役割: workflow の外部 action が完全 SHA に固定されているか検査する。" as F259 <<function>>
+P023 -[#64748B]-> F259 : [E1321] 関数を定義
+rectangle "<b>F260 tools.validate_e2e_workflow._check_workflow</b>\n役割: E2E workflow の trigger、権限、手順、失敗時 cleanup を検査する。" as F260 <<function>>
+P023 -[#64748B]-> F260 : [E1322] 関数を定義
+rectangle "<b>F261 tools.validate_e2e_workflow.main</b>\n役割: 検証を実行し、結果を標準出力と終了コードで返す。" as F261 <<function>>
+P023 -[#64748B]-> F261 : [E1323] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

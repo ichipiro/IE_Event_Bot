@@ -23,8 +23,8 @@ package "外部サービス <Z004/Z005/Z006/Z007>" <<trust-boundary>> {
 }
 X001 -[#2563EB]-> A001 : [E001] 入力: method/path・認可情報・要求データ
 A001 -[#0F766E]-> X001 : [E002] 出力: status・JSON または本文
-T001 -[#2563EB]-> A001 : [E003] 入力: Google push ヘッダ
-A001 -[#0F766E]-> T001 : [E004] 出力: HTTP 204 または 500
+T001 -[#2563EB]-> A001 : [E003] 入力: channel token を含む Google push ヘッダ
+A001 -[#0F766E]-> T001 : [E004] 出力: HTTP 204・401・405・500・503
 T002 -[#64748B]-> C001 : [E007] Cron scheduled 起動
 A001 -[#2563EB]-> C001 : [E005] 入力: request
 C001 -[#0F766E]-> A001 : [E006] 出力: Response

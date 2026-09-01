@@ -1,0 +1,36 @@
+@startuml
+!include ../_shared/style.puml
+title e2e notion 02 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P020 e2e_notion_probe</b>\n役割: 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。" as P020
+rectangle "<b>F223 e2e_notion_probe._request_stage</b>\n役割: E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。" as F223 <<function>>
+P020 -[#64748B]-> F223 : [E1285] 関数を定義
+rectangle "<b>F224 e2e_notion_probe._schema_matches</b>\n役割: Notion database schema が E2E の必須プロパティを満たすか判定する。" as F224 <<function>>
+P020 -[#64748B]-> F224 : [E1286] 関数を定義
+rectangle "<b>F225 e2e_notion_probe._verify_database</b>\n役割: Notion database を取得し、対象 ID と schema を検証する。" as F225 <<function>>
+P020 -[#64748B]-> F225 : [E1287] 関数を定義
+rectangle "<b>F226 e2e_notion_probe._verify_targets</b>\n役割: E2E 操作対象の設定値を検査し、安全な識別指紋を返す。" as F226 <<function>>
+P020 -[#64748B]-> F226 : [E1288] 関数を定義
+rectangle "<b>F227 e2e_notion_probe._property_text</b>\n役割: Notion page property から文字列値を取り出す。" as F227 <<function>>
+P020 -[#64748B]-> F227 : [E1289] 関数を定義
+rectangle "<b>F228 e2e_notion_probe._property_number</b>\n役割: Notion page property から数値を取り出す。" as F228 <<function>>
+P020 -[#64748B]-> F228 : [E1290] 関数を定義
+rectangle "<b>F229 e2e_notion_probe._page_database_id</b>\n役割: Notion page の親 database ID を標準形式で取得する。" as F229 <<function>>
+P020 -[#64748B]-> F229 : [E1291] 関数を定義
+rectangle "<b>F230 e2e_notion_probe._page_archived</b>\n役割: Notion page がアーカイブ済みか判定する。" as F230 <<function>>
+P020 -[#64748B]-> F230 : [E1292] 関数を定義
+rectangle "<b>F231 e2e_notion_probe._page_has_marker</b>\n役割: Notion page が指定 E2E マーカーを持つか判定する。" as F231 <<function>>
+P020 -[#64748B]-> F231 : [E1293] 関数を定義
+rectangle "<b>F232 e2e_notion_probe._event_page_matches</b>\n役割: Notion event ページが E2E の期待値と一致するか判定する。" as F232 <<function>>
+P020 -[#64748B]-> F232 : [E1294] 関数を定義
+rectangle "<b>F233 e2e_notion_probe._qa_page_matches</b>\n役割: Notion Q&A ページが E2E の期待値と一致するか判定する。" as F233 <<function>>
+P020 -[#64748B]-> F233 : [E1295] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

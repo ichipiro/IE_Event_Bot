@@ -1,0 +1,28 @@
+@startuml
+!include ../_shared/style.puml
+title e2e google 01 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P019 e2e_google_probe</b>\n役割: 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。" as P019
+rectangle "<b>F198 e2e_google_probe.fetch</b>\n役割: Workers fetch の呼び出し形式差を吸収する。" as F198 <<function>>
+P019 -[#64748B]-> F198 : [E1260] 関数を定義
+rectangle "<b>F199 e2e_google_probe._env_text</b>\n役割: Worker 環境変数から文字列設定を安全に取得する。" as F199 <<function>>
+P019 -[#64748B]-> F199 : [E1261] 関数を定義
+rectangle "<b>F200 e2e_google_probe._event_collection_url</b>\n役割: Google Calendar event 一覧 API の URL を組み立てる。" as F200 <<function>>
+P019 -[#64748B]-> F200 : [E1262] 関数を定義
+rectangle "<b>F201 e2e_google_probe._event_item_url</b>\n役割: Google Calendar event 単体 API の URL を組み立てる。" as F201 <<function>>
+P019 -[#64748B]-> F201 : [E1263] 関数を定義
+rectangle "<b>F202 e2e_google_probe._calendar_fingerprint</b>\n役割: Google Calendar ID を SHA-256 指紋へ変換する。" as F202 <<function>>
+P019 -[#64748B]-> F202 : [E1264] 関数を定義
+rectangle "<b>F203 e2e_google_probe._google_request</b>\n役割: Google Calendar APIへ小さなJSONリクエストを送り、statusと辞書を返す。" as F203 <<function>>
+P019 -[#64748B]-> F203 : [E1265] 関数を定義
+rectangle "<b>F204 e2e_google_probe._event_payload</b>\n役割: Google Calendar event の作成・更新 payload を組み立てる。" as F204 <<function>>
+P019 -[#64748B]-> F204 : [E1266] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

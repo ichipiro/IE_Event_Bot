@@ -1,6 +1,6 @@
 @startuml
 !include ../_shared/style.puml
-title google_watch — メソッド・関数詳細 1/1
+title google watch — メソッド・関数詳細
 !pragma layout smetana
 left to right direction
 component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
@@ -8,11 +8,19 @@ rectangle "<b>F116 google_watch.fetch</b>\n役割: Cloudflare Workers の外部 
 P006 -[#64748B]-> F116 : [E1132] 関数を定義
 rectangle "<b>F117 google_watch._env_text</b>\n役割: Worker env から文字列設定を取得する。" as F117 <<function>>
 P006 -[#64748B]-> F117 : [E1133] 関数を定義
-rectangle "<b>F118 google_watch._watch_call</b>\n役割: Google Calendar watch 関連 API 呼び出しの共通ラッパー。" as F118 <<function>>
+rectangle "<b>F153 google_watch._channel_token</b>\n役割: Worker env から Google Webhook の channel token を取得する。" as F153 <<function>>
+P006 -[#64748B]-> F153 : [E1205] 関数を定義
+rectangle "<b>F154 google_watch._channel_token_error</b>\n役割: channel token の必須条件と256文字上限を検証し、エラーコードまたは None を返す。" as F154 <<function>>
+P006 -[#64748B]-> F154 : [E1206] 関数を定義
+rectangle "<b>F155 google_watch._token_fingerprint</b>\n役割: channel token を保存用の SHA-256 fingerprint へ変換する。" as F155 <<function>>
+P006 -[#64748B]-> F155 : [E1207] 関数を定義
+rectangle "<b>F156 google_watch._watch_state_for_response</b>\n役割: watch 状態を複製し、token fingerprint を除いた応答用辞書を返す。" as F156 <<function>>
+P006 -[#64748B]-> F156 : [E1208] 関数を定義
+rectangle "<b>F118 google_watch._watch_call</b>\n役割: Google Calendar watch API を呼び、外部エラー本文を除いた結果を返す共通ラッパー。" as F118 <<function>>
 P006 -[#64748B]-> F118 : [E1134] 関数を定義
-rectangle "<b>F119 google_watch.register_watch</b>\n役割: Google Calendar events.watch を新規登録する。" as F119 <<function>>
+rectangle "<b>F119 google_watch.register_watch</b>\n役割: channel token 付き Google Calendar events.watch を登録し、watch 状態を保存する。" as F119 <<function>>
 P006 -[#64748B]-> F119 : [E1135] 関数を定義
-rectangle "<b>F120 google_watch.renew_watch</b>\n役割: 既存 watch を更新する。" as F120 <<function>>
+rectangle "<b>F120 google_watch.renew_watch</b>\n役割: 既存 watch を停止し、現在の channel token で新しい watch を登録する。" as F120 <<function>>
 P006 -[#64748B]-> F120 : [E1136] 関数を定義
 rectangle "<b>F121 google_watch._parse_expiration_epoch_seconds</b>\n役割: Google watch expiration (ミリ秒)を桁を見て秒に変換する。" as F121 <<function>>
 P006 -[#64748B]-> F121 : [E1137] 関数を定義
@@ -20,4 +28,11 @@ rectangle "<b>F122 google_watch._renew_threshold_seconds</b>\n役割: watch 更�
 P006 -[#64748B]-> F122 : [E1138] 関数を定義
 rectangle "<b>F005 google_watch.ensure_watch_active</b>\n役割: watch が有効な状態を保つ。" as F005 <<function>>
 P006 -[#64748B]-> F005 : [E1139] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
 @enduml

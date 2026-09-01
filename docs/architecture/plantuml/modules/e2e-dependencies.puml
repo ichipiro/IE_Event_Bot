@@ -1,0 +1,43 @@
+@startuml
+!include ../_shared/style.puml
+title 隔離 E2E Worker と検証ツールの静的依存
+!pragma layout smetana
+left to right direction
+package "隔離 E2E Worker" {
+  component "<b>P017 e2e_discord_probe</b>\n役割: 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。" as P017
+  component "<b>P018 e2e_entry</b>\n役割: 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。" as P018
+  component "<b>P019 e2e_google_probe</b>\n役割: 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。" as P019
+  component "<b>P020 e2e_notion_probe</b>\n役割: 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。" as P020
+}
+package "通常 Worker の再利用" {
+  component "<b>P001 entry</b>" as P001
+  component "<b>P005 google_auth</b>" as P005
+  component "<b>P009 state</b>" as P009
+  component "<b>P010 sync_lock_do</b>" as P010
+}
+package "E2E 静的検証ツール" {
+  component "<b>P021 validate_e2e_mcp_config</b>\n役割: E2E 用 MCP 設定と承認モードが安全な制約を満たすか静的検証する。" as P021
+  component "<b>P022 validate_e2e_secret_hygiene</b>\n役割: E2E 設定テンプレートと Git 追跡対象に秘密情報が混入していないか検証する。" as P022
+  component "<b>P023 validate_e2e_workflow</b>\n役割: E2E GitHub Actions workflow の固定 action、手順、失敗条件を静的検証する。" as P023
+}
+component "<b>P013 workers runtime stubs</b>" as P013 <<external>>
+P018 -[#64748B]-> P017 : [E1324] Discord E2E CRUD を import
+P018 -[#64748B]-> P019 : [E1325] Google E2E CRUD を import
+P018 -[#64748B]-> P020 : [E1326] Notion E2E CRUD を import
+P018 -[#64748B]-> P001 : [E1327] 通常 Worker の制限済み機能を import
+P018 -[#64748B]-> P005 : [E1328] 認証状態の要約を import
+P018 -[#64748B]-> P009 : [E1329] 状態管理を import
+P018 -[#64748B]-> P010 : [E1330] Durable Object 公開を import
+P018 -[#64748B]-> P013 : [E1331] Workers 実行時 API を import
+P017 -[#64748B]-> P013 : [E1332] Workers 実行時 API を import
+P019 -[#64748B]-> P005 : [E1333] Google token 解決を import
+P019 -[#64748B]-> P013 : [E1334] Workers 実行時 API を import
+P020 -[#64748B]-> P013 : [E1335] Workers 実行時 API を import
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

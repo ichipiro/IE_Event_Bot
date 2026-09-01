@@ -177,16 +177,9 @@ git switch -c feature/<topic>
 ```bash
 .venv/bin/ruff check .
 .venv/bin/pyright
+.venv/bin/pytest -q
 git diff --check
 ```
-
-テストファイルが存在する場合だけ、次を実行します。
-
-```bash
-.venv/bin/pytest -q
-```
-
-現在のリポジトリにはテストファイルがないため、`pytest -q`は`no tests ran`と終了コード5を返します。これはテスト失敗ではなく、テスト未実装を意味します。
 
 変更をConventional Commits形式でcommitします。
 
@@ -522,13 +515,8 @@ git diff --stat origin/develop...HEAD
 git diff origin/develop...HEAD
 .venv/bin/ruff check .
 .venv/bin/pyright
-git diff --check
-```
-
-テストファイルが存在する場合は次も実行します。
-
-```bash
 .venv/bin/pytest -q
+git diff --check
 ```
 
 確認事項:

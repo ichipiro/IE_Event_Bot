@@ -1,0 +1,95 @@
+{
+	"$schema": "../node_modules/wrangler/config-schema.json",
+	"name": "ie-event-bot-e2e",
+	"main": "src/e2e_entry.py",
+	// 本番 Worker と同じランタイム条件で挙動を比較する。
+	"compatibility_date": "2026-03-07",
+	"compatibility_flags": [
+		"python_workers"
+	],
+	// 個人 E2E account の ID は CLOUDFLARE_ACCOUNT_ID から実行時に渡す。
+	"workers_dev": true,
+	"preview_urls": false,
+	"version_metadata": {
+		"binding": "CF_VERSION_METADATA"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "SYNC_COORDINATOR",
+				"class_name": "SyncCoordinator"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1-sync-coordinator",
+			"new_sqlite_classes": [
+				"SyncCoordinator"
+			]
+		}
+	],
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	},
+	"secrets": {
+		"required": [
+			"INTERNAL_API_TOKEN",
+			"GOOGLE_CALENDAR_ID",
+			"GOOGLE_SERVICE_ACCOUNT_JSON_B64",
+			"GCAL_WEBHOOK_TOKEN",
+			"DISCORD_TOKEN",
+			"DISCORD_GUILD_ID",
+			"QA_CHANNEL_ID",
+			"EVENT_CREATE_CHANNEL_ID",
+			"EVENT_CREATE_ROLE_ID",
+			"REMINDER_CHANNEL_ID",
+			"REMINDER_ROLE_ID",
+			"NOTION_TOKEN",
+			"NOTION_EVENT_INTERNAL_ID",
+			"NOTION_QA_ID"
+		]
+	},
+	"vars": {
+		"E2E_GOOGLE_CRUD_ENABLED": "true",
+		"E2E_DISCORD_CRUD_ENABLED": "true",
+		"E2E_NOTION_CRUD_ENABLED": "true",
+		"SYNC_INTERVAL_SECONDS": "0",
+		"KV_SYNC_COOLDOWN_ENABLED": "false",
+		"KV_GCAL_DEDUPE_ENABLED": "true",
+		"KV_RESULT_MIN_WRITE_SECONDS": "0",
+		"GCAL_DEDUPE_TTL_SECONDS": "86400",
+		"SYNC_ALL_INCLUDE_DISCORD_NOTION": "false",
+		"GOOGLE_APPLY_MAX_EVENTS_PER_RUN": "5",
+		"DISCORD_NOTION_MAX_CHANGES_PER_RUN": "2",
+		"SYNC_DO_LOCK_ENABLED": "true",
+		"SYNC_DO_LOCK_TTL_SECONDS": "120",
+		"CRON_ENABLE_SYNC": "false",
+		"CRON_ENABLE_DISCORD_NOTION_SYNC": "false",
+		"CRON_ENABLE_GCAL_WATCH_ENSURE": "false",
+		"GCAL_WATCH_RENEW_THRESHOLD_SECONDS": "86400",
+		"CRON_ENABLE_QA": "false",
+		"CRON_ENABLE_REMINDER": "false",
+		"CRON_ENABLE_AUTO_CLEAN": "false",
+		"CLEANUP_INTERVAL_SECONDS": "86400",
+		"DISCORD_TO_GOOGLE_SYNC_ENABLED": "false",
+		"DISCORD_SYNC_ENABLED": "false",
+		"GCAL_WEBHOOK_URL": "https://ie-event-bot-e2e.lycanthr0pe.workers.dev/gcal/webhook",
+		"WATCH_CHANNEL_ID": "",
+		"GOOGLE_TOKEN_BROKER_URL": "",
+		"NOTION_EVENT_ID": "",
+		"REMINDER_WINDOW_MINUTES": 15
+	},
+	"triggers": {
+		"crons": []
+	},
+	"kv_namespaces": [
+		{
+			"binding": "STATE_KV",
+			// 個人 Cloudflare account に作成した E2E 専用 namespace。
+			"id": "e2df7a0838234dc6a9121f1999690c20",
+			"remote": false
+		}
+	]
+}

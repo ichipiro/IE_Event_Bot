@@ -8,23 +8,28 @@
 
 `workers/src/entry.py` の現行実装:
 
-| ルート | Bearer 認可 |
+| ルート | 認証・認可 |
 | --- | --- |
-| `GET /health` | なし |
-| `POST /gcal/webhook` | なし |
+| `GET /health` | 公開 |
+| `POST /gcal/webhook` | `X-Goog-Channel-Token` |
 | `/sync/*`、`/gcal/sync` | `_authorized()` |
 | `/admin/*` | `_authorized()` |
 | `/jobs/*` | `_authorized()` |
 
-`_authorized()` は `INTERNAL_API_TOKEN` が未設定の場合に認可成功を返す。そのため、本番では `INTERNAL_API_TOKEN` を必ず Wrangler Secret として設定する。未設定を安全な既定値とは扱わない。
+`_authorized()` は `INTERNAL_API_TOKEN` が未設定、空、欠落、不一致のいずれでも認可に失敗する。同期、管理、ジョブ API は処理開始前に `401` を返す。
 
-`/gcal/webhook` は Google の通知ヘッダーを重複抑止に使うが、現行コードでは Bearer 認可や共有シークレット照合を行わない。通知ヘッダーだけを送信元認証として扱わず、公開エンドポイントであることを前提に、Cloudflare 側の制御と同期側のレート・重複対策を確認する。
+`/gcal/webhook` は `GCAL_WEBHOOK_TOKEN` と `X-Goog-Channel-Token` を処理開始前に定時間比較する。Secret 未設定時は `503`、ヘッダーの欠落または不一致時は `401` を返し、重複状態の更新や同期を行わない。Google watch の登録要求にも同じ token を含める。
+
+watch 状態には Secret の生値ではなく SHA-256 fingerprint だけを保存し、既存 watch に fingerprint がない場合や token を変更した場合は再登録する。fingerprint からの推測を避けるため、`GCAL_WEBHOOK_TOKEN` は十分長いランダム値とし、fingerprint もログへ出さない。重複抑止、クールダウン、Durable Object ロック、Cloudflare 側のレート制限は多層防御であり、token 検証の代替ではない。
+
+Google watch API のエラー時は、外部応答本文を管理 API 応答や `last_result` へ流さず、HTTP status から作る内部エラーコードだけを返す。これにより、外部サービスが channel token をエラー本文へ反映した場合も保存・再応答しない。
 
 ## シークレット
 
 主なシークレット:
 
 - `INTERNAL_API_TOKEN`
+- `GCAL_WEBHOOK_TOKEN`
 - `NOTION_TOKEN`
 - `DISCORD_TOKEN`
 - `GOOGLE_API_BEARER_TOKEN`
@@ -48,6 +53,8 @@
 - `/admin/migration-status?include_checks=1` は外部サービスへ実際に接続するため、認可済みの運用者だけが実行する。
 - KV は厳密なトランザクションストアではなく、最終的整合性を前提にする。
 - Durable Object のロックと重複抑止は可用性・整合性対策であり、認証の代替ではない。
+- E2E cleanup manifest は強整合な `SYNC_COORDINATOR` に保存し、KV の古い読み取りで dirty 所有権を上書きしない。
+- 旧KV manifest が1件でも見つかった場合は、新しいE2E実行を止めて移行レビューを要求する。旧キーを自動削除・自動clean化しない。
 
 ## 外部 API
 
@@ -56,6 +63,25 @@
 - Notion インテグレーションは同期対象データベースだけへ接続する。
 - Discord Bot は必要な Guild、チャンネル、Scheduled Event 操作に限定する。
 - API エラーを記録するときも、Authorization ヘッダーやレスポンス中の機密値を残さない。
+
+## E2E MCP 境界
+
+- Worker origin は `ie-event-bot-e2e.*.workers.dev` の形だけでなく、別管理値 `E2E_WORKER_URL_SHA256` と完全一致した場合だけ利用する。
+- MCP の書き込み tool は固定 route と run ID だけを受け取り、任意 URL や外部資源 ID を入力にしない。
+- HTTP 200 でも `cooldown_skip` または `in_progress_skip` なら未実行として失敗扱いにする。
+- status と run manifest は実 URL、Worker version ID、watch ID、外部資源 ID、token を返さず fingerprint だけを残す。
+- create の成否を確定できず検索結果も 0 件の場合、clean と推測せず dirty を維持する。
+- deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。
+- preflight は旧 KV manifest だけでなく、現行 Durable Object manifest が1件でも dirty なら失敗する。
+
+## E2E GitHub Actions 境界
+
+- E2E workflow は手動起動だけを許可し、既定の `preflight` は read-only とする。
+- Secret を使う job は required reviewer 付きの `e2e` Environment を参照し、`GITHUB_TOKEN` は `contents: read` に限定する。
+- Cloudflare account ID と API token は deploy step だけへ渡し、cleanup と evidence へ継承しない。
+- 外部 action は完全な commit SHA へ固定し、checkout 後の Git credential 永続化を無効にする。
+- run ID と監査開始記録が一致する service だけを `always()` cleanup の対象にする。
+- artifact は固定フィールドでマスクした監査要約と manifest に限定し、14日で失効させる。
 
 ## 設定値の扱い
 
@@ -76,6 +102,8 @@
 - Cloudflare 上の Secret 登録
 - KV と Durable Object の実バインディング
 - Webhook URL と外部サービス側の登録
+- token 付き watch の再登録と `X-Goog-Channel-Token` を含む実通知
+- 必要に応じた Cloudflare WAF とレート制限の設定
 - API トークンの権限と有効期限
 - GitHub の Secret、Actions 権限、branch protection、ruleset
-- 実際の疎通、レート制限、監査ログ
+- 実際の疎通と監査ログ

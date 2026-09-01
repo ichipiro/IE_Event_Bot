@@ -1,5 +1,7 @@
 import json
 import time
+from hmac import compare_digest
+from inspect import isawaitable
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
@@ -125,6 +127,17 @@ class Default(WorkerEntrypoint):
 
         # Google Calendar webhook 通知の受信口
         if path == "/gcal/webhook":
+            if method != "POST":
+                return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
+            required_token = str(getattr(self.env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
+            if not required_token:
+                return Response("webhook unavailable", status=503)
+            channel_token = _header(request, "X-Goog-Channel-Token")
+            if not channel_token or not compare_digest(
+                channel_token.encode("utf-8"),
+                required_token.encode("utf-8"),
+            ):
+                return Response("unauthorized", status=401)
             if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
                 goog_channel = _header(request, "X-Goog-Channel-ID")
                 goog_msg = _header(request, "X-Goog-Message-Number")
@@ -345,11 +358,11 @@ class Default(WorkerEntrypoint):
     def _authorized(self, request) -> bool:
         """
         Bearer 認可判定。
-        INTERNAL_API_TOKEN 未設定時は認可不要として扱う。
+        INTERNAL_API_TOKEN 未設定時は安全側に倒して拒否する。
         """
-        required_token = getattr(self.env, "INTERNAL_API_TOKEN", None)
+        required_token = str(getattr(self.env, "INTERNAL_API_TOKEN", "") or "").strip()
         if not required_token:
-            return True
+            return False
         auth_header = _header(request, "Authorization")
         if not auth_header:
             return False
@@ -358,7 +371,7 @@ class Default(WorkerEntrypoint):
             return False
         # 実際のトークン部分を取り出す
         token = auth_header[7:].strip()
-        return token == str(required_token).strip()
+        return compare_digest(token.encode("utf-8"), required_token.encode("utf-8"))
 
     async def _run_sync_dispatch(self, request, state: StateStore, source: str):
         """
@@ -496,36 +509,43 @@ class Default(WorkerEntrypoint):
             return {"ok": True, "owner": None, "mode": "no_binding"}
         # owner を作る
         owner = f"{source}-{int(time.time())}-{uuid4()}"
+        stage = "get_stub"
         try:
             # 同期ロックはグローバルに1つ
             stub = self._get_sync_stub(do_ns)
-            # SyncCoordinator acquire を呼ぶ
-            response = await self._do_stub_fetch(
+            # SyncCoordinator acquire をRPCで呼ぶ
+            stage = "rpc_call"
+            result = await self._do_stub_rpc(
                 stub,
-                "https://sync-lock/acquire",
-                method="POST",
-                headers={"content-type": "application/json"},
-                body=json.dumps(
+                {
+                    "action": "acquire",
+                    "owner": owner,
+                    "ttl_seconds": self._sync_lock_ttl_seconds(),
+                },
+            )
+            stage = "decode_rpc"
+            data = self._decode_do_rpc(result)
+            if not data.get("ok"):
+                return {"ok": False, "status": 409 if data.get("locked") else 503, **data}
+            return {"ok": True, "owner": data.get("owner") or owner}
+        except Exception as exc:
+            error_type = type(exc).__name__
+            print(
+                json.dumps(
                     {
-                        "action": "acquire",
-                        "owner": owner,
-                        "ttl_seconds": self._sync_lock_ttl_seconds(),
+                        "event": "sync_lock_acquire_failed",
+                        "stage": stage,
+                        "error_type": error_type,
                     },
                     ensure_ascii=False,
-                ),
+                )
             )
-            # 読み取り
-            text = await response.text()
-            data = {}
-            try:
-                data = json.loads(text or "{}")
-            except Exception:
-                data = {}
-            if int(response.status) >= 400:
-                return {"ok": False, "status": int(response.status), **data}
-            return {"ok": True, "owner": data.get("owner") or owner}
-        except Exception:
-            return {"ok": False, "error": "do_acquire_exception"}
+            return {
+                "ok": False,
+                "error": "do_acquire_exception",
+                "stage": stage,
+                "error_type": error_type,
+            }
 
     async def _release_sync_lock(self, owner: str):
         """取得済みロックを解放する。解放失敗は握りつぶす。"""
@@ -534,16 +554,10 @@ class Default(WorkerEntrypoint):
             return
         try:
             stub = self._get_sync_stub(do_ns)
-            # SyncCoordinator release を呼ぶ
-            await self._do_stub_fetch(
+            # SyncCoordinator release をRPCで呼ぶ
+            await self._do_stub_rpc(
                 stub,
-                "https://sync-lock/release",
-                method="POST",
-                headers={"content-type": "application/json"},
-                body=json.dumps(
-                    {"action": "release", "owner": owner},
-                    ensure_ascii=False,
-                ),
+                {"action": "release", "owner": owner},
             )
         except Exception:
             return
@@ -579,6 +593,9 @@ class Default(WorkerEntrypoint):
         sync_updated_min = await state.get_sync_updated_min() if state.enabled() else None
         # watch 状態
         watch_state = await state.get_json("gcal_watch_state", None) if state.enabled() else None
+        if isinstance(watch_state, dict):
+            watch_state = dict(watch_state)
+            watch_state.pop("webhook_token_sha256", None)
         last_results = {}
         if state.enabled():
             for key in (
@@ -625,22 +642,13 @@ class Default(WorkerEntrypoint):
             return {"enabled": False, "reason": "no_binding"}
         try:
             stub = self._get_sync_stub(do_ns)
-            # Durable Object status リクエスト
-            response = await self._do_stub_fetch(
+            # Durable Object status をRPCで取得する
+            result = await self._do_stub_rpc(
                 stub,
-                "https://sync-lock/status",
-                method="POST",
-                headers={"content-type": "application/json"},
-                body=json.dumps({"action": "status"}, ensure_ascii=False),
+                {"action": "status"},
             )
-            # 読み取り
-            text = await response.text()
-            data = {}
-            try:
-                data = json.loads(text or "{}")
-            except Exception:
-                data = {}
-            return {"enabled": True, "status": int(response.status), **data}
+            data = self._decode_do_rpc(result)
+            return {"enabled": True, "status": 200, **data}
         except Exception as exc:
             return {"enabled": True, "error": "status_exception", "detail": str(exc)[:200]}
 
@@ -649,35 +657,26 @@ class Default(WorkerEntrypoint):
         """
         Durable Object namespace から "global" stub を取得(DO生成)する。
         """
-        if hasattr(do_ns, "get_by_name"):
-            return do_ns.get_by_name("global")
-        if hasattr(do_ns, "id_from_name") and hasattr(do_ns, "get"):
-            return do_ns.get(do_ns.id_from_name("global"))
-        if hasattr(do_ns, "idFromName") and hasattr(do_ns, "get"):
-            return do_ns.get(do_ns.idFromName("global"))
-        raise AttributeError("no_supported_do_namespace_api")
+        return do_ns.getByName("global")
 
     @staticmethod
-    async def _do_stub_fetch(stub, url: str, *, method: str, headers: dict, body: str):
-        """
-        Durable Object stub.fetch の呼び出し差分を吸収する。
-        """
-        try:
-            return await stub.fetch(
-                url,
-                method=method,
-                headers=headers,
-                body=body,
-            )
-        except TypeError:
-            return await stub.fetch(
-                url,
-                {
-                    "method": method,
-                    "headers": headers,
-                    "body": body,
-                },
-            )
+    async def _do_stub_rpc(stub, payload: dict):
+        """SyncCoordinator RPCをJSON文字列だけで呼び出す。"""
+        result = stub.sync_state(json.dumps(payload, ensure_ascii=False))
+        # Python Workersのbinding wrapperがRPC結果を追加のcoroutineで包む場合がある。
+        for _ in range(3):
+            if not isawaitable(result):
+                return result
+            result = await result
+        raise TypeError("sync_state_rpc_awaitable_depth_exceeded")
+
+    @staticmethod
+    def _decode_do_rpc(value) -> dict:
+        """SyncCoordinator RPCのJSON文字列を辞書へ復元する。"""
+        data = json.loads(str(value or "{}"))
+        if not isinstance(data, dict):
+            raise TypeError("invalid_sync_state_rpc_result")
+        return data
 
     @staticmethod
     def _to_bool_query(query_string: str, key: str) -> bool:

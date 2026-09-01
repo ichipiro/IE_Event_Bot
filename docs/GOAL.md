@@ -37,7 +37,6 @@ Discord、Google Calendar、Notion のイベント情報を Cloudflare Python Wo
 
 - 目的に対応するコードまたは文書だけが変更されている。
 - 関連する HTTP ルート、Cron、Wrangler バインディング、依存関係への影響を確認している。
-- `ruff check .`、`pyright`、`git diff --check` が成功している。
-- テストが存在する場合は関連テストが成功している。存在しない場合は、その事実を明記している。
+- `ruff check .`、`pyright`、`pytest -q`、`git diff --check` が成功している。
 - 外部サービスへ接続していない場合は、実動作を確認済みと表現していない。
 - 関連文書と相対リンクが更新されている。

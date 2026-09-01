@@ -180,6 +180,7 @@ test("公開ツールを10件に固定して任意URLや資源IDを受け取ら�
 
 test("preflightは固定routeだけを読み応答中のIDをマスクする", async () => {
   const calls = [];
+  let orchestratedWritesEnabled = false;
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
     if (url.endsWith("/health")) {
@@ -190,6 +191,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       mode: "e2e",
       kv_enabled: true,
       e2e_manifest_enabled: true,
+      orchestrated_writes_enabled: orchestratedWritesEnabled,
       legacy_manifest_check_complete: true,
       legacy_manifests: {
         google: { present: false, dirty: false },
@@ -256,7 +258,19 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
     assert.equal(serialized.includes(ENV.INTERNAL_API_TOKEN), false);
     assert.equal(serialized.includes(ENV.E2E_WORKER_URL), false);
     assert.equal(Object.values(payload.checks).every(Boolean), true);
+    assert.equal(payload.checks.unowned_writes_blocked, true);
+    assert.equal(payload.e2e_status.orchestrated_writes_enabled, false);
     assert.equal(payload.error, null);
+
+    orchestratedWritesEnabled = true;
+    const unsafeResult = await client.callTool({
+      name: "preflight",
+      arguments: { run_id: RUN_ID },
+    });
+    const unsafePayload = parseToolResult(unsafeResult);
+    assert.equal(unsafePayload.ok, false);
+    assert.equal(unsafePayload.checks.unowned_writes_blocked, false);
+    assert.equal(unsafePayload.error, "preflight_unowned_writes_blocked_failed");
   });
 });
 

@@ -6,6 +6,31 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: 未所有 E2E orchestration の既定拒否
+
+### 目的
+
+同期、Webhook simulation、定期ジョブが変更する下流資源を自己 cleanup できるまで、専用 E2E Worker から誤実行できない状態にする。
+
+### 変更
+
+- `E2E_ORCHESTRATED_WRITES_ENABLED` を追加し、既定値と専用 Wrangler 設定を `false` にした。
+- 無効時は同期、Webhook simulation、ジョブ route を認証情報や run ID の有無にかかわらず `404` で隠す。
+- status と MCP preflight に既定拒否の確認を追加した。
+- 自己 cleanup 型へ移行する残作業を GitHub Issue #17 と `docs/ISSUES.md` に記録した。
+
+### 検証
+
+- 無効時の route 非委譲と、有効時の既存認可・run ID 境界をローカル単体テストで確認した。
+- MCP preflight が無効状態を成功、明示的な有効状態を失敗と判定する契約テストを追加した。
+- `ruff check .`、`pyright`、Python 単体テスト85件、MCP 契約テスト23件が成功した。
+- E2E 設定検査、Secret hygiene、workflow policy、Wrangler dry-run、追跡対象 Markdown の相対リンク検査が成功した。
+
+### 未確認
+
+- サービス間同期、Google webhook、Cron の実配信
+- 同期・通知・cleanup ジョブが作る下流資源の自己 cleanup
+
 ## 2026-09-02: クリーンなチェックアウトの文書リンク修正
 
 ### 目的

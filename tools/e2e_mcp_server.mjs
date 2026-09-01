@@ -523,6 +523,10 @@ function sanitizeStatus(response) {
       : null,
     kv_enabled: Boolean(payload.kv_enabled ?? payload.kv_state_enabled),
     e2e_manifest_enabled: Boolean(payload.e2e_manifest_enabled),
+    orchestrated_writes_enabled:
+      typeof payload.orchestrated_writes_enabled === "boolean"
+        ? payload.orchestrated_writes_enabled
+        : null,
     legacy_manifest_check_complete: payload.legacy_manifest_check_complete === true,
     legacy_manifests: Object.fromEntries(
       Object.keys(SERVICE_ROUTES).map((service) => {
@@ -842,6 +846,7 @@ export function createE2eMcpServer(options = {}) {
         clean_manifests: Object.values(status.services).every(
           (manifest) => manifest.dirty === false,
         ),
+        unowned_writes_blocked: status.orchestrated_writes_enabled === false,
         routes: Object.values(status.routes_enabled).every((enabled) => enabled === true),
         required_envs: REQUIRED_ENV_KEYS.every((key) => status.required_envs[key] === true),
         google_auth:
@@ -947,7 +952,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "固定E2E Workerの全体同期routeを実行する。",
+      description: "所有権対応後に、固定E2E Workerの全体同期routeを実行する。",
       inputSchema: { run_id: runIdField },
       annotations: {
         readOnlyHint: false,
@@ -972,7 +977,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_webhook",
     {
-      description: "固定E2E Workerの認証済みwebhook-dispatch simulationを実行する。",
+      description: "所有権対応後に、認証済みwebhook-dispatch simulationを実行する。",
       inputSchema: { run_id: runIdField },
       annotations: {
         readOnlyHint: false,
@@ -1003,7 +1008,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_job",
     {
-      description: "固定allowlistからE2E Workerのjobを1つ実行する。",
+      description: "所有権対応後に、固定allowlistからE2E Workerのjobを1つ実行する。",
       inputSchema: { run_id: runIdField, job: jobField },
       annotations: {
         readOnlyHint: false,

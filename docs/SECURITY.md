@@ -73,6 +73,7 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - create の成否を確定できず検索結果も 0 件の場合、clean と推測せず dirty を維持する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。
 - preflight は旧 KV manifest だけでなく、現行 Durable Object manifest が1件でも dirty なら失敗する。
+- 同期、Webhook simulation、ジョブは下流資源と状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。
 
 ## E2E GitHub Actions 境界
 

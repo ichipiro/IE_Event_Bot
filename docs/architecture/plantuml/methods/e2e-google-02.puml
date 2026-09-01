@@ -1,0 +1,28 @@
+@startuml
+!include ../_shared/style.puml
+title e2e google 02 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P019 e2e_google_probe</b>\n役割: 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。" as P019
+rectangle "<b>F205 e2e_google_probe._new_run_id</b>\n役割: 時刻と乱数から形式制約を満たす E2E run ID を生成する。" as F205 <<function>>
+P019 -[#64748B]-> F205 : [E1267] 関数を定義
+rectangle "<b>F206 e2e_google_probe._event_has_run</b>\n役割: イベントが指定 run ID の所有資源か判定する。" as F206 <<function>>
+P019 -[#64748B]-> F206 : [E1268] 関数を定義
+rectangle "<b>F207 e2e_google_probe._event_matches</b>\n役割: 取得したイベントが E2E の期待値と一致するか判定する。" as F207 <<function>>
+P019 -[#64748B]-> F207 : [E1269] 関数を定義
+rectangle "<b>F208 e2e_google_probe._delete_event</b>\n役割: run ID一致を確認してから削除し、失敗時は3回まで再試行する。" as F208 <<function>>
+P019 -[#64748B]-> F208 : [E1270] 関数を定義
+rectangle "<b>F209 e2e_google_probe._clean_manifest</b>\n役割: 成功済み E2E manifest を秘密値のない確定状態へ整形する。" as F209 <<function>>
+P019 -[#64748B]-> F209 : [E1271] 関数を定義
+rectangle "<b>F210 e2e_google_probe.run_google_calendar_crud_probe</b>\n役割: Google Calendar の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。" as F210 <<function>>
+P019 -[#64748B]-> F210 : [E1272] 関数を定義
+rectangle "<b>F211 e2e_google_probe.cleanup_google_calendar_crud_probe</b>\n役割: Google Calendar E2E manifest が所有する残存イベントを回収する。" as F211 <<function>>
+P019 -[#64748B]-> F211 : [E1273] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

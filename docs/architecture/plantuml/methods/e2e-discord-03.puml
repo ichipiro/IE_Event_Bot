@@ -1,0 +1,34 @@
+@startuml
+!include ../_shared/style.puml
+title e2e discord 03 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P017 e2e_discord_probe</b>\n役割: 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。" as P017
+rectangle "<b>F177 e2e_discord_probe._verify_targets</b>\n役割: E2E 操作対象の設定値を検査し、安全な識別指紋を返す。" as F177 <<function>>
+P017 -[#64748B]-> F177 : [E1237] 関数を定義
+rectangle "<b>F178 e2e_discord_probe._find_event_by_run</b>\n役割: 指定 run ID の E2E イベントを検索する。" as F178 <<function>>
+P017 -[#64748B]-> F178 : [E1238] 関数を定義
+rectangle "<b>F179 e2e_discord_probe._find_message_by_run</b>\n役割: 指定 run ID の E2E メッセージを検索する。" as F179 <<function>>
+P017 -[#64748B]-> F179 : [E1239] 関数を定義
+rectangle "<b>F180 e2e_discord_probe._delete_event</b>\n役割: E2E が所有する外部イベントを削除する。" as F180 <<function>>
+P017 -[#64748B]-> F180 : [E1240] 関数を定義
+rectangle "<b>F181 e2e_discord_probe._delete_message</b>\n役割: E2E が所有する Discord メッセージを削除する。" as F181 <<function>>
+P017 -[#64748B]-> F181 : [E1241] 関数を定義
+rectangle "<b>F182 e2e_discord_probe._cleanup_resources</b>\n役割: manifest に記録された E2E 所有資源を回収する。" as F182 <<function>>
+P017 -[#64748B]-> F182 : [E1242] 関数を定義
+rectangle "<b>F183 e2e_discord_probe._target_fingerprints</b>\n役割: 操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。" as F183 <<function>>
+P017 -[#64748B]-> F183 : [E1243] 関数を定義
+rectangle "<b>F184 e2e_discord_probe._clean_manifest</b>\n役割: 成功済み E2E manifest を秘密値のない確定状態へ整形する。" as F184 <<function>>
+P017 -[#64748B]-> F184 : [E1244] 関数を定義
+rectangle "<b>F185 e2e_discord_probe.run_discord_crud_probe</b>\n役割: Discord の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。" as F185 <<function>>
+P017 -[#64748B]-> F185 : [E1245] 関数を定義
+rectangle "<b>F186 e2e_discord_probe.cleanup_discord_crud_probe</b>\n役割: Discord E2E manifest が所有する残存イベントとメッセージを回収する。" as F186 <<function>>
+P017 -[#64748B]-> F186 : [E1246] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

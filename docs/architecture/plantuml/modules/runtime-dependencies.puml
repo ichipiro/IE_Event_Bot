@@ -12,6 +12,10 @@ package "Worker アプリケーション" {
   component "<b>P006 google_watch</b>\n役割: Google Calendar watch を登録・更新し、有効期限内の状態を維持する。" as P006
   component "<b>P007 health_checks</b>\n役割: Google、Notion、Discord への認証付き疎通結果をまとめる。" as P007
   component "<b>P008 jobs</b>\n役割: Q&A 通知、前日リマインド、終了済みページ整理の定期ジョブを実行する。" as P008
+  component "<b>P017 e2e_discord_probe</b>\n役割: Discord E2E CRUD と cleanup を実行する。" as P017
+  component "<b>P018 e2e_entry</b>\n役割: E2E 専用の公開面と実行制御を提供する。" as P018
+  component "<b>P019 e2e_google_probe</b>\n役割: Google Calendar E2E CRUD と cleanup を実行する。" as P019
+  component "<b>P020 e2e_notion_probe</b>\n役割: Notion E2E CRUD と cleanup を実行する。" as P020
   component "<b>P010 sync_lock_do</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複判定を Durable Object で直列化する。" as P010
 }
 package "外部実行時契約" {
@@ -26,6 +30,10 @@ P006 -[#64748B]-> P013 : [E325] Workers 実行時 API を import
 P007 -[#64748B]-> P013 : [E326] Workers 実行時 API を import
 P008 -[#64748B]-> P013 : [E327] Workers 実行時 API を import
 P010 -[#64748B]-> P013 : [E328] Workers 実行時 API を import
+P018 -[#64748B]-> P013 : [E1331] Workers 実行時 API を import
+P017 -[#64748B]-> P013 : [E1332] Workers 実行時 API を import
+P019 -[#64748B]-> P013 : [E1334] Workers 実行時 API を import
+P020 -[#64748B]-> P013 : [E1335] Workers 実行時 API を import
 legend bottom
   |= 表記 |= 意味 |
   | 青の実線 | 入力または内部依存 |

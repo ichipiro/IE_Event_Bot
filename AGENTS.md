@@ -69,6 +69,7 @@ python -m pip install -r workers/requirements.txt
 - `workers/src/state.py`: Workers KV と Durable Object を介した状態管理。
 - `workers/src/sync_lock_do.py`: 排他、最終同期時刻、Webhook 重複抑止を扱う Durable Object。
 - `workers/wrangler.jsonc`: Cloudflare Workers のバインディング、変数、Cron 設定。
+- `tests/`: 外部通信を遮断したローカル単体テストと Workers API の代替実装。
 - `pyproject.toml`: Python パッケージ情報と開発依存。
 - `README_ENV.md`: リポジトリの仮想環境へ導入する Python パッケージ。
 
@@ -107,14 +108,14 @@ ruff check .
 pyright
 ```
 
-テストファイルが存在する場合:
+ローカル単体テスト:
 
 ```bash
 source .venv/bin/activate
 pytest -q
 ```
 
-現在はテストファイルがないため、`pytest -q` を未実装テストの成功証明として扱わない。
+テストは外部 API をスタブ化しており、Cloudflare、Discord、Google、Notion の実環境動作を証明しない。詳細は `docs/TESTING.md` を参照する。
 文書だけの変更でも、相対リンクの解決、`git diff --check`、意図しないファイル変更の有無を確認する。
 実行できなかった検証は、実行済みとして報告しない。
 
@@ -154,14 +155,16 @@ pytest -q
 
 - [`README_ENV.md`](README_ENV.md)
   - Linux 仮想環境に導入する Python パッケージ。
+- [`docs/TESTING.md`](docs/TESTING.md)
+  - 外部通信を遮断したローカル単体テストの構成、実行方法、検証境界。
 - [`docs/Event_Bot仕様書.md`](docs/Event_Bot仕様書.md)
-  - 既存の機能仕様書。
+  - 追跡対象外で維持するローカル機能仕様書。
 - [`docs/KV.md`](docs/KV.md)
-  - Workers KV のキーと運用の詳細。
+  - 追跡対象外で維持する Workers KV のローカル補助。
 - [`docs/Operations.md`](docs/Operations.md)
-  - Worker の設定、デプロイ、監視、障害対応。
+  - 追跡対象外で維持する運用上のローカル補助。
 - [`docs/do-kv-design.md`](docs/do-kv-design.md)
-  - Durable Object と Workers KV の責務分担。
+  - 追跡対象外で維持する状態設計のローカル補助。
 - [`docs/fork-upstream-workflow.md`](docs/fork-upstream-workflow.md)
   - Fork、Upstream、Pull Request、Release、同期の運用。
 - [`CHANGELOG.md`](CHANGELOG.md)

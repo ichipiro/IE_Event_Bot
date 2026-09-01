@@ -1,13 +1,11 @@
 @startuml
 !include ../_shared/style.puml
-title entry — メソッド・関数詳細 2/2
+title entry 02 — メソッド・関数詳細
 !pragma layout smetana
 left to right direction
 component "<b>P001 entry</b>\n役割: HTTP、Cron、認可、同期とジョブの起動を一つの Worker エントリで調整する。" as P001
 component "<b>C001 entry.Default</b>\n役割: HTTP ルーティング、Cron 実行、認可、同期ディスパッチを Worker の入口として調整する。" as C001 <<class>>
 P001 -[#64748B]-> C001 : [E900] クラスを定義
-rectangle "<b>M014 entry.Default._sync_all_include_discord_notion</b>\n役割: /sync/all で Discord->Notion を実行するか。" as M014 <<method>>
-C001 -[#64748B]-> M014 : [E1070] メソッドを所有
 rectangle "<b>M015 entry.Default._durable_lock_enabled</b>\n役割: Durable Object ロック有効/無効。" as M015 <<method>>
 C001 -[#64748B]-> M015 : [E1071] メソッドを所有
 rectangle "<b>M016 entry.Default._acquire_sync_lock</b>\n役割: SyncCoordinator Durable Object で排他ロックを取得する。" as M016 <<method>>
@@ -20,10 +18,19 @@ rectangle "<b>M019 entry.Default._migration_status</b>\n役割: 運用診断用�
 C001 -[#64748B]-> M019 : [E1075] メソッドを所有
 rectangle "<b>M020 entry.Default._sync_lock_status</b>\n役割: Durable Object から現在のロック状態を取得する。" as M020 <<method>>
 C001 -[#64748B]-> M020 : [E1076] メソッドを所有
-rectangle "<b>M021 entry.Default._get_sync_stub</b>\n役割: Durable Object namespace から \"global\" stub を取得(DO生成)する。" as M021 <<method>>
+rectangle "<b>M021 entry.Default._get_sync_stub</b>\n役割: Durable Object namespace から 'global' stub を取得(DO生成)する。" as M021 <<method>>
 C001 -[#64748B]-> M021 : [E1077] メソッドを所有
-rectangle "<b>M022 entry.Default._do_stub_fetch</b>\n役割: Durable Object stub.fetch の呼び出し差分を吸収する。" as M022 <<method>>
+rectangle "<b>M022 entry.Default._do_stub_rpc</b>\n役割: SyncCoordinator RPC を JSON 文字列で呼び出し、追加の await 境界を吸収する。" as M022 <<method>>
 C001 -[#64748B]-> M022 : [E1078] メソッドを所有
+rectangle "<b>M054 entry.Default._decode_do_rpc</b>\n役割: SyncCoordinator RPC の JSON 文字列を結果辞書へ復元する。" as M054 <<method>>
+C001 -[#64748B]-> M054 : [E1210] メソッドを所有
 rectangle "<b>M023 entry.Default._to_bool_query</b>\n役割: クエリ文字列中の bool 値（1/true/yes/on）を判定する。" as M023 <<method>>
 C001 -[#64748B]-> M023 : [E1079] メソッドを所有
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
 @enduml

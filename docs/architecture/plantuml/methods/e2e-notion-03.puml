@@ -1,0 +1,36 @@
+@startuml
+!include ../_shared/style.puml
+title e2e notion 03 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P020 e2e_notion_probe</b>\n役割: 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。" as P020
+rectangle "<b>F234 e2e_notion_probe._event_create_payload</b>\n役割: Notion event 検証ページの作成 payload を組み立てる。" as F234 <<function>>
+P020 -[#64748B]-> F234 : [E1296] 関数を定義
+rectangle "<b>F235 e2e_notion_probe._event_update_payload</b>\n役割: Notion event 検証ページの更新 payload を組み立てる。" as F235 <<function>>
+P020 -[#64748B]-> F235 : [E1297] 関数を定義
+rectangle "<b>F236 e2e_notion_probe._qa_create_payload</b>\n役割: Notion Q&A 検証ページの作成 payload を組み立てる。" as F236 <<function>>
+P020 -[#64748B]-> F236 : [E1298] 関数を定義
+rectangle "<b>F237 e2e_notion_probe._qa_update_payload</b>\n役割: Notion Q&A 検証ページの更新 payload を組み立てる。" as F237 <<function>>
+P020 -[#64748B]-> F237 : [E1299] 関数を定義
+rectangle "<b>F238 e2e_notion_probe._find_page_by_marker</b>\n役割: 指定マーカーの Notion E2E ページを検索する。" as F238 <<function>>
+P020 -[#64748B]-> F238 : [E1300] 関数を定義
+rectangle "<b>F239 e2e_notion_probe._archive_page</b>\n役割: E2E が所有する Notion ページをアーカイブする。" as F239 <<function>>
+P020 -[#64748B]-> F239 : [E1301] 関数を定義
+rectangle "<b>F240 e2e_notion_probe._cleanup_resources</b>\n役割: manifest に記録された E2E 所有資源を回収する。" as F240 <<function>>
+P020 -[#64748B]-> F240 : [E1302] 関数を定義
+rectangle "<b>F241 e2e_notion_probe._target_fingerprints</b>\n役割: 操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。" as F241 <<function>>
+P020 -[#64748B]-> F241 : [E1303] 関数を定義
+rectangle "<b>F242 e2e_notion_probe._clean_manifest</b>\n役割: 成功済み E2E manifest を秘密値のない確定状態へ整形する。" as F242 <<function>>
+P020 -[#64748B]-> F242 : [E1304] 関数を定義
+rectangle "<b>F243 e2e_notion_probe.run_notion_crud_probe</b>\n役割: Notion の作成・検証・更新・アーカイブを実行し、cleanup manifest と段階結果を返す。" as F243 <<function>>
+P020 -[#64748B]-> F243 : [E1305] 関数を定義
+rectangle "<b>F244 e2e_notion_probe.cleanup_notion_crud_probe</b>\n役割: Notion E2E manifest が所有する残存ページを回収する。" as F244 <<function>>
+P020 -[#64748B]-> F244 : [E1306] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

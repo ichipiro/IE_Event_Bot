@@ -1,0 +1,36 @@
+@startuml
+!include ../_shared/style.puml
+title e2e notion 01 — メソッド・関数詳細
+!pragma layout smetana
+left to right direction
+component "<b>P020 e2e_notion_probe</b>\n役割: 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。" as P020
+rectangle "<b>F212 e2e_notion_probe.fetch</b>\n役割: Workers fetch の呼び出し形式差を吸収する。" as F212 <<function>>
+P020 -[#64748B]-> F212 : [E1274] 関数を定義
+rectangle "<b>F213 e2e_notion_probe._env_text</b>\n役割: Worker 環境変数から文字列設定を安全に取得する。" as F213 <<function>>
+P020 -[#64748B]-> F213 : [E1275] 関数を定義
+rectangle "<b>F214 e2e_notion_probe._canonical_id</b>\n役割: Notion ID を区切りなしの標準形式へ正規化する。" as F214 <<function>>
+P020 -[#64748B]-> F214 : [E1276] 関数を定義
+rectangle "<b>F215 e2e_notion_probe._fingerprint</b>\n役割: 正規化した検証対象を SHA-256 指紋へ変換する。" as F215 <<function>>
+P020 -[#64748B]-> F215 : [E1277] 関数を定義
+rectangle "<b>F216 e2e_notion_probe._new_run_id</b>\n役割: 時刻と乱数から形式制約を満たす E2E run ID を生成する。" as F216 <<function>>
+P020 -[#64748B]-> F216 : [E1278] 関数を定義
+rectangle "<b>F217 e2e_notion_probe._run_marker</b>\n役割: E2E 資源を run ID に結び付ける識別マーカーを生成する。" as F217 <<function>>
+P020 -[#64748B]-> F217 : [E1279] 関数を定義
+rectangle "<b>F218 e2e_notion_probe._rich_text</b>\n役割: 文字列を Notion rich_text 要素へ変換する。" as F218 <<function>>
+P020 -[#64748B]-> F218 : [E1280] 関数を定義
+rectangle "<b>F219 e2e_notion_probe._title</b>\n役割: 文字列を Notion title 要素へ変換する。" as F219 <<function>>
+P020 -[#64748B]-> F219 : [E1281] 関数を定義
+rectangle "<b>F220 e2e_notion_probe._header_text</b>\n役割: HTTP 応答ヘッダから正規化済み文字列を取得する。" as F220 <<function>>
+P020 -[#64748B]-> F220 : [E1282] 関数を定義
+rectangle "<b>F221 e2e_notion_probe._retry_after_seconds</b>\n役割: rate limit 応答から再試行待機秒数を安全に算出する。" as F221 <<function>>
+P020 -[#64748B]-> F221 : [E1283] 関数を定義
+rectangle "<b>F222 e2e_notion_probe._notion_request</b>\n役割: 小さなNotion JSON APIを呼び、429だけ公式待機値で再試行する。" as F222 <<function>>
+P020 -[#64748B]-> F222 : [E1284] 関数を定義
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
+@enduml

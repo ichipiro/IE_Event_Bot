@@ -1,11 +1,15 @@
 @startuml
 !include ../_shared/style.puml
-title state — メソッド・関数詳細 3/3
+title state 03 — メソッド・関数詳細
 !pragma layout smetana
 left to right direction
 component "<b>P009 state</b>\n役割: Workers KV と Durable Object の状態アクセスを責務別に集約する。" as P009
 component "<b>C002 state.StateStore</b>\n役割: Workers KV への状態アクセスを集約し、整合性が必要な状態を Durable Object へ委譲する。" as C002 <<class>>
 P009 -[#64748B]-> C002 : [E901] クラスを定義
+rectangle "<b>M042 state.StateStore.get_gcal_discord_map</b>\n役割: GoogleイベントID -> DiscordイベントID の対応表を取得する。" as M042 <<method>>
+C002 -[#64748B]-> M042 : [E1190] メソッドを所有
+rectangle "<b>M043 state.StateStore.set_gcal_discord_map</b>\n役割: GoogleイベントID -> DiscordイベントID の対応表を保存する。" as M043 <<method>>
+C002 -[#64748B]-> M043 : [E1191] メソッドを所有
 rectangle "<b>M044 state.StateStore.get_gcal_notion_map</b>\n役割: GoogleイベントID -> NotionページID の対応表を取得する。" as M044 <<method>>
 C002 -[#64748B]-> M044 : [E1192] メソッドを所有
 rectangle "<b>M045 state.StateStore.set_gcal_notion_map</b>\n役割: GoogleイベントID -> NotionページID の対応表を保存する。" as M045 <<method>>
@@ -26,4 +30,11 @@ rectangle "<b>M052 state.StateStore.is_kv_sync_cooldown_enabled</b>\n役割: 同
 C002 -[#64748B]-> M052 : [E1200] メソッドを所有
 rectangle "<b>M053 state.StateStore.is_gcal_dedupe_enabled</b>\n役割: Google webhook 重複抑止機能の有効/無効を返す。" as M053 <<method>>
 C002 -[#64748B]-> M053 : [E1201] メソッドを所有
+legend bottom
+  |= 表記 |= 意味 |
+  | 青の実線 | 入力または内部依存 |
+  | 緑の実線 | 出力または処理結果 |
+  | 橙の破線 | 実行時未確認 |
+  | 補足 | 各 ID は architecture-index.json と architecture-catalog.md に対応。 |
+endlegend
 @enduml

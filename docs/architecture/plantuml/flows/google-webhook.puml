@@ -1,6 +1,6 @@
 @startuml
 !include ../_shared/style.puml
-title Google Calendar Webhook — 重複抑止と同期開始
+title Google Calendar Webhook — token 検証・重複抑止・同期開始
 hide footbox
 autonumber
 participant "Google push 通知\n<T001>" as T001
@@ -8,21 +8,26 @@ participant "Worker HTTP API\n<A001>" as A001
 participant "StateStore\n<C002>" as C002
 participant "Default\n<C001>" as C001
 participant "外部同期サブシステム\n<P014>" as P014
-T001 -> A001: [E003] 入力: X-Goog-Channel-ID・X-Goog-Message-Number
-A001 -> C002: [E140] 入力: channel ID・message number
-C002 --> A001: [E141] 出力: duplicated
-alt 重複通知
-  A001 --> T001: [E004] 出力: HTTP 204
-else 初回通知
-  A001 -> C001: [E005] 入力: request・source=webhook
-  C001 -> P014: [E008] 入力: env・state・起動元
-  P014 --> C001: [E009] 出力: 同期結果
-  C001 --> A001: [E006] 出力: Response
-  alt 同期結果が 500 未満
+T001 -> A001: [E003] 入力: X-Goog-Channel-Token・channel ID・message number
+A001 -> A001: method=POST と channel token を検証
+alt method・Secret・token が不正
+  A001 --> T001: [E004] 出力: HTTP 401・405・503
+else 認証済み通知
+  A001 -> C002: [E140] 入力: channel ID・message number
+  C002 --> A001: [E141] 出力: duplicated
+  alt 重複通知
     A001 --> T001: [E004] 出力: HTTP 204
-  else 同期失敗
-    A001 --> T001: [E004] 出力: HTTP 500
+  else 初回通知
+    A001 -> C001: [E005] 入力: request・source=webhook
+    C001 -> P014: [E008] 入力: env・state・起動元
+    P014 --> C001: [E009] 出力: 同期結果
+    C001 --> A001: [E006] 出力: Response
+    alt 同期結果が 500 未満
+      A001 --> T001: [E004] 出力: HTTP 204
+    else 同期失敗
+      A001 --> T001: [E004] 出力: HTTP 500
+    end
   end
 end
-note over T001,A001: アプリ内 Bearer 認可はない。Edge 側制御は実環境未確認。
+note over T001,A001: watch 登録時と受信時に同じ channel token を使う。Edge 側制御と実配信は未確認。
 @enduml

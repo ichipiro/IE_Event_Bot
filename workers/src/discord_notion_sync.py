@@ -542,7 +542,11 @@ async def _notify_discord_event_created(env, event: dict) -> bool:
         return False
     allowed_mentions = None
     if role_id:
-        allowed_mentions = {"parse": ["roles"], "users": [], "everyone": False}
+        allowed_mentions = {
+            "parse": [],
+            "roles": [role_id],
+            "replied_user": False,
+        }
     message_id = await _discord_send_message(
         env,
         channel_id,

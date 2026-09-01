@@ -1,0 +1,218 @@
+# この設定はtrusted projectでだけ読み込まれる。Secret値や実資源IDは置かない。
+
+[mcp_servers.ie_event_bot_e2e]
+command = "node"
+args = ["tools/e2e_mcp_server.mjs"]
+cwd = "."
+env_vars = ["E2E_WORKER_URL", "E2E_WORKER_URL_SHA256", "INTERNAL_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]
+enabled = true
+required = false
+enabled_tools = [
+  "preflight",
+  "deploy_e2e",
+  "seed_fixture",
+  "trigger_sync",
+  "trigger_webhook",
+  "trigger_job",
+  "read_status",
+  "assert_external_state",
+  "collect_evidence",
+  "cleanup_run",
+]
+disabled_tools = []
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 10
+tool_timeout_sec = 300
+
+[mcp_servers.ie_event_bot_e2e.tools.preflight]
+approval_mode = "auto"
+
+[mcp_servers.ie_event_bot_e2e.tools.read_status]
+approval_mode = "auto"
+
+[mcp_servers.ie_event_bot_e2e.tools.assert_external_state]
+approval_mode = "auto"
+
+[mcp_servers.ie_event_bot_e2e.tools.collect_evidence]
+approval_mode = "auto"
+
+[mcp_servers.ie_event_bot_e2e.tools.deploy_e2e]
+approval_mode = "prompt"
+
+[mcp_servers.ie_event_bot_e2e.tools.seed_fixture]
+approval_mode = "prompt"
+
+[mcp_servers.ie_event_bot_e2e.tools.trigger_sync]
+approval_mode = "prompt"
+
+[mcp_servers.ie_event_bot_e2e.tools.trigger_webhook]
+approval_mode = "prompt"
+
+[mcp_servers.ie_event_bot_e2e.tools.trigger_job]
+approval_mode = "prompt"
+
+[mcp_servers.ie_event_bot_e2e.tools.cleanup_run]
+approval_mode = "prompt"
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
+auth = "oauth"
+enabled = true
+required = false
+enabled_tools = [
+  "notion_search",
+  "notion_fetch",
+  "notion_query_data_sources",
+  "notion_create_pages",
+  "notion_update_page",
+]
+disabled_tools = [
+  "notion_create_attachment",
+  "notion_create_database",
+  "notion_create_file_upload",
+  "notion_create_folder",
+  "notion_create_view",
+  "notion_duplicate_page",
+  "notion_move_pages",
+  "notion_spawn_session",
+  "notion_update_data_source",
+  "notion_update_folder",
+  "notion_update_view",
+]
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 20
+tool_timeout_sec = 90
+
+[mcp_servers.notion.tools.notion_search]
+approval_mode = "auto"
+
+[mcp_servers.notion.tools.notion_fetch]
+approval_mode = "auto"
+
+[mcp_servers.notion.tools.notion_query_data_sources]
+approval_mode = "auto"
+
+[mcp_servers.notion.tools.notion_create_pages]
+approval_mode = "prompt"
+
+[mcp_servers.notion.tools.notion_update_page]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e]
+command = "./node_modules/.bin/playwright-mcp"
+args = [
+  "--isolated",
+  "--browser",
+  "chromium",
+  "--block-service-workers",
+  "--codegen",
+  "none",
+  "--console-level",
+  "warning",
+  "--image-responses",
+  "omit",
+  "--output-dir",
+  "test-results/playwright-mcp",
+  "--output-max-size",
+  "52428800",
+  "--timeout-action",
+  "10000",
+  "--timeout-navigation",
+  "60000",
+]
+cwd = "."
+enabled = true
+required = false
+enabled_tools = [
+  "browser_close",
+  "browser_console_messages",
+  "browser_handle_dialog",
+  "browser_find",
+  "browser_fill_form",
+  "browser_press_key",
+  "browser_type",
+  "browser_navigate",
+  "browser_navigate_back",
+  "browser_take_screenshot",
+  "browser_snapshot",
+  "browser_click",
+  "browser_hover",
+  "browser_select_option",
+  "browser_tabs",
+  "browser_wait_for",
+]
+disabled_tools = [
+  "browser_drag",
+  "browser_drop",
+  "browser_evaluate",
+  "browser_file_upload",
+  "browser_network_request",
+  "browser_network_requests",
+  "browser_resize",
+  "browser_run_code_unsafe",
+]
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.playwright_e2e.tools.browser_navigate]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_navigate_back]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_click]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_hover]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_fill_form]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_type]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_press_key]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_select_option]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_handle_dialog]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_tabs]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_close]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_console_messages]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_find]
+approval_mode = "auto"
+
+[mcp_servers.playwright_e2e.tools.browser_take_screenshot]
+approval_mode = "prompt"
+
+[mcp_servers.playwright_e2e.tools.browser_snapshot]
+approval_mode = "auto"
+
+[mcp_servers.playwright_e2e.tools.browser_wait_for]
+approval_mode = "auto"
+
+[plugins."cloudflare@openai-curated-remote".mcp_servers.cloudflare-api]
+enabled = true
+enabled_tools = ["search", "execute"]
+disabled_tools = []
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[plugins."cloudflare@openai-curated-remote".mcp_servers.cloudflare-api.tools.search]
+approval_mode = "auto"
+
+[plugins."cloudflare@openai-curated-remote".mcp_servers.cloudflare-api.tools.execute]
+approval_mode = "prompt"

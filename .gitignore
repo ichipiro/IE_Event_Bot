@@ -43,11 +43,19 @@ Thumbs.db
 # Build / distribution
 build/
 dist/
+node_modules/
 *.egg-info/
 pip-wheel-metadata/
 
 # Local generated artifacts
 artifacts/
+
+# E2E browser authentication and reports
+playwright/.auth/
+e2e/.auth/
+playwright-report/
+test-results/
+blob-report/
 
 # Environment files
 .env

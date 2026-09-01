@@ -1,6 +1,15 @@
 import json
 import time
 from datetime import datetime, timezone
+from inspect import isawaitable
+
+
+_JS_ABSENT_VALUES = frozenset(("jsnull", "jsundefined"))
+_LEGACY_E2E_MANIFEST_KEYS = {
+    "google": "e2e:google_calendar_crud",
+    "discord": "e2e:discord_crud",
+    "notion": "e2e:notion_crud",
+}
 
 
 def _bool_env(value: str | None, default: bool = False) -> bool:
@@ -39,49 +48,39 @@ class StateStore:
         """内部ヘルパー: SyncCoordinator Durable Object namespace を返す。"""
         return getattr(self.env, "SYNC_COORDINATOR", None)
 
+    def e2e_manifest_enabled(self) -> bool:
+        """E2E cleanup 所有権用 Durable Object binding の有無を返す。"""
+        return self._sync_do() is not None
+
     @staticmethod
     def _sync_do_stub(do_ns):
         """Durable Object namespace から global stub を取得する。"""
         if do_ns is None:
             return None
-        if hasattr(do_ns, "get_by_name"):
-            return do_ns.get_by_name("global")
-        if hasattr(do_ns, "id_from_name") and hasattr(do_ns, "get"):
-            return do_ns.get(do_ns.id_from_name("global"))
-        if hasattr(do_ns, "idFromName") and hasattr(do_ns, "get"):
-            return do_ns.get(do_ns.idFromName("global"))
-        return None
+        return do_ns.getByName("global")
 
     @staticmethod
-    async def _sync_do_fetch(stub, action: str, payload: dict | None = None):
-        """SyncCoordinator へ JSON POST し、結果辞書を返す。"""
+    async def _sync_do_rpc(stub, action: str, payload: dict | None = None):
+        """SyncCoordinator RPCをJSON文字列だけで呼び出し、結果辞書を返す。"""
         if stub is None:
             return None
         body = _json_text({"action": action, **(payload or {})})
+        result = stub.sync_state(body)
+        # Python Workersのbinding wrapperがRPC結果を追加のcoroutineで包む場合がある。
+        for _ in range(3):
+            if not isawaitable(result):
+                break
+            result = await result
+        if isawaitable(result):
+            raise TypeError("sync_state_rpc_awaitable_depth_exceeded")
         try:
-            response = await stub.fetch(
-                "https://sync-lock/internal",
-                method="POST",
-                headers={"content-type": "application/json"},
-                body=body,
-            )
-        except TypeError:
-            response = await stub.fetch(
-                "https://sync-lock/internal",
-                {
-                    "method": "POST",
-                    "headers": {"content-type": "application/json"},
-                    "body": body,
-                },
-            )
-        text = await response.text()
-        try:
-            return json.loads(text or "{}")
+            data = json.loads(str(result or "{}"))
         except Exception:
             return {}
+        return data if isinstance(data, dict) else {}
 
     async def get_text(self, key: str) -> str | None:
-        """KV から文字列を取得し、空文字は None として扱う。"""
+        """KV から文字列を取得し、未設定値と空文字は None として扱う。"""
         kv = self._kv()
         if kv is None:
             return None
@@ -89,6 +88,8 @@ class StateStore:
         if value is None:
             return None
         text = str(value).strip()
+        if text in _JS_ABSENT_VALUES:
+            return None
         return text or None
 
     async def put_text(self, key: str, value: str):
@@ -133,6 +134,51 @@ class StateStore:
         await self.put_text(key, next_text)
         return True
 
+    async def get_e2e_manifest(self, service: str) -> dict | None:
+        """E2E cleanup manifest を強整合な Durable Object から取得する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            "get_e2e_manifest",
+            {"service": str(service or "")},
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("e2e_manifest_read_failed")
+        manifest = result.get("manifest")
+        if manifest is None:
+            return None
+        if not isinstance(manifest, dict):
+            raise RuntimeError("e2e_manifest_read_failed")
+        return manifest
+
+    async def put_e2e_manifest(self, service: str, payload: dict) -> None:
+        """E2E cleanup manifest を強整合な Durable Object へ保存する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        if not isinstance(payload, dict):
+            raise RuntimeError("e2e_manifest_invalid_payload")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            "put_e2e_manifest",
+            {
+                "service": str(service or ""),
+                "manifest_json": _json_text(payload),
+            },
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("e2e_manifest_write_failed")
+
+    async def get_legacy_e2e_manifest(self, service: str) -> dict | None:
+        """旧KV manifestを移行判定専用に読む。所有権の正本にはしない。"""
+        key = _LEGACY_E2E_MANIFEST_KEYS.get(str(service or "").strip().lower())
+        if key is None:
+            raise RuntimeError("invalid_e2e_manifest_service")
+        value = await self.get_json(key, None)
+        return value if isinstance(value, dict) else None
+
     async def mark_google_message_seen(self, channel_id: str, message_number: str) -> bool:
         """
         Google webhook 重複通知抑止用。
@@ -145,7 +191,7 @@ class StateStore:
         do_ns = self._sync_do()
         if do_ns is not None:
             stub = self._sync_do_stub(do_ns)
-            result = await self._sync_do_fetch(
+            result = await self._sync_do_rpc(
                 stub,
                 "mark_google_message_seen",
                 {
@@ -178,7 +224,7 @@ class StateStore:
         do_ns = self._sync_do()
         if do_ns is not None:
             stub = self._sync_do_stub(do_ns)
-            result = await self._sync_do_fetch(stub, "get_sync_last_epoch")
+            result = await self._sync_do_rpc(stub, "get_sync_last_epoch")
             try:
                 return float((result or {}).get("last_epoch") or 0.0)
             except Exception:
@@ -197,7 +243,7 @@ class StateStore:
         do_ns = self._sync_do()
         if do_ns is not None:
             stub = self._sync_do_stub(do_ns)
-            await self._sync_do_fetch(stub, "set_sync_last_epoch", {"last_epoch": now_epoch})
+            await self._sync_do_rpc(stub, "set_sync_last_epoch", {"last_epoch": now_epoch})
             return
         await self.put_text("sync:last_epoch", str(now_epoch))
 

@@ -12,6 +12,7 @@
 | エージェント指示 | `AGENTS.md` |
 | 開発規則 | `docs/DEVELOPMENT.md` |
 | Python バージョンと依存 | `pyproject.toml`、`workers/requirements.txt`、`README_ENV.md` |
+| Node.js 要件と Wrangler | `package.json`、`package-lock.json` |
 | Worker、バインディング、変数、Cron | `workers/wrangler.jsonc` |
 | HTTP、認可、Cron | `workers/src/entry.py` |
 | KV と Durable Object の抽象化 | `workers/src/state.py` |
@@ -39,6 +40,7 @@
 ## 外部の一次資料
 
 - Cloudflare Workers Python: <https://developers.cloudflare.com/workers/languages/python/>
+- Cloudflare Wrangler の導入: <https://developers.cloudflare.com/workers/wrangler/install-and-update/>
 - Cloudflare Workers KV: <https://developers.cloudflare.com/kv/>
 - Cloudflare Durable Objects: <https://developers.cloudflare.com/durable-objects/>
 - Google Calendar API: <https://developers.google.com/calendar/api/guides/overview>

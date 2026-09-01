@@ -47,12 +47,12 @@ Google Calendar webhook と Discord Bot を入口にして、差分同期、通�
 
 ## 3. エンドポイント一覧
 
-`INTERNAL_API_TOKEN` を設定している場合、`/health` と `/gcal/webhook` 以外は `Authorization: Bearer <token>` が必要です。
+`GET /health` だけが認証なしで利用できます。同期、管理、ジョブ API は常に `Authorization: Bearer <INTERNAL_API_TOKEN>` を要求し、Secret が未設定でも `401` で拒否します。`POST /gcal/webhook` は別系統の `X-Goog-Channel-Token` を検証します。
 
 - `GET /health`
   - ヘルス確認
 - `POST /gcal/webhook`
-  - Google webhook 受信。必要に応じて重複通知を KV で抑止
+  - Google webhook 受信。`X-Goog-Channel-Token` を検証後、Durable Object（利用不可時は KV）で重複通知を抑止
 - `GET|POST /sync/all` (`/gcal/sync` はエイリアス)
   - 全体同期ディスパッチ
 - `GET|POST /sync/discord-notion`
@@ -107,8 +107,11 @@ Google Calendar webhook と Discord Bot を入口にして、差分同期、通�
 ## 6. シークレット 
 
 - `INTERNAL_API_TOKEN`
+- `GCAL_WEBHOOK_TOKEN`
 - `NOTION_TOKEN`
 - `DISCORD_TOKEN`
+
+`INTERNAL_API_TOKEN` と `GCAL_WEBHOOK_TOKEN` は Wrangler Secret として登録します。`GCAL_WEBHOOK_TOKEN` には推測しにくいランダム値を使い、Google Calendar の上限である256文字以内にします。値は `workers/wrangler.jsonc` や文書へ保存しません。
 
 Google 認証ソースの優先順:
 
@@ -121,6 +124,7 @@ Google 認証ソースの優先順:
 
 ### 7.1 必須クラス
 - `INTERNAL_API_TOKEN`: 管理系 API（`/sync/all`, `/jobs/*`, `/admin/*`）の Bearer 認証トークン
+- `GCAL_WEBHOOK_TOKEN`: Google watch 登録時に渡し、Webhook の `X-Goog-Channel-Token` と照合する共有トークン
 - `GOOGLE_CALENDAR_ID`: 同期対象の Google カレンダー ID
 - `GCAL_WEBHOOK_URL`: Google watch 通知の送信先 URL（通常 `https://<worker>/gcal/webhook`）
 - `NOTION_TOKEN`: Notion API の認証トークン
@@ -255,6 +259,8 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
   "$BASE_URL/admin/gcal/watch/ensure"
 ```
 
+`GCAL_WEBHOOK_TOKEN` の初回導入時または変更時は、watch ensure が保存済み fingerprint の不一致を検出して watch を再登録します。実環境では、新しい watch の通知に `X-Goog-Channel-Token` が付くことを別途確認します。
+
 ## 10. トラブルシュートの入口
 
 - `/sync/all` が `cooldown_skip`: `SYNC_INTERVAL_SECONDS` と `sync:last_epoch` を確認
@@ -268,5 +274,8 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
 
 - Python package metadata: `pyproject.toml`
 - 開発依存: `ruff`, `pytest`, `pyright`
+- Wrangler / Node.js 要件: `package.json`, `package-lock.json`
+- 固定 Wrangler の導入と版確認: `npm ci`、`npm run wrangler -- --version`
+- ローカルテスト: [`docs/TESTING.md`](docs/TESTING.md)
 - リリース補助: `.release-please-config.json`
 - Git/Fork/Upstream/Release運用: [`docs/fork-upstream-workflow.md`](docs/fork-upstream-workflow.md)

@@ -1,0 +1,151 @@
+name: E2E Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "実行範囲。deploy と外部 CRUD は明示選択時だけ実行する"
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - deploy-and-crud-smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ie-event-bot-e2e
+  cancel-in-progress: false
+
+jobs:
+  local-validation:
+    name: Local validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+          python -m pip install -r workers/requirements.txt
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Lint
+        run: ruff check .
+      - name: Type check
+        run: pyright
+      - name: Python unit tests
+        run: |
+          mkdir -p test-results
+          pytest -q --junitxml=test-results/pytest.xml
+      - name: MCP and workflow contract tests
+        run: npm run test:mcp
+      - name: E2E configuration checks
+        run: |
+          python tools/validate_e2e_mcp_config.py
+          python tools/validate_e2e_secret_hygiene.py
+          python tools/validate_e2e_workflow.py
+          bash -n tools/configure_github_e2e_environment.sh
+      - name: Wrangler E2E dry-run
+        run: |
+          if npm run wrangler -- deploy --dry-run --config workers/wrangler.e2e.jsonc >/dev/null 2>&1; then
+            echo "wrangler_e2e_dry_run_ok"
+          else
+            echo "::error::wrangler_e2e_dry_run_failed"
+            exit 1
+          fi
+      - name: Upload JUnit XML
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pytest-junit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/pytest.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e:
+    name: Approved E2E
+    needs: local-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Create run ID
+        id: run_id
+        run: |
+          run_id="$(node tools/run_e2e_workflow.mjs run-id)"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+      - name: Read-only preflight
+        if: ${{ inputs.mode == 'preflight' }}
+        env:
+          E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
+          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+        run: node tools/run_e2e_workflow.mjs preflight --run-id "$E2E_RUN_ID"
+      - name: Deploy and run service CRUD smoke
+        if: ${{ inputs.mode == 'deploy-and-crud-smoke' }}
+        env:
+          E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
+          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          node tools/run_e2e_workflow.mjs deploy-and-crud-smoke
+          --run-id "$E2E_RUN_ID"
+      - name: Always cleanup resources created by this run
+        if: >-
+          ${{ always() && inputs.mode == 'deploy-and-crud-smoke' &&
+          steps.run_id.outcome == 'success' }}
+        env:
+          E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
+          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+        run: node tools/run_e2e_workflow.mjs cleanup --run-id "$E2E_RUN_ID"
+      - name: Collect redacted evidence
+        if: ${{ always() && steps.run_id.outcome == 'success' }}
+        env:
+          E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
+          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
+        run: node tools/run_e2e_workflow.mjs evidence --run-id "$E2E_RUN_ID"
+      - name: Upload redacted evidence
+        if: ${{ always() && steps.run_id.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/e2e-mcp/${{ steps.run_id.outputs.run_id }}.jsonl
+            test-results/e2e-mcp/${{ steps.run_id.outputs.run_id }}-manifest.json
+          if-no-files-found: error
+          retention-days: 14

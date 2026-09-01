@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/ichipiro/IE_Event_Bot/compare/v0.3.0...v0.3.1) (2026-09-01)
+
+
+### Documentation
+
+* **architecture:** refresh E2E coverage and test guidance ([4903d5c](https://github.com/ichipiro/IE_Event_Bot/commit/4903d5ce3c91217a94581e8b896efa21424c958f))
+
 ## [0.3.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.2.0...v0.3.0) (2026-09-01)
 
 

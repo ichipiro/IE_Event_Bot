@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.2.0...v0.3.0) (2026-09-01)
+
+
+### Features
+
+* **e2e:** add isolated test workflow ([694b0b2](https://github.com/ichipiro/IE_Event_Bot/commit/694b0b26217d5c2d12adfc7bc44a3d8c3f33065f))
+* **e2e:** add isolated test workflow ([#12](https://github.com/ichipiro/IE_Event_Bot/issues/12)) ([dcd8780](https://github.com/ichipiro/IE_Event_Bot/commit/dcd8780aa35db34473a3fbd8f1ca83dd5b17ebac))
+
 ## [0.2.0](https://github.com/ichipiro/IE_Event_Bot/releases/tag/v0.2.0) (2026-08-29)
 
 

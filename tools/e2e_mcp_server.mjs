@@ -573,6 +573,22 @@ function sanitizeStatus(response) {
 }
 
 
+function preflightFailureCode(config, health, status, checks) {
+  if (!config.ok) {
+    return "e2e_mcp_configuration_invalid";
+  }
+  if (!health.ok) {
+    return safeErrorCode(health.error, "worker_health_unavailable");
+  }
+  if (!status.ok) {
+    return safeErrorCode(status.error, "worker_status_unavailable");
+  }
+  const failedCheck = Object.entries(checks)
+    .find(([, ready]) => ready !== true)?.[0];
+  return failedCheck ? `preflight_${failedCheck}_failed` : "preflight_failed";
+}
+
+
 export async function deployDedicatedWorker(config, spawnImpl = spawn) {
   if (!config.cloudflareAccountId) {
     return { ok: false, status: null, error: "missing_cloudflare_account_id" };
@@ -845,6 +861,9 @@ export function createE2eMcpServer(options = {}) {
         checks,
         e2e_status: status,
       };
+      payload.error = payload.ok
+        ? null
+        : preflightFailureCode(config, health, status, checks);
       return toolResult(payload, !payload.ok);
     },
   );
@@ -1110,7 +1129,7 @@ export function createE2eMcpServer(options = {}) {
           ? repositoryReady
             ? null
             : "repository_metadata_unavailable"
-          : "worker_status_unavailable",
+          : safeErrorCode(status.error, "worker_status_unavailable"),
       };
       return toolResult(result, !result.ok);
     },

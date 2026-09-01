@@ -100,6 +100,25 @@ test("preflightを固定回数内で再試行する", async () => {
 });
 
 
+test("preflightは再試行後もstatusの固定エラーを保持する", async () => {
+  let calls = 0;
+  const callTool = async () => {
+    calls += 1;
+    return toolResult({ ok: false, error: "sync_coordinator_required" });
+  };
+
+  await assert.rejects(
+    runPreflight(callTool, RUN_ID, {
+      attempts: 2,
+      delayMs: 0,
+      sleepImpl: async () => {},
+    }),
+    (error) => error.code === "sync_coordinator_required",
+  );
+  assert.equal(calls, 2);
+});
+
+
 test("deploy後に3サービスの自己cleanup型CRUDと所有状態を確認する", async () => {
   const calls = [];
   const callTool = async (name, args) => {

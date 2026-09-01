@@ -78,6 +78,7 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 
 - E2E workflow は手動起動だけを許可し、既定の `preflight` は read-only とする。
 - Secret を使う job は required reviewer 付きの `e2e` Environment を参照し、`GITHUB_TOKEN` は `contents: read` に限定する。
+- Worker URLとfingerprintはActionsログへの露出を防ぐため、GitHub Environment secretからだけ渡す。
 - Cloudflare account ID と API token は deploy step だけへ渡し、cleanup と evidence へ継承しない。
 - 外部 action は完全な commit SHA へ固定し、checkout 後の Git credential 永続化を無効にする。
 - run ID と監査開始記録が一致する service だけを `always()` cleanup の対象にする。

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +12,7 @@ import {
   TOOL_NAMES,
   appendAuditEntry,
   createE2eMcpServer,
+  deployDedicatedWorker,
   deploymentEnvironment,
   loadE2eEnvironment,
   readAuditEntries,
@@ -138,6 +140,32 @@ test("監査パスとdeploy環境へ任意値やSecretを渡さない", async ()
 });
 
 
+test("Wrangler deployへ検証対象run IDだけをversion tagとして渡す", async () => {
+  let invocation;
+  const spawnImpl = (command, args, options) => {
+    invocation = { command, args, options };
+    const child = new EventEmitter();
+    child.kill = () => {};
+    queueMicrotask(() => child.emit("close", 0));
+    return child;
+  };
+
+  const result = await deployDedicatedWorker(
+    loadE2eEnvironment(ENV),
+    RUN_ID,
+    spawnImpl,
+  );
+
+  assert.deepEqual(result, { ok: true, status: 0, error: null });
+  assert.equal(invocation.command, "npm");
+  assert.deepEqual(invocation.args.slice(-2), ["--tag", RUN_ID]);
+  assert.equal(invocation.options.shell, false);
+  assert.equal(invocation.options.env.CLOUDFLARE_ACCOUNT_ID, ENV.CLOUDFLARE_ACCOUNT_ID);
+  assert.equal(invocation.options.env.CLOUDFLARE_API_TOKEN, ENV.CLOUDFLARE_API_TOKEN);
+  assert.equal("INTERNAL_API_TOKEN" in invocation.options.env, false);
+});
+
+
 test("公開ツールを10件に固定して任意URLや資源IDを受け取らない", async () => {
   await withClient({ env: ENV }, async (client) => {
     const listed = await client.listTools();
@@ -233,6 +261,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       worker_version: {
         present: true,
         id_sha256: "a".repeat(64),
+        tag: RUN_ID,
         timestamp: "2026-09-01T00:00:00.000Z",
       },
       watch: {
@@ -287,6 +316,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
     assert.equal(payload.checks.unowned_writes_blocked, true);
     assert.equal(payload.checks.scenario_routes, true);
     assert.equal(payload.e2e_status.orchestrated_writes_enabled, false);
+    assert.equal(payload.e2e_status.worker_version.tag, RUN_ID);
     assert.equal(payload.error, null);
 
     orchestratedWritesEnabled = true;
@@ -709,14 +739,25 @@ test("cleanupとdeployは完全一致confirmationより前に外部操作しな�
 test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す", async () => {
   const audit = [];
   let receivedConfig;
+  let receivedVersionTag;
 
   await withClient(
     {
       env: ENV,
-      deployImpl: async (config) => {
+      deployImpl: async (config, versionTag) => {
         receivedConfig = config;
+        receivedVersionTag = versionTag;
         return { ok: true, status: 0, error: null };
       },
+      fetchImpl: async () => jsonResponse({
+        ok: true,
+        worker_version: {
+          present: true,
+          id_sha256: "a".repeat(64),
+          tag: RUN_ID,
+          timestamp: "2026-09-01T00:00:01.000Z",
+        },
+      }),
       auditImpl: async (entry) => audit.push(entry),
     },
     async (client) => {
@@ -730,12 +771,65 @@ test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す"
       const payload = parseToolResult(result);
 
       assert.equal(payload.ok, true);
+      assert.equal(payload.version_verified, true);
+      assert.equal(payload.verification_attempts, 1);
       assert.equal(receivedConfig.cloudflareAccountId, ENV.CLOUDFLARE_ACCOUNT_ID);
       assert.equal(receivedConfig.cloudflareApiToken, ENV.CLOUDFLARE_API_TOKEN);
+      assert.equal(receivedVersionTag, RUN_ID);
       assert.equal(JSON.stringify(payload).includes(ENV.CLOUDFLARE_ACCOUNT_ID), false);
       assert.equal(JSON.stringify(payload).includes(ENV.INTERNAL_API_TOKEN), false);
       assert.equal(JSON.stringify(payload).includes(ENV.CLOUDFLARE_API_TOKEN), false);
       assert.deepEqual(audit.map((entry) => entry.phase), ["start", "finish"]);
+    },
+  );
+});
+
+
+test("deploy_e2eはrun ID tagの反映前に成功を返さない", async () => {
+  const audit = [];
+  let fetchCalls = 0;
+  let delayCalls = 0;
+
+  await withClient(
+    {
+      env: ENV,
+      deployImpl: async () => ({ ok: true, status: 0, error: null }),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return jsonResponse({
+          ok: true,
+          worker_version: {
+            present: true,
+            id_sha256: "b".repeat(64),
+            tag: "E2E-20260901T000001Z-deadbeef",
+            timestamp: "2026-09-01T00:00:00.000Z",
+          },
+        });
+      },
+      delayImpl: async (milliseconds) => {
+        assert.equal(milliseconds, 3_000);
+        delayCalls += 1;
+      },
+      auditImpl: async (entry) => audit.push(entry),
+    },
+    async (client) => {
+      const result = await client.callTool({
+        name: "deploy_e2e",
+        arguments: {
+          run_id: RUN_ID,
+          confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        },
+      });
+      const payload = parseToolResult(result);
+
+      assert.equal(payload.ok, false);
+      assert.equal(payload.error, "worker_version_propagation_timeout");
+      assert.equal(payload.version_verified, false);
+      assert.equal(payload.verification_attempts, 20);
+      assert.equal(fetchCalls, 20);
+      assert.equal(delayCalls, 19);
+      assert.deepEqual(audit.map((entry) => entry.phase), ["start", "finish"]);
+      assert.equal(audit.at(-1).ok, false);
     },
   );
 });
@@ -818,6 +912,7 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
     worker_version: {
       present: true,
       id_sha256: createHash("sha256").update(rawVersionId).digest("hex"),
+      tag: RUN_ID,
       timestamp: "2026-09-01T00:00:00.000Z",
     },
     watch: {
@@ -881,6 +976,7 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
         version: {
           present: true,
           id_sha256: createHash("sha256").update(rawVersionId).digest("hex"),
+          tag: RUN_ID,
           timestamp: "2026-09-01T00:00:00.000Z",
         },
       });

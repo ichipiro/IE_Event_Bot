@@ -19,17 +19,19 @@ Googleからの実配信を開始する前に、通常Workerと共通のWebhook 
 - 重複状態へE2E run IDを所有者として保存し、dirty manifest内のchannel ID、message number、run ID、fingerprintが一致する場合だけDurable Objectから削除する。削除失敗時はdirtyを維持し、`always()` cleanupで再試行する。
 - Google event、Notion page、同期cursor、最終実行時刻、最終結果、Google認証cacheの既存の所有・分離境界は維持する。
 - E2E Workerの通常`/gcal/webhook`とwatch作成は公開せず、Googleからの実配信と実Cronはこのsimulationの対象外とする。
+- deploy時のrun IDをWorker version tagへ指定し、そのtagを専用Workerから読み戻した後だけscenarioを開始するrevision gateを追加した。
 
 ### ローカル検証
 
 - `ruff check .`と`pyright`が成功した。
-- Python単体テスト158件、MCP / workflow契約テスト34件が成功した。
+- Python単体テスト158件、MCP / workflow契約テスト36件が成功した。
 - E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデルが成功した。
 - 固定Wrangler 4.127.1によるE2E Workerのdeploy dry-runが成功した。
 
 ### 実環境検証
 
-- 未実施。upstreamとforkのレビュー経路へ反映後、required reviewer付きの専用workflowで確認する。
+- 1回目の[専用workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33612323486)はGitHub Actions上で成功したが、artifactのWorker version時刻とWebhook stageが更新前revisionのままであり、今回追加したtoken拒否・message重複抑止・重複状態fingerprintを証明しなかった。この実行は受入証拠に使用しない。更新前scenarioが作成したGoogle eventとNotion pageのcleanup、および`dirty=false`は確認した。
+- 原因境界はWrangler processの正常終了後、専用Worker URLが新versionを返すことを確認せず直ちにscenarioを開始していた点である。run ID version tagのread-back gateをupstreamとforkへ反映後、required reviewer付きworkflowを再実行する。
 
 ### 未確認
 

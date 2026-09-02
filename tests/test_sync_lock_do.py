@@ -79,6 +79,59 @@ def test_google_message_dedupe_expires(monkeypatch) -> None:
     assert after_expiration["duplicate"] is False
 
 
+def test_e2e_google_message_dedupe_requires_matching_owner_to_clear() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    run_id = "E2E-20260902T100000Z-1234abcd"
+    other_run_id = "E2E-20260902T100001Z-deadbeef"
+    marker = {
+        "action": "mark_google_message_seen",
+        "channel_id": "e2e-webhook-channel",
+        "message_number": "100",
+        "ttl_seconds": 60,
+        "owner_run_id": run_id,
+    }
+
+    first = post(coordinator, marker)
+    duplicate = post(coordinator, marker)
+    wrong_owner_mark = post(coordinator, {**marker, "owner_run_id": other_run_id})
+    wrong_owner = post(
+        coordinator,
+        {
+            "action": "clear_e2e_google_message_seen",
+            "channel_id": "e2e-webhook-channel",
+            "message_number": "100",
+            "owner_run_id": other_run_id,
+        },
+    )
+    cleared = post(
+        coordinator,
+        {
+            "action": "clear_e2e_google_message_seen",
+            "channel_id": "e2e-webhook-channel",
+            "message_number": "100",
+            "owner_run_id": run_id,
+        },
+    )
+    after_clear = post(coordinator, marker)
+
+    assert first.status == 200
+    assert response_json(first)["duplicate"] is False
+    assert response_json(duplicate)["duplicate"] is True
+    assert wrong_owner_mark.status == 409
+    assert response_json(wrong_owner_mark) == {
+        "ok": False,
+        "error": "google_message_owner_mismatch",
+    }
+    assert wrong_owner.status == 409
+    assert response_json(wrong_owner) == {
+        "ok": False,
+        "error": "google_message_owner_mismatch",
+    }
+    assert cleared.status == 200
+    assert response_json(cleared) == {"ok": True, "cleared": True}
+    assert response_json(after_clear)["duplicate"] is False
+
+
 def test_e2e_manifest_round_trip_uses_service_scoped_storage() -> None:
     coordinator = make_durable_object(SyncCoordinator())
     manifest = {

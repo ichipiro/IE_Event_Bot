@@ -55,6 +55,47 @@ def test_google_message_dedupe_uses_kv_without_durable_object() -> None:
     assert second is True
 
 
+def test_e2e_google_message_dedupe_uses_owned_durable_object_state() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    namespace = CamelCaseDurableObjectNamespace(coordinator)
+    store = StateStore(
+        SimpleNamespace(
+            STATE_KV=MemoryKV(),
+            SYNC_COORDINATOR=namespace,
+            GCAL_DEDUPE_TTL_SECONDS="60",
+        )
+    )
+    run_id = "E2E-20260902T100000Z-1234abcd"
+
+    first = run(
+        store.mark_e2e_google_message_seen(
+            "e2e-webhook-channel",
+            "100",
+            run_id,
+        )
+    )
+    duplicate = run(
+        store.mark_e2e_google_message_seen(
+            "e2e-webhook-channel",
+            "100",
+            run_id,
+        )
+    )
+    cleared = run(
+        store.clear_e2e_google_message_seen(
+            "e2e-webhook-channel",
+            "100",
+            run_id,
+        )
+    )
+
+    assert first is False
+    assert duplicate is True
+    assert cleared is True
+    assert not any(key.startswith("gcal_msg:") for key in coordinator.ctx.storage.data)
+    assert store.env.STATE_KV.put_calls == []
+
+
 def test_sync_epoch_uses_durable_object_when_available(monkeypatch) -> None:
     coordinator = make_durable_object(SyncCoordinator())
     namespace = DurableObjectNamespace(coordinator)

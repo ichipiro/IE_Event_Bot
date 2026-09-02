@@ -1051,7 +1051,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_webhook",
     {
-      description: "所有資源限定の認証済みwebhook-dispatch simulationを実行する。",
+      description: "所有資源限定のWebhook ingress認証・重複抑止simulationを実行する。",
       inputSchema: { run_id: runIdField },
       annotations: {
         readOnlyHint: false,

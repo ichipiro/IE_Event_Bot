@@ -374,7 +374,7 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
 });
 
 
-test("trigger_webhookとcleanupは専用simulation routeだけを使う", async () => {
+test("trigger_webhookとcleanupは専用ingress simulation routeだけを使う", async () => {
   const calls = [];
   const audit = [];
   const fetchImpl = async (url, options) => {

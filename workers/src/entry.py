@@ -127,31 +127,7 @@ class Default(WorkerEntrypoint):
 
         # Google Calendar webhook 通知の受信口
         if path == "/gcal/webhook":
-            if method != "POST":
-                return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
-            required_token = str(getattr(self.env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
-            if not required_token:
-                return Response("webhook unavailable", status=503)
-            channel_token = _header(request, "X-Goog-Channel-Token")
-            if not channel_token or not compare_digest(
-                channel_token.encode("utf-8"),
-                required_token.encode("utf-8"),
-            ):
-                return Response("unauthorized", status=401)
-            if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
-                goog_channel = _header(request, "X-Goog-Channel-ID")
-                goog_msg = _header(request, "X-Goog-Message-Number")
-                # 重複チェック
-                duplicated = await state.mark_google_message_seen(
-                    goog_channel or "",
-                    goog_msg or "",
-                )
-                if duplicated:
-                    return Response("", status=204)
-            sync_resp = await self._run_sync_dispatch(request, state, source="webhook")
-            if int(sync_resp.status) >= 500:
-                return Response("sync failed", status=500)
-            return Response("", status=204)
+            return await self._handle_gcal_webhook(request, state)
 
         # Q&A 未回答更新通知ジョブを実行
         if path == "/jobs/qa-check":
@@ -354,6 +330,48 @@ class Default(WorkerEntrypoint):
                     {"mode": "native", "source": "cron", **cleanup_detail},
                 )
         return results
+
+    async def _handle_gcal_webhook(
+        self,
+        request,
+        state: StateStore,
+        *,
+        google_applier=None,
+    ):
+        """Google webhook の認証、重複抑止、同期起動を処理する。"""
+        method = str(request.method or "GET").upper()
+        if method != "POST":
+            return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
+
+        required_token = str(getattr(self.env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
+        if not required_token:
+            return Response("webhook unavailable", status=503)
+        channel_token = _header(request, "X-Goog-Channel-Token")
+        if not channel_token or not compare_digest(
+            channel_token.encode("utf-8"),
+            required_token.encode("utf-8"),
+        ):
+            return Response("unauthorized", status=401)
+
+        if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
+            goog_channel = _header(request, "X-Goog-Channel-ID")
+            goog_msg = _header(request, "X-Goog-Message-Number")
+            duplicated = await state.mark_google_message_seen(
+                goog_channel or "",
+                goog_msg or "",
+            )
+            if duplicated:
+                return Response("", status=204)
+
+        sync_resp = await self._run_sync_dispatch(
+            request,
+            state,
+            source="webhook",
+            google_applier=google_applier,
+        )
+        if int(sync_resp.status) >= 500:
+            return Response("sync failed", status=500)
+        return Response("", status=204)
 
     def _authorized(self, request) -> bool:
         """

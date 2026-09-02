@@ -133,6 +133,8 @@ def test_e2e_status_masks_resource_identifiers() -> None:
                 "resource_fingerprints": {
                     "google_event_id_sha256": "4" * 64,
                     "notion_page_id_sha256": "5" * 64,
+                    "webhook_channel_id_sha256": "6" * 64,
+                    "webhook_message_number_sha256": "7" * 64,
                 },
             },
         }
@@ -255,6 +257,8 @@ def test_e2e_status_masks_resource_identifiers() -> None:
         "resource_fingerprints": {
             "google_event_id_sha256": "4" * 64,
             "notion_page_id_sha256": "5" * 64,
+            "webhook_channel_id_sha256": "6" * 64,
+            "webhook_message_number_sha256": "7" * 64,
         },
     }
     assert payload["worker_version"] == {

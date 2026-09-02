@@ -502,11 +502,10 @@ class Default(ApplicationDefault):
 
         state = StateStore(self.env)
         if path == _TRIGGER_WEBHOOK_PATH:
-            async def dispatch(sync_state, google_applier):
-                return await self._run_sync_dispatch(
-                    request,
+            async def deliver(webhook_request, sync_state, google_applier):
+                return await self._handle_gcal_webhook(
+                    webhook_request,
                     sync_state,
-                    source="e2e-webhook",
                     google_applier=google_applier,
                 )
 
@@ -514,7 +513,7 @@ class Default(ApplicationDefault):
                 result = await run_webhook_dispatch_probe(
                     self.env,
                     state,
-                    dispatch,
+                    deliver,
                     run_id=run_id,
                 )
             except Exception:

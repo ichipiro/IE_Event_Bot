@@ -210,6 +210,57 @@ class StateStore:
         await self.put_text(key, "1")
         return False
 
+    async def mark_e2e_google_message_seen(
+        self,
+        channel_id: str,
+        message_number: str,
+        owner_run_id: str,
+    ) -> bool:
+        """E2E所有者付きのGoogle webhook重複状態を強整合に記録する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_google_message_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            "mark_google_message_seen",
+            {
+                "channel_id": str(channel_id or ""),
+                "message_number": str(message_number or ""),
+                "owner_run_id": str(owner_run_id or ""),
+                "ttl_seconds": self.google_message_dedupe_ttl_seconds(self.env),
+            },
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("e2e_google_message_mark_failed")
+        if type(result.get("duplicate")) is not bool:
+            raise RuntimeError("e2e_google_message_mark_failed")
+        return result["duplicate"]
+
+    async def clear_e2e_google_message_seen(
+        self,
+        channel_id: str,
+        message_number: str,
+        owner_run_id: str,
+    ) -> bool:
+        """所有runが一致するE2E webhook重複状態だけを削除する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_google_message_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            "clear_e2e_google_message_seen",
+            {
+                "channel_id": str(channel_id or ""),
+                "message_number": str(message_number or ""),
+                "owner_run_id": str(owner_run_id or ""),
+            },
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("e2e_google_message_clear_failed")
+        if type(result.get("cleared")) is not bool:
+            raise RuntimeError("e2e_google_message_clear_failed")
+        return result["cleared"]
+
     async def get_sync_updated_min(self) -> str | None:
         """Google差分同期カーソル(updatedMin)を取得する。"""
         return await self.get_text("sync:updated_min")

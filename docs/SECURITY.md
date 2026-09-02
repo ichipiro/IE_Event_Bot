@@ -78,7 +78,7 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - QA通知 scenario は専用 Q&A page 1件だけを通常ジョブと共通の通知判定へ渡し、初回抑止 cache を実行内へ閉じ込める。Q&A DB 全件取得、質問番号補完、共有KVの `qa_cache` は変更しない。
 - 前日リマインド scenario は専用 Scheduled Event 1件だけを通常ジョブと共通の通知判定へ渡し、通知済み cache を実行内へ閉じ込める。通常の Guild event 一覧処理、共有 KV の `reminder_cache`、実 Cron は変更しない。
 - Notion期限cleanup scenario は専用内部 DB に作成した期限到来・将来日時の page 2件だけを通常ジョブと共通の期限判定へ渡し、最終実行時刻を実行内へ閉じ込める。通常の内部 DB 全件取得、共有 KV の `cleanup:last_epoch`、実 Cron は変更しない。
-- Webhook simulation scenario は Google 差分取得と通常同期 dispatch を使用するが、取得結果から event ID と run marker が一致する1件だけを適用する。同期 cursor、最終実行時刻、最終結果、Google 認証 cache は request 内へ閉じ込め、共有 KV の対応表と queue は変更しない。
+- Webhook simulation scenario は通常Workerと共通のingress handlerでchannel token不一致の事前拒否、正しいtokenによる1回目のdispatch、同じchannel IDとmessage numberによる2回目の重複抑止を確認する。重複状態はrun ID付きでDurable Objectに所有し、fingerprint一致後だけ削除する。Google差分取得結果からevent IDとrun markerが一致する1件だけを適用し、同期cursor、最終実行時刻、最終結果、Google認証cacheはrequest内へ閉じ込め、共有KVの対応表とqueueは変更しない。これはGoogleからの実配信やwatch channel作成の確認ではない。
 - Notion page の cleanup は DB、page、source event ID、run ID 入り title または content marker の一致を確認してから archive する。Google event も private source event ID、run ID 入り summary と description marker の一致を確認してから削除する。
 - Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。

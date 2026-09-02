@@ -70,6 +70,7 @@ class SyncCoordinator(DurableObject):
     - status: 現在ロック状態の参照
     - get/set_sync_last_epoch: 同期成功時刻
     - mark_google_message_seen: Google webhook 重複抑止
+    - clear_e2e_google_message_seen: 所有run付きE2E重複状態の削除
     - get/put_e2e_manifest: E2E cleanup 所有権の強整合な保持
     """
 
@@ -171,18 +172,50 @@ class SyncCoordinator(DurableObject):
             message_number = str(payload.get("message_number") or "").strip()
             if not channel_id or not message_number:
                 return {"ok": True, "duplicate": False, "skipped": True}, 200
+            owner_run_id = str(payload.get("owner_run_id") or "").strip()
+            if owner_run_id and not _E2E_RUN_ID_PATTERN.fullmatch(owner_run_id):
+                return {"ok": False, "error": "invalid_e2e_owner_run_id"}, 400
             ttl_seconds = max(60.0, float(payload.get("ttl_seconds") or 86400))
             storage_key = f"gcal_msg:{channel_id}:{message_number}"
             current = _decode_json_record(await self.ctx.storage.get(storage_key))
             expires_at = float(current.get("expires_at") or 0.0)
             if expires_at > now:
+                current_owner = str(current.get("owner_run_id") or "")
+                if owner_run_id and current_owner != owner_run_id:
+                    return {
+                        "ok": False,
+                        "error": "google_message_owner_mismatch",
+                    }, 409
                 return {"ok": True, "duplicate": True, "expires_at": expires_at}, 200
             next_expires_at = now + ttl_seconds
+            record: dict[str, float | str] = {"expires_at": next_expires_at}
+            if owner_run_id:
+                record["owner_run_id"] = owner_run_id
             await self.ctx.storage.put(
                 storage_key,
-                json.dumps({"expires_at": next_expires_at}, ensure_ascii=False),
+                json.dumps(record, ensure_ascii=False),
             )
             return {"ok": True, "duplicate": False, "expires_at": next_expires_at}, 200
+
+        if action == "clear_e2e_google_message_seen":
+            channel_id = str(payload.get("channel_id") or "").strip()
+            message_number = str(payload.get("message_number") or "").strip()
+            owner_run_id = str(payload.get("owner_run_id") or "").strip()
+            if (
+                not channel_id
+                or not message_number
+                or not _E2E_RUN_ID_PATTERN.fullmatch(owner_run_id)
+            ):
+                return {"ok": False, "error": "invalid_e2e_google_message_marker"}, 400
+
+            storage_key = f"gcal_msg:{channel_id}:{message_number}"
+            current = _decode_json_record(await self.ctx.storage.get(storage_key))
+            if not current:
+                return {"ok": True, "cleared": False}, 200
+            if str(current.get("owner_run_id") or "") != owner_run_id:
+                return {"ok": False, "error": "google_message_owner_mismatch"}, 409
+            await self.ctx.storage.delete(storage_key)
+            return {"ok": True, "cleared": True}, 200
 
         if action in ("get_e2e_manifest", "put_e2e_manifest"):
             service = str(payload.get("service") or "").strip().lower()

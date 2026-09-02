@@ -70,6 +70,7 @@ bash -n tools/configure_github_e2e_environment.sh
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
+| `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 
 書き込みモードは、各 `seed_fixture`、`trigger_sync`、または所有資源限定の `trigger_job` の監査開始記録がある service / scenario だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
 
@@ -89,9 +90,11 @@ QA通知モードは、専用 Q&A DB に run marker付きの未回答pageを1件
 
 前日リマインドモードは、現在時刻から24時間後の通知ウィンドウ内に開始する run marker 付き外部 Scheduled Event を専用 Guild へ1件作成して読み戻し、通常ジョブと共通の `_run_reminder_events` へその1件だけを渡す。専用チャンネルの message 本文、対象 role だけを許可した mention、実行内 cache 更新を確認し、同じ event を再度渡して message が増えないことを検証する。共有 KV の `reminder_cache`、Guild の通常 event 一覧処理、実 Cron は使用しない。event と message の作成応答を失った場合は run marker で再探索し、所有権が未解決なら dirty を維持する。
 
+Notion cleanup モードは、専用内部 DB に run marker が異なる期限到来 page と将来日時 page を1件ずつ作成して読み戻し、通常ジョブと共通の `_run_auto_clean_pages` へその2件だけを渡す。期限到来 page だけが archive され、将来日時 page が残り、同じ時刻の2回目は interval guard で skip されることを確認する。実行時刻は probe 内状態へ閉じ込めるため、内部 DB の通常全件取得、共有 KV の `cleanup:last_epoch`、実 Cron は使用しない。作成応答を失った場合は page ごとに異なる run marker で再探索し、所有権が未解決なら dirty を維持する。
+
 MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync` のいずれかを呼ぶ。これらが確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
 
-`trigger_job` の `qa_check` と `reminder` は、それぞれ所有資源限定の `/admin/e2e/qa-notification` と `/admin/e2e/reminder` を呼び、通常の `/jobs/qa-check` と `/jobs/reminder` は呼ばない。`trigger_webhook`、Notion cleanup、run-all、通常の同期・ジョブ route は、下流資源と状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と6つの所有資源限定 route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
+`trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook`、run-all、通常の同期・ジョブ route は、下流資源と状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と7つの所有資源限定 route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
 
 ## テスト構成
 
@@ -105,8 +108,8 @@ MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` では
 | `tests/test_sync_lock_do.py` | ロック競合・解放、Webhook 重複レコードの期限 |
 | `tests/test_sync_queues.py` | Google / Discord 同期の件数制限、失敗と残件の繰り越し |
 | `tests/test_e2e_entry.py` | E2E route allowlist、run ID、status のマスキング、Cron 無効化 |
-| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、サービス間適用、QA通知、前日リマインド、DO manifest、cleanup、応答喪失、rate limit |
-| `tests/test_jobs.py` | Q&A更新通知の初回抑止・更新判定・回答済み抑止と、前日リマインドの時刻範囲・重複抑止 |
+| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、サービス間適用、QA通知、前日リマインド、Notion期限cleanup、DO manifest、cleanup、応答喪失、rate limit |
+| `tests/test_jobs.py` | Q&A更新通知、前日リマインド、Notion期限cleanupの共通処理と実行内状態 |
 | `tools/e2e_mcp_server.test.mjs` | MCP tool allowlist、接続先 fingerprint、承認、skip 判定、run manifest |
 | `tools/run_e2e_workflow.test.mjs` | workflow 順序、途中失敗時 cleanup、再試行、監査対象、evidence の固定エラー |
 

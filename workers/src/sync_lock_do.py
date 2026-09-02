@@ -16,6 +16,7 @@ _E2E_MANIFEST_KINDS = {
     "qa_notification": "qa_notification_job",
     "reminder": "day_before_reminder",
     "webhook_dispatch": "google_webhook_simulation",
+    "webhook_delivery": "google_webhook_delivery",
     "discord": "discord_event_message",
     "notion": "notion_pages",
 }
@@ -71,6 +72,7 @@ class SyncCoordinator(DurableObject):
     - get/set_sync_last_epoch: 同期成功時刻
     - mark_google_message_seen: Google webhook 重複抑止
     - clear_e2e_google_message_seen: 所有run付きE2E重複状態の削除
+    - attach/record_e2e_webhook_delivery: Google実通知とwatch応答の競合解決
     - get/put_e2e_manifest: E2E cleanup 所有権の強整合な保持
     """
 
@@ -216,6 +218,128 @@ class SyncCoordinator(DurableObject):
                 return {"ok": False, "error": "google_message_owner_mismatch"}, 409
             await self.ctx.storage.delete(storage_key)
             return {"ok": True, "cleared": True}, 200
+
+        if action in (
+            "attach_e2e_webhook_watch",
+            "record_e2e_webhook_delivery",
+        ):
+            storage_key = "e2e:manifest:webhook_delivery"
+            manifest = _decode_json_record(await self.ctx.storage.get(storage_key))
+            if (
+                manifest.get("kind") != "google_webhook_delivery"
+                or manifest.get("dirty") is not True
+                or not _E2E_RUN_ID_PATTERN.fullmatch(
+                    str(manifest.get("run_id") or "")
+                )
+            ):
+                return {
+                    "ok": False,
+                    "error": "inactive_e2e_webhook_delivery",
+                }, 404
+
+            channel_id = str(payload.get("channel_id") or "").strip()
+            owned_channel_id = str(manifest.get("channel_id") or "").strip()
+            if (
+                not channel_id
+                or len(channel_id) > 64
+                or channel_id != owned_channel_id
+            ):
+                return {
+                    "ok": False,
+                    "error": "e2e_webhook_delivery_target_mismatch",
+                }, 404
+
+            resource_id = str(payload.get("resource_id") or "").strip()
+            if not resource_id or len(resource_id) > 512:
+                return {
+                    "ok": False,
+                    "error": "invalid_e2e_webhook_resource_id",
+                }, 400
+
+            known_resource_id = str(manifest.get("resource_id") or "").strip()
+            notification = manifest.get("notification")
+            if not isinstance(notification, dict):
+                notification = {}
+            notified_resource_id = str(notification.get("resource_id") or "").strip()
+            if (
+                (known_resource_id and known_resource_id != resource_id)
+                or (notified_resource_id and notified_resource_id != resource_id)
+            ):
+                return {
+                    "ok": False,
+                    "error": "e2e_webhook_delivery_resource_mismatch",
+                }, 409
+
+            stages = manifest.get("stages")
+            if not isinstance(stages, dict):
+                stages = {}
+                manifest["stages"] = stages
+
+            if action == "attach_e2e_webhook_watch":
+                run_id = str(payload.get("run_id") or "").strip()
+                expiration = str(payload.get("expiration") or "").strip()
+                watch_status = payload.get("watch_status")
+                if (
+                    run_id != str(manifest.get("run_id") or "")
+                    or not _E2E_RUN_ID_PATTERN.fullmatch(run_id)
+                    or len(expiration) > 64
+                    or type(watch_status) is not int
+                    or not 200 <= watch_status < 300
+                ):
+                    return {
+                        "ok": False,
+                        "error": "invalid_e2e_webhook_watch_attachment",
+                    }, 400
+                manifest["resource_id"] = resource_id
+                if expiration:
+                    manifest["expiration"] = expiration
+                stages["watch_create"] = watch_status
+                manifest["stage"] = (
+                    "notification_received" if notification else "watch_attached"
+                )
+                await self.ctx.storage.put(
+                    storage_key,
+                    json.dumps(
+                        manifest,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                )
+                return {
+                    "ok": True,
+                    "notification_received": bool(notification),
+                }, 200
+
+            resource_state = str(payload.get("resource_state") or "").strip()
+            message_number = str(payload.get("message_number") or "").strip()
+            if resource_state != "sync" or message_number != "1":
+                return {
+                    "ok": False,
+                    "error": "e2e_webhook_delivery_notification_mismatch",
+                }, 404
+            if notification:
+                return {"ok": True, "accepted": True, "duplicate": True}, 200
+
+            manifest["resource_id"] = resource_id
+            manifest["notification"] = {
+                "resource_id": resource_id,
+                "resource_state": resource_state,
+                "message_number": message_number,
+                "received_at_epoch": now,
+            }
+            stages["webhook_sync_delivery"] = 204
+            manifest["stage"] = "notification_received"
+            await self.ctx.storage.put(
+                storage_key,
+                json.dumps(
+                    manifest,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+            return {"ok": True, "accepted": True, "duplicate": False}, 200
 
         if action in ("get_e2e_manifest", "put_e2e_manifest"):
             service = str(payload.get("service") or "").strip().lower()

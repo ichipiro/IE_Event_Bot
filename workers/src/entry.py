@@ -48,6 +48,20 @@ def _detail_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"ok": bool(value)}
 
 
+def _gcal_webhook_token_status(env, request) -> int:
+    """Google webhook channel tokenを検証し、成功時は0を返す。"""
+    required_token = str(getattr(env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
+    if not required_token:
+        return 503
+    channel_token = _header(request, "X-Goog-Channel-Token")
+    if not channel_token or not compare_digest(
+        channel_token.encode("utf-8"),
+        required_token.encode("utf-8"),
+    ):
+        return 401
+    return 0
+
+
 class Default(WorkerEntrypoint):
     """
     Worker のエントリポイント。
@@ -343,14 +357,10 @@ class Default(WorkerEntrypoint):
         if method != "POST":
             return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
 
-        required_token = str(getattr(self.env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
-        if not required_token:
+        token_status = _gcal_webhook_token_status(self.env, request)
+        if token_status == 503:
             return Response("webhook unavailable", status=503)
-        channel_token = _header(request, "X-Goog-Channel-Token")
-        if not channel_token or not compare_digest(
-            channel_token.encode("utf-8"),
-            required_token.encode("utf-8"),
-        ):
+        if token_status:
             return Response("unauthorized", status=401)
 
         if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):

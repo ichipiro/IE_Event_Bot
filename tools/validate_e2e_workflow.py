@@ -87,6 +87,11 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "default: preflight" in text, "write_mode_became_default")
     _expect(
         errors,
+        text.count("deploy-and-discord-google-smoke") == 3,
+        "discord_google_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("deploy-and-discord-notion-smoke") == 3,
         "discord_notion_mode_contract_changed",
     )
@@ -147,6 +152,11 @@ def _check_workflow(text: str) -> list[str]:
         errors,
         "inputs.mode == 'deploy-and-crud-smoke'" in cleanup_block,
         "cleanup_crud_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-discord-google-smoke'" in cleanup_block,
+        "cleanup_discord_google_mode_guard_missing",
     )
     _expect(
         errors,

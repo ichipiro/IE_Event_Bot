@@ -14,6 +14,7 @@
 - 所有資源を専用 Google event と Discord Scheduled Event に限定し、既存の適用処理を通して検証・cleanupする Google→Discord E2E mode を追加した。
 - 通常の `/sync/all`、Webhook simulation、ジョブを既定拒否のまま維持し、新しい scenario が保証しない差分取得、KV 状態、実 webhook / Cron の境界を明記した。
 - required reviewer承認付きの専用workflowでGoogle→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
+- required reviewer承認付きの専用workflowでGoogle→Discord scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 
 ## 2026-08-29
 

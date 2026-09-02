@@ -166,7 +166,7 @@ test("Wrangler deployへ検証対象run IDだけをversion tagとして渡す", 
 });
 
 
-test("公開ツールを10件に固定して任意URLや資源IDを受け取らない", async () => {
+test("公開ツールを11件に固定して任意URLや資源IDを受け取らない", async () => {
   await withClient({ env: ENV }, async (client) => {
     const listed = await client.listTools();
     const names = listed.tools.map((tool) => tool.name);
@@ -202,6 +202,7 @@ test("公開ツールを10件に固定して任意URLや資源IDを受け取ら�
       "seed_fixture",
       "trigger_sync",
       "trigger_webhook",
+      "trigger_webhook_delivery",
       "trigger_job",
       "cleanup_run",
     ]) {
@@ -242,12 +243,15 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         reminder: true,
         notion_cleanup: true,
         webhook_dispatch: true,
+        webhook_delivery: true,
       },
       required_envs: Object.fromEntries([
         "notion_token",
         "notion_internal_db",
         "notion_qa_db",
         "google_calendar_id",
+        "gcal_webhook_url",
+        "gcal_webhook_token",
         "discord_token",
         "discord_guild_id",
         "discord_event_channel",
@@ -282,6 +286,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         reminder: { present: false, dirty: false, run_id: null },
         notion_cleanup: { present: false, dirty: false, run_id: null },
         webhook_dispatch: { present: false, dirty: false, run_id: null },
+        webhook_delivery: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -450,6 +455,60 @@ test("trigger_webhookとcleanupは専用ingress simulation routeだけを使う"
   assert.deepEqual(
     audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
     ["webhook_dispatch", "webhook_dispatch"],
+  );
+});
+
+
+test("trigger_webhook_deliveryとcleanupは短命watch専用routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: {
+        watch_create: 200,
+        webhook_sync_delivery: 204,
+        watch_stop: 204,
+      },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const triggerResult = await client.callTool({
+        name: "trigger_webhook_delivery",
+        arguments: { run_id: RUN_ID },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "webhook_delivery",
+          confirmation: `cleanup:webhook_delivery:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(triggerResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-webhook-delivery`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-webhook-delivery/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["webhook_delivery", "webhook_delivery"],
   );
 });
 

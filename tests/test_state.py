@@ -169,6 +169,56 @@ def test_e2e_manifest_round_trip_uses_durable_object_not_kv() -> None:
     assert "e2e:manifest:discord" in coordinator.ctx.storage.data
 
 
+def test_e2e_webhook_delivery_state_resolves_watch_notification_race() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    namespace = CamelCaseDurableObjectNamespace(coordinator)
+    store = StateStore(SimpleNamespace(SYNC_COORDINATOR=namespace))
+    run_id = "E2E-20260902T110000Z-1234abcd"
+    channel_id = "e2e-webhook-owned-channel"
+    run(
+        store.put_e2e_manifest(
+            "webhook_delivery",
+            {
+                "version": 1,
+                "kind": "google_webhook_delivery",
+                "dirty": True,
+                "run_id": run_id,
+                "channel_id": channel_id,
+            },
+        )
+    )
+
+    accepted = run(
+        store.record_e2e_webhook_delivery(
+            channel_id=channel_id,
+            resource_id="google-resource-id",
+            resource_state="sync",
+            message_number="1",
+        )
+    )
+    already_received = run(
+        store.attach_e2e_webhook_watch(
+            run_id=run_id,
+            channel_id=channel_id,
+            resource_id="google-resource-id",
+            expiration="1790000000000",
+            watch_status=200,
+        )
+    )
+    rejected = run(
+        store.record_e2e_webhook_delivery(
+            channel_id="not-owned",
+            resource_id="google-resource-id",
+            resource_state="sync",
+            message_number="1",
+        )
+    )
+
+    assert accepted is True
+    assert already_received is True
+    assert rejected is False
+
+
 def test_e2e_manifest_fails_closed_without_durable_object() -> None:
     store = StateStore(SimpleNamespace(STATE_KV=MemoryKV()))
 

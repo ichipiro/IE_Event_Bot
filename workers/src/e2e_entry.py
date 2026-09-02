@@ -24,6 +24,11 @@ from e2e_google_probe import (
     cleanup_google_calendar_crud_probe,
     run_google_calendar_crud_probe,
 )
+from e2e_google_webhook_delivery_probe import (
+    GOOGLE_WEBHOOK_DELIVERY_MANIFEST_SERVICE,
+    cleanup_google_webhook_delivery_probe,
+    run_google_webhook_delivery_probe,
+)
 from e2e_google_discord_probe import (
     GOOGLE_DISCORD_SYNC_MANIFEST_SERVICE,
     cleanup_google_discord_sync_probe,
@@ -60,7 +65,7 @@ from e2e_webhook_probe import (
     run_webhook_dispatch_probe,
 )
 from entry import Default as ApplicationDefault
-from entry import _json_response
+from entry import _gcal_webhook_token_status, _header, _json_response
 from google_auth import describe_google_auth_sources
 from state import StateStore
 from sync_lock_do import SyncCoordinator
@@ -91,6 +96,8 @@ _REMINDER_CLEANUP_PATH = "/admin/e2e/reminder/cleanup"
 _STATUS_PATH = "/admin/e2e/status"
 _TRIGGER_WEBHOOK_PATH = "/admin/e2e/trigger-webhook"
 _TRIGGER_WEBHOOK_CLEANUP_PATH = "/admin/e2e/trigger-webhook/cleanup"
+_WEBHOOK_DELIVERY_PATH = "/admin/e2e/google-webhook-delivery"
+_WEBHOOK_DELIVERY_CLEANUP_PATH = "/admin/e2e/google-webhook-delivery/cleanup"
 _ORCHESTRATED_WRITE_PATHS = frozenset(
     {
         "/sync/all",
@@ -198,6 +205,8 @@ def _required_env_summary(env) -> dict[str, bool]:
         "notion_internal_db": "NOTION_EVENT_INTERNAL_ID",
         "notion_qa_db": "NOTION_QA_ID",
         "google_calendar_id": "GOOGLE_CALENDAR_ID",
+        "gcal_webhook_url": "GCAL_WEBHOOK_URL",
+        "gcal_webhook_token": "GCAL_WEBHOOK_TOKEN",
         "discord_token": "DISCORD_TOKEN",
         "discord_guild_id": "DISCORD_GUILD_ID",
         "discord_event_channel": "EVENT_CREATE_CHANNEL_ID",
@@ -296,12 +305,42 @@ def _e2e_webhook_simulation_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_google_webhook_delivery_enabled(env) -> bool:
+    value = getattr(env, "E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
     async def fetch(self, request):
         path = urlparse(request.url).path
         method = str(request.method or "GET").upper()
+        if path == "/gcal/webhook":
+            if not _e2e_google_webhook_delivery_enabled(self.env):
+                return _json_response({"ok": False, "error": "not_found"}, status=404)
+            if method != "POST":
+                return _json_response(
+                    {"ok": False, "error": "method_not_allowed"},
+                    status=405,
+                )
+            token_status = _gcal_webhook_token_status(self.env, request)
+            if token_status == 503:
+                return Response("webhook unavailable", status=503)
+            if token_status:
+                return Response("unauthorized", status=401)
+            state = StateStore(self.env)
+            try:
+                accepted = await state.record_e2e_webhook_delivery(
+                    channel_id=_header(request, "X-Goog-Channel-ID") or "",
+                    resource_id=_header(request, "X-Goog-Resource-ID") or "",
+                    resource_state=_header(request, "X-Goog-Resource-State") or "",
+                    message_number=_header(request, "X-Goog-Message-Number") or "",
+                )
+            except Exception:
+                return Response("webhook unavailable", status=503)
+            return Response("", status=204 if accepted else 404)
+
         google_route = path in (_GOOGLE_CRUD_PATH, _GOOGLE_CLEANUP_PATH)
         google_discord_route = path in (
             _GOOGLE_DISCORD_SYNC_PATH,
@@ -335,6 +374,10 @@ class Default(ApplicationDefault):
             _TRIGGER_WEBHOOK_PATH,
             _TRIGGER_WEBHOOK_CLEANUP_PATH,
         )
+        webhook_delivery_route = path in (
+            _WEBHOOK_DELIVERY_PATH,
+            _WEBHOOK_DELIVERY_CLEANUP_PATH,
+        )
         orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
         if path in _BLOCKED_APPLICATION_WRITE_PATHS:
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -354,6 +397,7 @@ class Default(ApplicationDefault):
                 notion_cleanup_route,
                 status_route,
                 webhook_route,
+                webhook_delivery_route,
                 orchestrated_write_route,
             )
         ):
@@ -379,6 +423,8 @@ class Default(ApplicationDefault):
         if notion_cleanup_route and not _e2e_notion_cleanup_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if webhook_route and not _e2e_webhook_simulation_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if webhook_delivery_route and not _e2e_google_webhook_delivery_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not self._authorized(request):
             return Response("unauthorized", status=401)
@@ -421,6 +467,9 @@ class Default(ApplicationDefault):
                     ),
                     "webhook_dispatch": await state.get_e2e_manifest(
                         WEBHOOK_DISPATCH_MANIFEST_SERVICE
+                    ),
+                    "webhook_delivery": await state.get_e2e_manifest(
+                        GOOGLE_WEBHOOK_DELIVERY_MANIFEST_SERVICE
                     ),
                 }
                 legacy_manifests = {
@@ -473,6 +522,9 @@ class Default(ApplicationDefault):
                         "webhook_dispatch": _e2e_webhook_simulation_enabled(
                             self.env
                         ),
+                        "webhook_delivery": _e2e_google_webhook_delivery_enabled(
+                            self.env
+                        ),
                     },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
@@ -489,6 +541,7 @@ class Default(ApplicationDefault):
                             "reminder",
                             "notion_cleanup",
                             "webhook_dispatch",
+                            "webhook_delivery",
                         )
                     },
                 }
@@ -550,6 +603,8 @@ class Default(ApplicationDefault):
             lock_source = "e2e-notion-cleanup"
         elif webhook_route:
             lock_source = "e2e-webhook-simulation"
+        elif webhook_delivery_route:
+            lock_source = "e2e-google-webhook-delivery"
         elif discord_route:
             lock_source = "e2e-discord-crud"
         else:
@@ -566,7 +621,19 @@ class Default(ApplicationDefault):
             )
         lock_owner = lock.get("owner")
         try:
-            if path == _GOOGLE_CLEANUP_PATH:
+            if path == _WEBHOOK_DELIVERY_CLEANUP_PATH:
+                result = await cleanup_google_webhook_delivery_probe(
+                    self.env,
+                    state,
+                    expected_run_id=run_id,
+                )
+            elif path == _WEBHOOK_DELIVERY_PATH:
+                result = await run_google_webhook_delivery_probe(
+                    self.env,
+                    state,
+                    run_id=run_id,
+                )
+            elif path == _GOOGLE_CLEANUP_PATH:
                 result = await cleanup_google_calendar_crud_probe(
                     self.env,
                     state,

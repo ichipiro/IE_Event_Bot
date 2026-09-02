@@ -26,6 +26,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "reminder",
   "notion_cleanup",
   "webhook_dispatch",
+  "webhook_delivery",
 ]);
 export const COMMANDS = Object.freeze([
   "run-id",
@@ -39,6 +40,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-reminder-smoke",
   "deploy-and-notion-cleanup-smoke",
   "deploy-and-webhook-simulation-smoke",
+  "deploy-and-webhook-delivery-smoke",
   "cleanup",
   "evidence",
 ]);
@@ -561,6 +563,40 @@ export async function runDeployAndWebhookSimulationSmoke(callTool, runId, option
 }
 
 
+export async function runDeployAndWebhookDeliverySmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_webhook_delivery", {
+      run_id: runId,
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "webhook_delivery",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["webhook_delivery"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["webhook_delivery"] };
+}
+
+
 export function touchedServicesFromAudit(entries, runId) {
   const touched = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -578,7 +614,9 @@ export function touchedServicesFromAudit(entries, runId) {
           ].includes(entry.target)) ||
         (entry.tool === "trigger_job" &&
           ["qa_check", "reminder", "cleanup"].includes(entry.target)) ||
-        (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch")
+        (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch") ||
+        (entry.tool === "trigger_webhook_delivery" &&
+          entry.target === "webhook_delivery")
       )
     ) {
       const jobService = {
@@ -749,6 +787,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-webhook-simulation-smoke") {
       await runDeployAndWebhookSimulationSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-webhook-delivery-smoke") {
+      await runDeployAndWebhookDeliverySmoke(callTool, runId);
       return;
     }
     if (command === "cleanup") {

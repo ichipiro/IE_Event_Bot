@@ -393,3 +393,172 @@ def test_webhook_dispatch_manifest_uses_dedicated_service_kind() -> None:
 
     assert stored.status == 200
     assert response_json(loaded) == {"ok": True, "manifest": manifest}
+
+
+def _webhook_delivery_manifest() -> dict:
+    return {
+        "version": 1,
+        "kind": "google_webhook_delivery",
+        "dirty": True,
+        "run_id": "E2E-20260902T110000Z-1234abcd",
+        "channel_id": "e2e-webhook-owned-channel",
+        "stage": "watch_create_started",
+        "stages": {},
+    }
+
+
+def test_webhook_delivery_accepts_notification_before_watch_response() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = _webhook_delivery_manifest()
+    assert post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "webhook_delivery",
+            "manifest_json": json.dumps(manifest),
+        },
+    ).status == 200
+
+    recorded = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_delivery",
+            "channel_id": manifest["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "sync",
+            "message_number": "1",
+        },
+    )
+    attached = post(
+        coordinator,
+        {
+            "action": "attach_e2e_webhook_watch",
+            "run_id": manifest["run_id"],
+            "channel_id": manifest["channel_id"],
+            "resource_id": "google-resource-id",
+            "expiration": "1790000000000",
+            "watch_status": 200,
+        },
+    )
+    loaded = response_json(
+        post(
+            coordinator,
+            {"action": "get_e2e_manifest", "service": "webhook_delivery"},
+        )
+    )["manifest"]
+
+    assert response_json(recorded) == {
+        "ok": True,
+        "accepted": True,
+        "duplicate": False,
+    }
+    assert response_json(attached) == {
+        "ok": True,
+        "notification_received": True,
+    }
+    assert loaded["resource_id"] == "google-resource-id"
+    assert loaded["notification"]["resource_state"] == "sync"
+    assert loaded["notification"]["message_number"] == "1"
+    assert loaded["stages"] == {
+        "watch_create": 200,
+        "webhook_sync_delivery": 204,
+    }
+
+
+def test_webhook_delivery_accepts_watch_response_before_notification() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = _webhook_delivery_manifest()
+    post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "webhook_delivery",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+
+    attached = post(
+        coordinator,
+        {
+            "action": "attach_e2e_webhook_watch",
+            "run_id": manifest["run_id"],
+            "channel_id": manifest["channel_id"],
+            "resource_id": "google-resource-id",
+            "expiration": "1790000000000",
+            "watch_status": 200,
+        },
+    )
+    recorded = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_delivery",
+            "channel_id": manifest["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "sync",
+            "message_number": "1",
+        },
+    )
+    duplicate = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_delivery",
+            "channel_id": manifest["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "sync",
+            "message_number": "1",
+        },
+    )
+
+    assert response_json(attached) == {
+        "ok": True,
+        "notification_received": False,
+    }
+    assert response_json(recorded)["duplicate"] is False
+    assert response_json(duplicate) == {
+        "ok": True,
+        "accepted": True,
+        "duplicate": True,
+    }
+
+
+def test_webhook_delivery_rejects_unowned_or_non_initial_notification() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = _webhook_delivery_manifest()
+    post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "webhook_delivery",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+
+    wrong_channel = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_delivery",
+            "channel_id": "other-channel",
+            "resource_id": "google-resource-id",
+            "resource_state": "sync",
+            "message_number": "1",
+        },
+    )
+    wrong_state = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_delivery",
+            "channel_id": manifest["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "exists",
+            "message_number": "2",
+        },
+    )
+
+    assert wrong_channel.status == 404
+    assert response_json(wrong_channel)["error"] == (
+        "e2e_webhook_delivery_target_mismatch"
+    )
+    assert wrong_state.status == 404
+    assert response_json(wrong_state)["error"] == (
+        "e2e_webhook_delivery_notification_mismatch"
+    )

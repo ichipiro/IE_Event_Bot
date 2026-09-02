@@ -171,6 +171,70 @@ class StateStore:
         if not isinstance(result, dict) or result.get("ok") is not True:
             raise RuntimeError("e2e_manifest_write_failed")
 
+    async def attach_e2e_webhook_watch(
+        self,
+        *,
+        run_id: str,
+        channel_id: str,
+        resource_id: str,
+        expiration: str,
+        watch_status: int,
+    ) -> bool:
+        """watch応答をrun所有manifestへ原子的に紐付ける。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            "attach_e2e_webhook_watch",
+            {
+                "run_id": str(run_id or ""),
+                "channel_id": str(channel_id or ""),
+                "resource_id": str(resource_id or ""),
+                "expiration": str(expiration or ""),
+                "watch_status": watch_status,
+            },
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("e2e_webhook_watch_attach_failed")
+        return result.get("notification_received") is True
+
+    async def record_e2e_webhook_delivery(
+        self,
+        *,
+        channel_id: str,
+        resource_id: str,
+        resource_state: str,
+        message_number: str,
+    ) -> bool:
+        """有効なrun所有watchへのGoogle初回通知だけを原子的に記録する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            "record_e2e_webhook_delivery",
+            {
+                "channel_id": str(channel_id or ""),
+                "resource_id": str(resource_id or ""),
+                "resource_state": str(resource_state or ""),
+                "message_number": str(message_number or ""),
+            },
+        )
+        if isinstance(result, dict) and result.get("ok") is True:
+            if type(result.get("accepted")) is not bool:
+                raise RuntimeError("e2e_webhook_delivery_record_failed")
+            return result["accepted"]
+        if isinstance(result, dict) and result.get("error") in {
+            "inactive_e2e_webhook_delivery",
+            "e2e_webhook_delivery_target_mismatch",
+            "e2e_webhook_delivery_resource_mismatch",
+            "e2e_webhook_delivery_notification_mismatch",
+            "invalid_e2e_webhook_resource_id",
+        }:
+            return False
+        raise RuntimeError("e2e_webhook_delivery_record_failed")
+
     async def get_legacy_e2e_manifest(self, service: str) -> dict | None:
         """旧KV manifestを移行判定専用に読む。所有権の正本にはしない。"""
         key = _LEGACY_E2E_MANIFEST_KEYS.get(str(service or "").strip().lower())

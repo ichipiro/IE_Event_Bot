@@ -38,6 +38,7 @@ const SERVICE_ROUTES = Object.freeze({
   notion: "/admin/e2e/notion-crud",
 });
 const SCENARIO_ROUTES = Object.freeze({
+  discord_google: "/admin/e2e/discord-google-sync",
   discord_notion: "/admin/e2e/discord-notion-sync",
   google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
@@ -46,6 +47,7 @@ const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
   discord: "/admin/e2e/discord-crud/cleanup",
   notion: "/admin/e2e/notion-crud/cleanup",
+  discord_google: "/admin/e2e/discord-google-sync/cleanup",
   discord_notion: "/admin/e2e/discord-notion-sync/cleanup",
   google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
@@ -85,6 +87,7 @@ const runIdField = z
   .describe("E2E-<UTC timestamp>-<8 lowercase hex>形式のrun ID");
 const serviceField = z.enum(["google", "discord", "notion"]);
 const scenarioField = z.enum([
+  "discord_google",
   "discord_notion",
   "google_discord",
   "google_notion",
@@ -93,6 +96,7 @@ const cleanupTargetField = z.enum([
   "google",
   "discord",
   "notion",
+  "discord_google",
   "discord_notion",
   "google_discord",
   "google_notion",

@@ -18,6 +18,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "google",
   "discord",
   "notion",
+  "discord_google",
   "discord_notion",
   "google_discord",
   "google_notion",
@@ -26,6 +27,7 @@ export const COMMANDS = Object.freeze([
   "run-id",
   "preflight",
   "deploy-and-crud-smoke",
+  "deploy-and-discord-google-smoke",
   "deploy-and-discord-notion-smoke",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -341,6 +343,41 @@ export async function runDeployAndGoogleDiscordSmoke(callTool, runId, options = 
 }
 
 
+export async function runDeployAndDiscordGoogleSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_google",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "discord_google",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["discord_google"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["discord_google"] };
+}
+
+
 export async function runDeployAndDiscordNotionSmoke(callTool, runId, options = {}) {
   await requireTool(callTool, "deploy_e2e", {
     run_id: runId,
@@ -385,9 +422,12 @@ export function touchedServicesFromAudit(entries, runId) {
       (
         (entry.tool === "seed_fixture" && SERVICES.includes(entry.target)) ||
         (entry.tool === "trigger_sync" &&
-          ["discord_notion", "google_discord", "google_notion"].includes(
-            entry.target,
-          ))
+          [
+            "discord_google",
+            "discord_notion",
+            "google_discord",
+            "google_notion",
+          ].includes(entry.target))
       )
     ) {
       touched.add(entry.target);
@@ -521,6 +561,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-crud-smoke") {
       await runDeployAndCrudSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-google-smoke") {
+      await runDeployAndDiscordGoogleSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-discord-notion-smoke") {

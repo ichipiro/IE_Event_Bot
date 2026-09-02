@@ -236,3 +236,29 @@ def test_discord_google_manifest_uses_dedicated_service_kind() -> None:
 
     assert stored.status == 200
     assert response_json(loaded) == {"ok": True, "manifest": manifest}
+
+
+def test_qa_notification_manifest_uses_dedicated_service_kind() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = {
+        "version": 1,
+        "kind": "qa_notification_job",
+        "dirty": False,
+        "last_run_id": "E2E-20260902T060000Z-1234abcd",
+    }
+
+    stored = post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "qa_notification",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+    loaded = post(
+        coordinator,
+        {"action": "get_e2e_manifest", "service": "qa_notification"},
+    )
+
+    assert stored.status == 200
+    assert response_json(loaded) == {"ok": True, "manifest": manifest}

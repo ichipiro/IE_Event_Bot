@@ -15,6 +15,7 @@ on:
           - deploy-and-discord-notion-smoke
           - deploy-and-google-discord-smoke
           - deploy-and-google-notion-smoke
+          - deploy-and-qa-notification-smoke
 
 permissions:
   contents: read
@@ -119,7 +120,8 @@ jobs:
           inputs.mode == 'deploy-and-discord-google-smoke' ||
           inputs.mode == 'deploy-and-discord-notion-smoke' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
-          inputs.mode == 'deploy-and-google-notion-smoke' }}
+          inputs.mode == 'deploy-and-google-notion-smoke' ||
+          inputs.mode == 'deploy-and-qa-notification-smoke' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
           E2E_MODE: ${{ inputs.mode }}
@@ -138,7 +140,8 @@ jobs:
           inputs.mode == 'deploy-and-discord-google-smoke' ||
           inputs.mode == 'deploy-and-discord-notion-smoke' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
-          inputs.mode == 'deploy-and-google-notion-smoke') &&
+          inputs.mode == 'deploy-and-google-notion-smoke' ||
+          inputs.mode == 'deploy-and-qa-notification-smoke') &&
           steps.run_id.outcome == 'success' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}

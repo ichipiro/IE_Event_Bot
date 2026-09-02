@@ -42,6 +42,7 @@ const SCENARIO_ROUTES = Object.freeze({
   discord_notion: "/admin/e2e/discord-notion-sync",
   google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
+  qa_notification: "/admin/e2e/qa-notification",
 });
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
@@ -51,9 +52,10 @@ const CLEANUP_ROUTES = Object.freeze({
   discord_notion: "/admin/e2e/discord-notion-sync/cleanup",
   google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
+  qa_notification: "/admin/e2e/qa-notification/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
-  qa_check: "/jobs/qa-check",
+  qa_check: "/admin/e2e/qa-notification",
   reminder: "/jobs/reminder",
   cleanup: "/jobs/cleanup",
   run_all: "/jobs/run-all",
@@ -100,6 +102,7 @@ const cleanupTargetField = z.enum([
   "discord_notion",
   "google_discord",
   "google_notion",
+  "qa_notification",
 ]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
@@ -1070,7 +1073,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_job",
     {
-      description: "所有権対応後に、固定allowlistからE2E Workerのjobを1つ実行する。",
+      description: "固定allowlistからrun所有資源に限定したE2E jobを1つ実行する。",
       inputSchema: { run_id: runIdField, job: jobField },
       annotations: {
         readOnlyHint: false,

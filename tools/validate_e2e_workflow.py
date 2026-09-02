@@ -122,6 +122,11 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
+        text.count("deploy-and-webhook-simulation-smoke") == 3,
+        "webhook_simulation_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("timeout-minutes:") == 2,
         "job_timeout_count_changed",
     )
@@ -202,6 +207,11 @@ def _check_workflow(text: str) -> list[str]:
         errors,
         "inputs.mode == 'deploy-and-notion-cleanup-smoke'" in cleanup_block,
         "cleanup_notion_cleanup_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-webhook-simulation-smoke'" in cleanup_block,
+        "cleanup_webhook_simulation_mode_guard_missing",
     )
     _check_action_pins(errors, text)
     return errors

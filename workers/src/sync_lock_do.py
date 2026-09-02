@@ -15,6 +15,7 @@ _E2E_MANIFEST_KINDS = {
     "notion_cleanup": "notion_cleanup_job",
     "qa_notification": "qa_notification_job",
     "reminder": "day_before_reminder",
+    "webhook_dispatch": "google_webhook_simulation",
     "discord": "discord_event_message",
     "notion": "notion_pages",
 }

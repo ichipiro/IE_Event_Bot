@@ -30,6 +30,7 @@ from google_auth import get_google_access_token
 
 
 GOOGLE_NOTION_SYNC_MANIFEST_SERVICE = "google_notion"
+GOOGLE_NOTION_SYNC_MANIFEST_KIND = "google_notion_sync"
 
 _JST = timezone(timedelta(hours=9))
 _CLEANUP_MAX_ATTEMPTS = 4
@@ -183,6 +184,7 @@ async def _archive_owned_notion_page(
 def _clean_manifest(
     run_id: str,
     *,
+    manifest_kind: str,
     outcome: str,
     cleanup_attempts: int,
     stages: dict[str, int],
@@ -201,7 +203,7 @@ def _clean_manifest(
         fingerprints["notion_page_id_sha256"] = _fingerprint(notion_page_id)
     return {
         "version": 1,
-        "kind": "google_notion_sync",
+        "kind": manifest_kind,
         "dirty": False,
         "last_run_id": run_id,
         "outcome": outcome,
@@ -311,16 +313,23 @@ def _configuration_error(env) -> str:
     return ""
 
 
-async def run_google_notion_sync_probe(env, state, run_id: str | None = None) -> dict:
-    """専用Calendar eventを既存適用処理でNotionへ反映し、両方を削除する。"""
+async def run_google_notion_scenario(
+    env,
+    state,
+    run_id: str | None = None,
+    *,
+    manifest_service: str,
+    manifest_kind: str,
+    apply_runner=None,
+    apply_error: str,
+) -> dict:
+    """専用Calendar eventを指定した適用経路でNotionへ反映・回収する。"""
     if not state.enabled():
         return {"ok": False, "dirty": False, "error": "state_kv_required"}
     if not state.e2e_manifest_enabled():
         return {"ok": False, "dirty": False, "error": "sync_coordinator_required"}
 
-    current_manifest = await state.get_e2e_manifest(
-        GOOGLE_NOTION_SYNC_MANIFEST_SERVICE
-    )
+    current_manifest = await state.get_e2e_manifest(manifest_service)
     if isinstance(current_manifest, dict) and current_manifest.get("dirty") is True:
         return {
             "ok": False,
@@ -395,7 +404,7 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
         }
     manifest = {
         "version": 1,
-        "kind": "google_notion_sync",
+        "kind": manifest_kind,
         "dirty": True,
         "run_id": run_id,
         "target_fingerprints": _target_fingerprints(calendar_id, database_id),
@@ -405,13 +414,13 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
         "stages": dict(stages),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+    await state.put_e2e_manifest(manifest_service, manifest)
 
     error = ""
     notion_page_id = ""
     manifest["create_attempted"]["google_event"] = True
     manifest["stage"] = "google_create_started"
-    await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+    await state.put_e2e_manifest(manifest_service, manifest)
     create_status, created = await _google_request(
         "POST",
         f"{_event_collection_url(calendar_id)}?sendUpdates=none",
@@ -429,7 +438,7 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
     else:
         manifest["stage"] = "google_created"
         manifest["stages"] = dict(stages)
-        await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
 
     google_event = created
     if not error:
@@ -451,15 +460,24 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
         manifest["create_attempted"]["notion_page"] = True
         manifest["stage"] = "application_apply_started"
         manifest["stages"] = dict(stages)
-        await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
         try:
-            apply_result = await apply_google_events(
-                env,
-                _EphemeralApplyState(),
-                [google_event],
-            )
+            if apply_runner is None:
+                apply_result = await apply_google_events(
+                    env,
+                    _EphemeralApplyState(),
+                    [google_event],
+                )
+            else:
+                apply_result = await apply_runner([google_event], stages)
         except Exception:
             apply_result = {"ok": False}
+        if (
+            isinstance(apply_result, dict)
+            and apply_result.get("_notion_write_started") is False
+        ):
+            manifest["create_attempted"]["notion_page"] = False
+            await state.put_e2e_manifest(manifest_service, manifest)
         apply_ok = (
             isinstance(apply_result, dict)
             and apply_result.get("ok") is True
@@ -469,7 +487,7 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
         )
         stages["application_apply"] = 200 if apply_ok else 500
         if not apply_ok:
-            error = "google_notion_apply_failed"
+            error = apply_error
 
     if not error:
         notion_page_id, find_error = await _find_page_by_marker(
@@ -490,7 +508,7 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
             manifest["notion_page_id"] = notion_page_id
             manifest["stage"] = "notion_page_found"
             manifest["stages"] = dict(stages)
-            await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+            await state.put_e2e_manifest(manifest_service, manifest)
 
     if not error:
         read_status, notion_page = await _request_stage(
@@ -534,9 +552,10 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
 
     if cleanup_ok:
         await state.put_e2e_manifest(
-            GOOGLE_NOTION_SYNC_MANIFEST_SERVICE,
+            manifest_service,
             _clean_manifest(
                 run_id,
+                manifest_kind=manifest_kind,
                 outcome="passed" if operation_ok else "failed_clean",
                 cleanup_attempts=cleanup_attempts,
                 stages=stages,
@@ -556,7 +575,7 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
         manifest["rate_limit_retries"] = dict(retries)
         if notion_page_id:
             manifest["notion_page_id"] = notion_page_id
-        await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
 
     result = {
         "ok": operation_ok and cleanup_ok,
@@ -572,10 +591,25 @@ async def run_google_notion_sync_probe(env, state, run_id: str | None = None) ->
     return result
 
 
-async def cleanup_google_notion_sync_probe(
+async def run_google_notion_sync_probe(env, state, run_id: str | None = None) -> dict:
+    """専用Calendar eventを既存適用処理でNotionへ反映し、両方を削除する。"""
+    return await run_google_notion_scenario(
+        env,
+        state,
+        run_id,
+        manifest_service=GOOGLE_NOTION_SYNC_MANIFEST_SERVICE,
+        manifest_kind=GOOGLE_NOTION_SYNC_MANIFEST_KIND,
+        apply_error="google_notion_apply_failed",
+    )
+
+
+async def cleanup_google_notion_scenario(
     env,
     state,
     expected_run_id: str | None = None,
+    *,
+    manifest_service: str,
+    manifest_kind: str,
 ) -> dict:
     """run IDと対象fingerprint確認後にdirtyな両資源のcleanupを再実行する。"""
     if not state.enabled():
@@ -584,13 +618,13 @@ async def cleanup_google_notion_sync_probe(
         return {"ok": False, "dirty": True, "error": "sync_coordinator_required"}
 
     expected_run_id = str(expected_run_id or "").strip()
-    manifest = await state.get_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE)
+    manifest = await state.get_e2e_manifest(manifest_service)
     if not isinstance(manifest, dict) or manifest.get("dirty") is not True:
         last_run_id = str((manifest or {}).get("last_run_id") or "")
         if expected_run_id and last_run_id and last_run_id != expected_run_id:
             return {"ok": False, "dirty": False, "error": "cleanup_run_id_mismatch"}
         return {"ok": True, "dirty": False, "action": "noop_clean"}
-    if manifest.get("kind") != "google_notion_sync":
+    if manifest.get("kind") != manifest_kind:
         return {"ok": False, "dirty": True, "error": "invalid_dirty_manifest"}
 
     run_id = str(manifest.get("run_id") or "")
@@ -638,7 +672,7 @@ async def cleanup_google_notion_sync_probe(
         manifest["rate_limit_retries"] = retries
         if notion_page_id:
             manifest["notion_page_id"] = notion_page_id
-        await state.put_e2e_manifest(GOOGLE_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
         return {
             "ok": False,
             "dirty": True,
@@ -648,9 +682,10 @@ async def cleanup_google_notion_sync_probe(
         }
 
     await state.put_e2e_manifest(
-        GOOGLE_NOTION_SYNC_MANIFEST_SERVICE,
+        manifest_service,
         _clean_manifest(
             run_id,
+            manifest_kind=manifest_kind,
             outcome="recovered",
             cleanup_attempts=attempts,
             stages=stages,
@@ -668,3 +703,18 @@ async def cleanup_google_notion_sync_probe(
         "action": "cleanup",
         "cleanup": {"ok": True, "attempts": attempts},
     }
+
+
+async def cleanup_google_notion_sync_probe(
+    env,
+    state,
+    expected_run_id: str | None = None,
+) -> dict:
+    """run IDと対象fingerprint確認後にdirtyな両資源のcleanupを再実行する。"""
+    return await cleanup_google_notion_scenario(
+        env,
+        state,
+        expected_run_id,
+        manifest_service=GOOGLE_NOTION_SYNC_MANIFEST_SERVICE,
+        manifest_kind=GOOGLE_NOTION_SYNC_MANIFEST_KIND,
+    )

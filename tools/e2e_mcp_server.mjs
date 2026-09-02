@@ -31,6 +31,8 @@ const AUDIT_DIR = resolve(AUDIT_ROOT, "e2e-mcp");
 const MAX_RESPONSE_BYTES = 65_536;
 const WORKER_TIMEOUT_MS = 60_000;
 const DEPLOY_TIMEOUT_MS = 300_000;
+const DEPLOY_VERIFY_ATTEMPTS = 20;
+const DEPLOY_VERIFY_INTERVAL_MS = 3_000;
 
 const SERVICE_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud",
@@ -612,6 +614,9 @@ function sanitizeStatus(response) {
       id_sha256: /^[0-9a-f]{64}$/.test(String(rawWorkerVersion.id_sha256 ?? ""))
         ? String(rawWorkerVersion.id_sha256)
         : null,
+      tag: RUN_ID_PATTERN.test(String(rawWorkerVersion.tag ?? ""))
+        ? String(rawWorkerVersion.tag)
+        : null,
       timestamp: sanitizeTimestamp(rawWorkerVersion.timestamp),
     },
     watch: {
@@ -647,12 +652,15 @@ function preflightFailureCode(config, health, status, checks) {
 }
 
 
-export async function deployDedicatedWorker(config, spawnImpl = spawn) {
+export async function deployDedicatedWorker(config, versionTag, spawnImpl = spawn) {
   if (!config.cloudflareAccountId) {
     return { ok: false, status: null, error: "missing_cloudflare_account_id" };
   }
   if (!config.cloudflareApiToken) {
     return { ok: false, status: null, error: "missing_cloudflare_api_token" };
+  }
+  if (!RUN_ID_PATTERN.test(String(versionTag ?? ""))) {
+    return { ok: false, status: null, error: "invalid_worker_version_tag" };
   }
   const wranglerConfig = await readFile(
     resolve(REPO_ROOT, "workers", "wrangler.e2e.jsonc"),
@@ -665,7 +673,16 @@ export async function deployDedicatedWorker(config, spawnImpl = spawn) {
   return await new Promise((resolveResult) => {
     const child = spawnImpl(
       "npm",
-      ["run", "wrangler", "--", "deploy", "--config", "workers/wrangler.e2e.jsonc"],
+      [
+        "run",
+        "wrangler",
+        "--",
+        "deploy",
+        "--config",
+        "workers/wrangler.e2e.jsonc",
+        "--tag",
+        versionTag,
+      ],
       {
         cwd: REPO_ROOT,
         env: {
@@ -700,6 +717,32 @@ export async function deployDedicatedWorker(config, spawnImpl = spawn) {
       });
     });
   });
+}
+
+
+async function waitForDeployedWorker(
+  config,
+  runId,
+  fetchImpl,
+  delayImpl,
+) {
+  for (let attempt = 1; attempt <= DEPLOY_VERIFY_ATTEMPTS; attempt += 1) {
+    const response = await workerRequest(
+      config,
+      "/admin/e2e/status",
+      "GET",
+      runId,
+      fetchImpl,
+    );
+    const status = sanitizeStatus(response);
+    if (status.ok && status.worker_version.tag === runId) {
+      return { ok: true, attempts: attempt };
+    }
+    if (attempt < DEPLOY_VERIFY_ATTEMPTS) {
+      await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
+    }
+  }
+  return { ok: false, attempts: DEPLOY_VERIFY_ATTEMPTS };
 }
 
 
@@ -865,6 +908,9 @@ export function createE2eMcpServer(options = {}) {
   const auditImpl = options.auditImpl ?? appendAuditEntry;
   const readAuditImpl = options.readAuditImpl ?? readAuditEntries;
   const deployImpl = options.deployImpl ?? deployDedicatedWorker;
+  const delayImpl = options.delayImpl ?? ((milliseconds) => new Promise(
+    (resolveDelay) => setTimeout(resolveDelay, milliseconds),
+  ));
   const repositoryMetadataImpl = options.repositoryMetadataImpl ?? readRepositoryMetadata;
   const config = loadE2eEnvironment(env);
   const server = new McpServer({ name: "ie-event-bot-e2e", version: "1.0.0" });
@@ -964,7 +1010,32 @@ export function createE2eMcpServer(options = {}) {
       const result = await runAudited(
         auditImpl,
         { run_id: runId, tool: "deploy_e2e", target: WORKER_NAME },
-        async () => await deployImpl(config),
+        async () => {
+          const deployed = await deployImpl(config, runId);
+          if (deployed.ok !== true) {
+            return deployed;
+          }
+          const verified = await waitForDeployedWorker(
+            config,
+            runId,
+            fetchImpl,
+            delayImpl,
+          );
+          if (!verified.ok) {
+            return {
+              ok: false,
+              status: deployed.status ?? null,
+              error: "worker_version_propagation_timeout",
+              version_verified: false,
+              verification_attempts: verified.attempts,
+            };
+          }
+          return {
+            ...deployed,
+            version_verified: true,
+            verification_attempts: verified.attempts,
+          };
+        },
       );
       return toolResult({ ...result, run_id: runId }, !result.ok);
     },

@@ -168,12 +168,14 @@ def _binding_value(binding, key: str) -> str:
 def _worker_version_summary(env) -> dict:
     metadata = getattr(env, "CF_VERSION_METADATA", None)
     version_id = _binding_value(metadata, "id") if metadata is not None else ""
+    tag = _binding_value(metadata, "tag") if metadata is not None else ""
     timestamp = _binding_value(metadata, "timestamp") if metadata is not None else ""
     if not version_id:
         return {"present": False}
     return {
         "present": True,
         "id_sha256": sha256(version_id.encode("utf-8")).hexdigest(),
+        "tag": tag if _RUN_ID_PATTERN.fullmatch(tag) else None,
         "timestamp": timestamp or None,
     }
 

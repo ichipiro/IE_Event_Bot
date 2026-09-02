@@ -562,3 +562,183 @@ def test_webhook_delivery_rejects_unowned_or_non_initial_notification() -> None:
     assert response_json(wrong_state)["error"] == (
         "e2e_webhook_delivery_notification_mismatch"
     )
+
+
+def _webhook_change_manifest() -> dict:
+    return {
+        "version": 1,
+        "kind": "google_webhook_change_dispatch",
+        "dirty": True,
+        "run_id": "E2E-20260902T120000Z-1234abcd",
+        "google_event_id": "owned-event",
+        "watch": {"channel_id": "e2e-change-owned-channel"},
+        "create_attempted": {
+            "google_event": True,
+            "notion_page": True,
+            "watch_channel": True,
+        },
+        "stage": "watch_create_started",
+        "stages": {},
+    }
+
+
+def test_webhook_change_claims_only_first_owned_exists_notification() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = _webhook_change_manifest()
+    assert post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "webhook_change",
+            "manifest_json": json.dumps(manifest),
+        },
+    ).status == 200
+
+    sync = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_change_sync",
+            "channel_id": manifest["watch"]["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "sync",
+            "message_number": "1",
+        },
+    )
+    attached = post(
+        coordinator,
+        {
+            "action": "attach_e2e_webhook_change_watch",
+            "run_id": manifest["run_id"],
+            "channel_id": manifest["watch"]["channel_id"],
+            "resource_id": "google-resource-id",
+            "expiration": "1790000000000",
+            "watch_status": 200,
+        },
+    )
+    prepared = post(
+        coordinator,
+        {
+            "action": "prepare_e2e_webhook_change",
+            "run_id": manifest["run_id"],
+            "updated_min": "2026-09-02T11:59:00+00:00",
+        },
+    )
+    claimed = post(
+        coordinator,
+        {
+            "action": "claim_e2e_webhook_change",
+            "channel_id": manifest["watch"]["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "exists",
+            "message_number": "2",
+        },
+    )
+    duplicate = post(
+        coordinator,
+        {
+            "action": "claim_e2e_webhook_change",
+            "channel_id": manifest["watch"]["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "exists",
+            "message_number": "7",
+        },
+    )
+    completed = post(
+        coordinator,
+        {
+            "action": "complete_e2e_webhook_change",
+            "run_id": manifest["run_id"],
+            "channel_id": manifest["watch"]["channel_id"],
+            "resource_id": "google-resource-id",
+            "message_number": "2",
+            "dispatch_status": 204,
+            "selected_count": 1,
+            "dedupe_calls": 1,
+            "apply_ok": True,
+            "processed": 1,
+            "pending_events": 0,
+            "error_count": 0,
+            "notion_write_started": True,
+            "cursor_written": True,
+            "last_epoch_written": True,
+            "last_result_written": True,
+        },
+    )
+    loaded = response_json(
+        post(
+            coordinator,
+            {"action": "get_e2e_manifest", "service": "webhook_change"},
+        )
+    )["manifest"]
+
+    assert response_json(sync)["duplicate"] is False
+    assert response_json(attached)["notification_received"] is True
+    assert response_json(prepared) == {"ok": True}
+    assert response_json(claimed) == {
+        "ok": True,
+        "accepted": True,
+        "duplicate": False,
+    }
+    assert response_json(duplicate) == {
+        "ok": True,
+        "accepted": True,
+        "duplicate": True,
+    }
+    assert response_json(completed) == {"ok": True}
+    assert loaded["change_notification"]["message_number"] == "2"
+    assert loaded["dispatch"] == {
+        "status": 204,
+        "selected_count": 1,
+        "dedupe_calls": 1,
+        "apply_ok": True,
+        "processed": 1,
+        "pending_events": 0,
+        "error_count": 0,
+        "notion_write_started": True,
+        "cursor_written": True,
+        "last_epoch_written": True,
+        "last_result_written": True,
+    }
+
+
+def test_webhook_change_rejects_unprepared_or_unowned_exists_notification() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = _webhook_change_manifest()
+    post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "webhook_change",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+
+    unprepared = post(
+        coordinator,
+        {
+            "action": "claim_e2e_webhook_change",
+            "channel_id": manifest["watch"]["channel_id"],
+            "resource_id": "google-resource-id",
+            "resource_state": "exists",
+            "message_number": "2",
+        },
+    )
+    wrong_channel = post(
+        coordinator,
+        {
+            "action": "record_e2e_webhook_change_sync",
+            "channel_id": "not-owned",
+            "resource_id": "google-resource-id",
+            "resource_state": "sync",
+            "message_number": "1",
+        },
+    )
+
+    assert unprepared.status == 404
+    assert response_json(unprepared)["error"] == (
+        "e2e_webhook_change_notification_mismatch"
+    )
+    assert wrong_channel.status == 404
+    assert response_json(wrong_channel)["error"] == (
+        "e2e_webhook_change_target_mismatch"
+    )

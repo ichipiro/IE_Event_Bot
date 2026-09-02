@@ -20,6 +20,7 @@ on:
           - deploy-and-notion-cleanup-smoke
           - deploy-and-webhook-simulation-smoke
           - deploy-and-webhook-delivery-smoke
+          - deploy-and-webhook-change-smoke
 
 permissions:
   contents: read
@@ -129,7 +130,8 @@ jobs:
           inputs.mode == 'deploy-and-reminder-smoke' ||
           inputs.mode == 'deploy-and-notion-cleanup-smoke' ||
           inputs.mode == 'deploy-and-webhook-simulation-smoke' ||
-          inputs.mode == 'deploy-and-webhook-delivery-smoke' }}
+          inputs.mode == 'deploy-and-webhook-delivery-smoke' ||
+          inputs.mode == 'deploy-and-webhook-change-smoke' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
           E2E_MODE: ${{ inputs.mode }}
@@ -153,7 +155,8 @@ jobs:
           inputs.mode == 'deploy-and-reminder-smoke' ||
           inputs.mode == 'deploy-and-notion-cleanup-smoke' ||
           inputs.mode == 'deploy-and-webhook-simulation-smoke' ||
-          inputs.mode == 'deploy-and-webhook-delivery-smoke') &&
+          inputs.mode == 'deploy-and-webhook-delivery-smoke' ||
+          inputs.mode == 'deploy-and-webhook-change-smoke') &&
           steps.run_id.outcome == 'success' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}

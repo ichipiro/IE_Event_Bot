@@ -235,6 +235,160 @@ class StateStore:
             return False
         raise RuntimeError("e2e_webhook_delivery_record_failed")
 
+    async def attach_e2e_webhook_change_watch(
+        self,
+        *,
+        run_id: str,
+        channel_id: str,
+        resource_id: str,
+        expiration: str,
+        watch_status: int,
+    ) -> bool:
+        """変更通知E2Eのwatch応答をrun所有manifestへ原子的に紐付ける。"""
+        result = await self._e2e_webhook_change_rpc(
+            "attach_e2e_webhook_change_watch",
+            {
+                "run_id": str(run_id or ""),
+                "channel_id": str(channel_id or ""),
+                "resource_id": str(resource_id or ""),
+                "expiration": str(expiration or ""),
+                "watch_status": watch_status,
+            },
+        )
+        if result.get("ok") is not True:
+            raise RuntimeError("e2e_webhook_change_watch_attach_failed")
+        return result.get("notification_received") is True
+
+    async def record_e2e_webhook_change_sync(
+        self,
+        *,
+        channel_id: str,
+        resource_id: str,
+        resource_state: str,
+        message_number: str,
+    ) -> bool:
+        """変更通知E2Eのwatch所有者へ届いた初回syncだけを記録する。"""
+        result = await self._e2e_webhook_change_rpc(
+            "record_e2e_webhook_change_sync",
+            {
+                "channel_id": str(channel_id or ""),
+                "resource_id": str(resource_id or ""),
+                "resource_state": str(resource_state or ""),
+                "message_number": str(message_number or ""),
+            },
+        )
+        if result.get("ok") is True and type(result.get("accepted")) is bool:
+            return result["accepted"]
+        if str(result.get("error") or "") in {
+            "inactive_e2e_webhook_change",
+            "e2e_webhook_change_target_mismatch",
+            "e2e_webhook_change_resource_mismatch",
+            "e2e_webhook_change_sync_mismatch",
+            "invalid_e2e_webhook_change_resource_id",
+        }:
+            return False
+        raise RuntimeError("e2e_webhook_change_sync_record_failed")
+
+    async def prepare_e2e_webhook_change(
+        self,
+        *,
+        run_id: str,
+        updated_min: str,
+    ) -> None:
+        """event更新前のcursorと実行予定を原子的に記録する。"""
+        result = await self._e2e_webhook_change_rpc(
+            "prepare_e2e_webhook_change",
+            {"run_id": str(run_id or ""), "updated_min": str(updated_min or "")},
+        )
+        if result.get("ok") is not True:
+            raise RuntimeError("e2e_webhook_change_prepare_failed")
+
+    async def record_e2e_webhook_change_update(
+        self,
+        *,
+        run_id: str,
+        update_status: int,
+    ) -> None:
+        """Google event更新のHTTP statusをrun所有manifestへ記録する。"""
+        result = await self._e2e_webhook_change_rpc(
+            "record_e2e_webhook_change_update",
+            {"run_id": str(run_id or ""), "update_status": update_status},
+        )
+        if result.get("ok") is not True:
+            raise RuntimeError("e2e_webhook_change_update_record_failed")
+
+    async def claim_e2e_webhook_change(
+        self,
+        *,
+        channel_id: str,
+        resource_id: str,
+        resource_state: str,
+        message_number: str,
+    ) -> dict[str, bool]:
+        """run所有watchの最初のexists通知だけをdispatch用にclaimする。"""
+        result = await self._e2e_webhook_change_rpc(
+            "claim_e2e_webhook_change",
+            {
+                "channel_id": str(channel_id or ""),
+                "resource_id": str(resource_id or ""),
+                "resource_state": str(resource_state or ""),
+                "message_number": str(message_number or ""),
+            },
+        )
+        if result.get("ok") is True and all(
+            type(result.get(key)) is bool for key in ("accepted", "duplicate")
+        ):
+            return {
+                "accepted": result["accepted"],
+                "duplicate": result["duplicate"],
+            }
+        if str(result.get("error") or "") in {
+            "inactive_e2e_webhook_change",
+            "e2e_webhook_change_target_mismatch",
+            "e2e_webhook_change_resource_mismatch",
+            "e2e_webhook_change_notification_mismatch",
+            "invalid_e2e_webhook_change_resource_id",
+        }:
+            return {"accepted": False, "duplicate": False}
+        raise RuntimeError("e2e_webhook_change_claim_failed")
+
+    async def complete_e2e_webhook_change(
+        self,
+        *,
+        run_id: str,
+        channel_id: str,
+        resource_id: str,
+        message_number: str,
+        dispatch: dict,
+    ) -> None:
+        """claimしたexists通知の同期dispatch結果を一度だけ確定する。"""
+        result = await self._e2e_webhook_change_rpc(
+            "complete_e2e_webhook_change",
+            {
+                "run_id": str(run_id or ""),
+                "channel_id": str(channel_id or ""),
+                "resource_id": str(resource_id or ""),
+                "message_number": str(message_number or ""),
+                **dict(dispatch or {}),
+            },
+        )
+        if result.get("ok") is not True:
+            raise RuntimeError("e2e_webhook_change_complete_failed")
+
+    async def _e2e_webhook_change_rpc(self, action: str, payload: dict) -> dict:
+        """変更通知E2E用のDurable Object RPCをfail closedで呼び出す。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns),
+            action,
+            payload,
+        )
+        if not isinstance(result, dict):
+            raise RuntimeError("e2e_webhook_change_rpc_failed")
+        return result
+
     async def get_legacy_e2e_manifest(self, service: str) -> dict | None:
         """旧KV manifestを移行判定専用に読む。所有権の正本にはしない。"""
         key = _LEGACY_E2E_MANIFEST_KEYS.get(str(service or "").strip().lower())

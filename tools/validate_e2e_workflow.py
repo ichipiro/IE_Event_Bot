@@ -132,6 +132,11 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
+        text.count("deploy-and-webhook-change-smoke") == 3,
+        "webhook_change_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("timeout-minutes:") == 2,
         "job_timeout_count_changed",
     )
@@ -222,6 +227,11 @@ def _check_workflow(text: str) -> list[str]:
         errors,
         "inputs.mode == 'deploy-and-webhook-delivery-smoke'" in cleanup_block,
         "cleanup_webhook_delivery_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-webhook-change-smoke'" in cleanup_block,
+        "cleanup_webhook_change_mode_guard_missing",
     )
     _check_action_pins(errors, text)
     return errors

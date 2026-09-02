@@ -24,6 +24,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "google_notion",
   "qa_notification",
   "reminder",
+  "notion_cleanup",
 ]);
 export const COMMANDS = Object.freeze([
   "run-id",
@@ -35,6 +36,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-notion-smoke",
   "deploy-and-qa-notification-smoke",
   "deploy-and-reminder-smoke",
+  "deploy-and-notion-cleanup-smoke",
   "cleanup",
   "evidence",
 ]);
@@ -487,6 +489,41 @@ export async function runDeployAndReminderSmoke(callTool, runId, options = {}) {
 }
 
 
+export async function runDeployAndNotionCleanupSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_job", {
+      run_id: runId,
+      job: "cleanup",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "notion_cleanup",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["notion_cleanup"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["notion_cleanup"] };
+}
+
+
 export function touchedServicesFromAudit(entries, runId) {
   const touched = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -502,10 +539,16 @@ export function touchedServicesFromAudit(entries, runId) {
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
-        (entry.tool === "trigger_job" && ["qa_check", "reminder"].includes(entry.target))
+        (entry.tool === "trigger_job" &&
+          ["qa_check", "reminder", "cleanup"].includes(entry.target))
       )
     ) {
-      touched.add(entry.target === "qa_check" ? "qa_notification" : entry.target);
+      const jobService = {
+        qa_check: "qa_notification",
+        reminder: "reminder",
+        cleanup: "notion_cleanup",
+      }[entry.target];
+      touched.add(jobService ?? entry.target);
     }
   }
   return CLEANUP_TARGETS.filter((service) => touched.has(service));
@@ -660,6 +703,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-reminder-smoke") {
       await runDeployAndReminderSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-notion-cleanup-smoke") {
+      await runDeployAndNotionCleanupSmoke(callTool, runId);
       return;
     }
     if (command === "cleanup") {

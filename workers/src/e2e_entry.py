@@ -39,6 +39,11 @@ from e2e_notion_probe import (
     cleanup_notion_crud_probe,
     run_notion_crud_probe,
 )
+from e2e_notion_cleanup_probe import (
+    NOTION_CLEANUP_MANIFEST_SERVICE,
+    cleanup_notion_cleanup_probe,
+    run_notion_cleanup_probe,
+)
 from e2e_qa_notification_probe import (
     QA_NOTIFICATION_MANIFEST_SERVICE,
     cleanup_qa_notification_probe,
@@ -72,6 +77,8 @@ _DISCORD_CRUD_PATH = "/admin/e2e/discord-crud"
 _DISCORD_CLEANUP_PATH = "/admin/e2e/discord-crud/cleanup"
 _NOTION_CRUD_PATH = "/admin/e2e/notion-crud"
 _NOTION_CLEANUP_PATH = "/admin/e2e/notion-crud/cleanup"
+_NOTION_AUTO_CLEAN_PATH = "/admin/e2e/notion-cleanup"
+_NOTION_AUTO_CLEAN_CLEANUP_PATH = "/admin/e2e/notion-cleanup/cleanup"
 _QA_NOTIFICATION_PATH = "/admin/e2e/qa-notification"
 _QA_NOTIFICATION_CLEANUP_PATH = "/admin/e2e/qa-notification/cleanup"
 _REMINDER_PATH = "/admin/e2e/reminder"
@@ -271,6 +278,11 @@ def _e2e_reminder_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_notion_cleanup_enabled(env) -> bool:
+    value = getattr(env, "E2E_NOTION_CLEANUP_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -301,6 +313,10 @@ class Default(ApplicationDefault):
             _QA_NOTIFICATION_CLEANUP_PATH,
         )
         reminder_route = path in (_REMINDER_PATH, _REMINDER_CLEANUP_PATH)
+        notion_cleanup_route = path in (
+            _NOTION_AUTO_CLEAN_PATH,
+            _NOTION_AUTO_CLEAN_CLEANUP_PATH,
+        )
         status_route = path == _STATUS_PATH
         webhook_route = path == _TRIGGER_WEBHOOK_PATH
         orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
@@ -321,6 +337,7 @@ class Default(ApplicationDefault):
                 notion_route,
                 qa_notification_route,
                 reminder_route,
+                notion_cleanup_route,
                 status_route,
                 webhook_route,
                 orchestrated_write_route,
@@ -344,6 +361,8 @@ class Default(ApplicationDefault):
         if qa_notification_route and not _e2e_qa_notification_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if reminder_route and not _e2e_reminder_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if notion_cleanup_route and not _e2e_notion_cleanup_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not self._authorized(request):
             return Response("unauthorized", status=401)
@@ -380,6 +399,9 @@ class Default(ApplicationDefault):
                     ),
                     "reminder": await state.get_e2e_manifest(
                         REMINDER_MANIFEST_SERVICE
+                    ),
+                    "notion_cleanup": await state.get_e2e_manifest(
+                        NOTION_CLEANUP_MANIFEST_SERVICE
                     ),
                 }
                 legacy_manifests = {
@@ -428,6 +450,7 @@ class Default(ApplicationDefault):
                         "discord_notion": _e2e_discord_notion_sync_enabled(self.env),
                         "qa_notification": _e2e_qa_notification_enabled(self.env),
                         "reminder": _e2e_reminder_enabled(self.env),
+                        "notion_cleanup": _e2e_notion_cleanup_enabled(self.env),
                     },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
@@ -442,6 +465,7 @@ class Default(ApplicationDefault):
                             "google_notion",
                             "qa_notification",
                             "reminder",
+                            "notion_cleanup",
                         )
                     },
                 }
@@ -472,6 +496,8 @@ class Default(ApplicationDefault):
             lock_source = "e2e-qa-notification"
         elif reminder_route:
             lock_source = "e2e-reminder"
+        elif notion_cleanup_route:
+            lock_source = "e2e-notion-cleanup"
         elif discord_route:
             lock_source = "e2e-discord-crud"
         else:
@@ -568,6 +594,18 @@ class Default(ApplicationDefault):
                 )
             elif path == _REMINDER_PATH:
                 result = await run_reminder_probe(
+                    self.env,
+                    state,
+                    run_id=run_id,
+                )
+            elif path == _NOTION_AUTO_CLEAN_CLEANUP_PATH:
+                result = await cleanup_notion_cleanup_probe(
+                    self.env,
+                    state,
+                    expected_run_id=run_id,
+                )
+            elif path == _NOTION_AUTO_CLEAN_PATH:
+                result = await run_notion_cleanup_probe(
                     self.env,
                     state,
                     run_id=run_id,

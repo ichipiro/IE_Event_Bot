@@ -29,10 +29,13 @@
 
 ### 実環境検証
 
-- [初回workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33602595302)は、Notionが日時のUTC表現を正規化したため、HTTP 200の読戻しを文字列完全一致で検証した段階で失敗した。
+- [初回workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33602595302)は、HTTP 200の日時読戻しを文字列完全一致で検証した段階で失敗した。
 - 初回失敗後もrun内cleanupと`always()` cleanupは成功し、artifactで `notion_cleanup` manifestが `failed_clean`、対象revision一致、repository clean、残存するdirty所有権なしであることを確認した。
 - UTC offset と `Z` を同じ時刻として比較する修正後の[再実行workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33603187882)も同じ読戻し段階で失敗した。2回のcleanup、`failed_clean`、対象revision一致、repository cleanは再度確認した。
-- 既存Notion CRUDとの入力差分だった秒精度をstubで再現し、fixture日時を分境界へ揃えた。不一致時は機密値を返さず項目名だけを固定エラーにする診断も追加した。修正版のrequired reviewer付きworkflowは未実施である。
+- 既存Notion CRUDとの入力差分だった秒精度をstubで再現し、fixture日時を分境界へ揃えた。不一致時は機密値を返さず項目名だけを固定エラーにする診断も追加した。
+- [upstream PR #37](https://github.com/ichipiro/IE_Event_Bot/pull/37) と [fork 同期 PR #33](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/33) をmerge後、fork `develop` の[修正版workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33603941069)をrequired reviewer付きで実行した。
+- ローカルvalidation、専用Worker deploy、期限到来・将来日時pageの作成と読取、期限到来pageだけのarchive、将来日時pageの維持、2回目のinterval guard、run内cleanup、`always()` cleanup、マスク済みevidence収集が成功した。
+- artifactを独立に確認し、対象revision `a6cca06`、repository clean、専用Notion cleanup routeのみの実行、2回のcleanup成功、`notion_cleanup` manifest `passed`・clean、全14 stageがHTTP 200、生のresource IDと認証情報の不在を確認した。
 
 ### 未確認
 

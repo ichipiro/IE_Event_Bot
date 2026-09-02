@@ -75,12 +75,14 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - Google→Discord scenario は通常設定の Discord 同期を無効のまま保ち、専用 event 1件の適用呼び出しだけを有効化する。Notion と通常 KV の同期状態は変更しない。
 - Discord→Notion scenario は Google 同期と外部 Notion DB を明示的に無効化し、専用 event 1件の適用呼び出しだけを行う。通常の Discord snapshot / queue と作成通知は変更しない。
 - Discord→Google scenario は通常設定の Google 同期を無効のまま保ち、専用 event 1件の適用呼び出しだけを有効化し、内部・外部 Notion DB を一時 env view から隠す。通常の Discord snapshot / queue と作成通知は変更しない。
+- QA通知 scenario は専用 Q&A page 1件だけを通常ジョブと共通の通知判定へ渡し、初回抑止 cache を実行内へ閉じ込める。Q&A DB 全件取得、質問番号補完、共有KVの `qa_cache` は変更しない。
 - Notion page の cleanup は DB、page、source event ID、run ID 入り title または content marker の一致を確認してから archive する。Google event も private source event ID、run ID 入り summary と description marker の一致を確認してから削除する。
 - Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。
 - preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
 - `trigger_sync` は任意 URL を受け取らず、通常の `/sync/all` ではなく、所有資源限定の Google→Notion / Discord と Discord→Notion / Google route だけを固定列挙から呼ぶ。
-- 通常の同期、Webhook simulation、ジョブは下流資源と状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。
+- `trigger_job` の `qa_check` は通常の `/jobs/qa-check` ではなく、所有資源限定の `/admin/e2e/qa-notification` を呼ぶ。前日リマインド、Notion cleanup、run-allは通常 routeのまま既定拒否を維持する。
+- 通常の同期、Webhook simulation、通常ジョブ route は下流資源と状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。
 
 ## E2E GitHub Actions 境界
 

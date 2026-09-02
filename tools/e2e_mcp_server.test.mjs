@@ -210,6 +210,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         discord_notion: true,
         google_discord: true,
         google_notion: true,
+        qa_notification: true,
       },
       required_envs: Object.fromEntries([
         "notion_token",
@@ -245,6 +246,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         discord_notion: { present: false, dirty: false, run_id: null },
         google_discord: { present: false, dirty: false, run_id: null },
         google_notion: { present: false, dirty: false, run_id: null },
+        qa_notification: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -362,6 +364,56 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
       "discord_google",
       "discord_google",
     ],
+  );
+});
+
+
+test("trigger_jobはQA通知の所有資源限定routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: { job_notify: 200 },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const jobResult = await client.callTool({
+        name: "trigger_job",
+        arguments: { run_id: RUN_ID, job: "qa_check" },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "qa_notification",
+          confirmation: `cleanup:qa_notification:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(jobResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["qa_check", "qa_notification"],
   );
 });
 

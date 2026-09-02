@@ -102,7 +102,7 @@ StateStore
 
 ## E2E 専用 Worker
 
-`workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord と Discord→Notion / Google の専用 scenario、cleanup、status の route だけを明示的に公開し、書き込みには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。
+`workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知の専用 scenario、cleanup、status の route だけを明示的に公開し、書き込みには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。
 
 Google→Notion scenario は、専用 Calendar の event を `apply_google_events` へ渡し、専用 Notion 内部 DB の page を確認後に両方を cleanup する。外部 Notion DB と Discord 反映を事前に拒否し、一時状態により通常の同期対応表と queue を変更しない。Google event ID、Notion page ID、対象 fingerprint は `google_notion` の Durable Object manifest で管理する。
 
@@ -112,7 +112,9 @@ Discord→Notion scenario は、専用 Guild に一意な Scheduled Event を作
 
 Discord→Google scenario は、専用 Guild に一意な Scheduled Event を作成して読み戻し、既存の `_sync_discord_event_upsert` へ1件だけ渡し、専用 Calendar に作成された event の内容と private extended property を確認後に両方を cleanup する。通常設定の `DISCORD_TO_GOOGLE_SYNC_ENABLED=false` は維持し、この適用呼び出しだけを一時的な env view で有効化すると同時に内部・外部 Notion DB を隠す。通常の Discord snapshot / queue、作成通知、Notion は使用しない。Google 認証 token の取得・更新に伴う認証 cache は更新され得る。両 event ID と対象 fingerprint は `discord_google` の Durable Object manifest で管理する。
 
-通常の全体同期、Webhook simulation、ジョブの下流資源はまだ run ID で所有できないため、`E2E_ORCHESTRATED_WRITES_ENABLED` の既定値を `false` とし、該当 route を `404` で隠す。専用 scenario の `E2E_GOOGLE_NOTION_SYNC_ENABLED`、`E2E_GOOGLE_DISCORD_SYNC_ENABLED`、`E2E_DISCORD_NOTION_SYNC_ENABLED`、`E2E_DISCORD_GOOGLE_SYNC_ENABLED` とは別の境界である。
+QA通知 scenario は、専用 Q&A DB に run marker 付きの未回答 page を1件作成し、初回抑止用 cache を probe 内へ初期化した後、pageを更新して読み戻す。実行内 cache に更新前 marker を保持してから、通常ジョブと共通の `_run_qa_notification_pages` へその1件だけを渡す。作成された Discord message を検証後、messageを削除しpageをarchiveする。通常の全件取得、質問番号補完、共有KVの `qa_cache` は使用せず、page ID、message ID、対象 fingerprint は `qa_notification` の Durable Object manifest で管理する。
+
+通常の全体同期、Webhook simulation、通常のジョブ route、前日リマインド、Notion cleanup の下流資源はまだ run ID で所有できないため、`E2E_ORCHESTRATED_WRITES_ENABLED` の既定値を `false` とし、該当 route を `404` で隠す。所有資源限定 route の `E2E_GOOGLE_NOTION_SYNC_ENABLED`、`E2E_GOOGLE_DISCORD_SYNC_ENABLED`、`E2E_DISCORD_NOTION_SYNC_ENABLED`、`E2E_DISCORD_GOOGLE_SYNC_ENABLED`、`E2E_QA_NOTIFICATION_ENABLED` とは別の境界である。
 
 通常 Worker の token 登録、実 Google webhook、watch 作成、migration status は E2E entry から公開しない。scheduled handler も設定値にかかわらず空結果を返す。E2E status は実 ID や Secret を返さず、worker version、watch、外部資源を SHA-256 fingerprint と真偽値だけで要約する。
 

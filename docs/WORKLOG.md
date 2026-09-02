@@ -6,6 +6,33 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: QA通知 自己cleanup型 E2E scenario
+
+### 目的
+
+通常のQ&A DB全件処理を公開せず、所有・回収できる1件だけで既存のQA通知判定を実サービス検証できるようにする。
+
+### 変更
+
+- 初回通知抑止、更新判定、未回答通知、cache更新を `_run_qa_notification_pages` へ分離し、通常ジョブからも同じ処理を呼ぶようにした。
+- 専用Notion Q&A pageとDiscord messageを `qa_notification` の強整合manifestで所有し、応答喪失時はrun markerで再探索する自己cleanup型probeを追加した。
+- 初回抑止用cacheはprobe内へ閉じ込め、page更新を読み戻した後に更新前markerを保持する。Notionの更新時刻が即時更新の前後で同値でも、共有KVを変更せずcache missを検証する。
+- MCP `trigger_job` の `qa_check` を通常の `/jobs/qa-check` ではなく所有資源限定routeへ接続し、workflowに `deploy-and-qa-notification-smoke` と監査開始済みscenarioの `always()` cleanupを追加した。
+- 通常のジョブroute、Q&A DB全件取得、質問番号補完、共有KVの `qa_cache` は既定拒否のまま維持した。
+
+### ローカル検証
+
+- `ruff check .` と `pyright` が成功した。
+- Python単体テスト129件、MCP / workflow契約テスト30件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデル・構文、追跡対象Markdownの相対リンク検査が成功した。
+- 固定WranglerによるE2E Workerのdeploy dry-runが成功した。
+
+### 未確認
+
+- Cloudflare専用Worker、Notion、Discordへ接続するQA通知scenarioの実環境動作
+- 通常QAジョブのQ&A DB全件取得、質問番号補完、共有KV cache、実Cron配信
+- 前日リマインド、Notion cleanup、Webhook simulation
+
 ## 2026-09-02: Discord→Google 自己cleanup型 E2E scenario
 
 ### 目的

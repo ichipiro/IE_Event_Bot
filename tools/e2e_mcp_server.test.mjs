@@ -144,7 +144,13 @@ test("公開ツールを10件に固定して任意URLや資源IDを受け取ら�
     const names = listed.tools.map((tool) => tool.name);
     assert.deepEqual(names, TOOL_NAMES);
 
-    const allowedFields = new Set(["run_id", "service", "job", "confirmation"]);
+    const allowedFields = new Set([
+      "run_id",
+      "service",
+      "scenario",
+      "job",
+      "confirmation",
+    ]);
     for (const tool of listed.tools) {
       const properties = tool.inputSchema.properties ?? {};
       for (const field of Object.keys(properties)) {
@@ -199,7 +205,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false },
       },
       routes_enabled: { google: true, discord: true, notion: true },
-      scenario_routes_enabled: { google_notion: true },
+      scenario_routes_enabled: { google_discord: true, google_notion: true },
       required_envs: Object.fromEntries([
         "notion_token",
         "notion_internal_db",
@@ -230,6 +236,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false, run_id: null },
       },
       scenarios: {
+        google_discord: { present: false, dirty: false, run_id: null },
         google_notion: { present: false, dirty: false, run_id: null },
       },
     });
@@ -280,7 +287,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
 });
 
 
-test("trigger_syncとcleanupはGoogle→Notion所有資源routeだけを使う", async () => {
+test("trigger_syncとcleanupは選択したGoogle所有資源routeだけを使う", async () => {
   const calls = [];
   const audit = [];
   const fetchImpl = async (url, options) => {
@@ -297,21 +304,23 @@ test("trigger_syncとcleanupはGoogle→Notion所有資源routeだけを使う",
   await withClient(
     { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
     async (client) => {
-      const syncResult = await client.callTool({
-        name: "trigger_sync",
-        arguments: { run_id: RUN_ID },
-      });
-      const cleanupResult = await client.callTool({
-        name: "cleanup_run",
-        arguments: {
-          run_id: RUN_ID,
-          service: "google_notion",
-          confirmation: `cleanup:google_notion:${RUN_ID}`,
-        },
-      });
+      for (const scenario of ["google_notion", "google_discord"]) {
+        const syncResult = await client.callTool({
+          name: "trigger_sync",
+          arguments: { run_id: RUN_ID, scenario },
+        });
+        const cleanupResult = await client.callTool({
+          name: "cleanup_run",
+          arguments: {
+            run_id: RUN_ID,
+            service: scenario,
+            confirmation: `cleanup:${scenario}:${RUN_ID}`,
+          },
+        });
 
-      assert.equal(parseToolResult(syncResult).ok, true);
-      assert.equal(parseToolResult(cleanupResult).ok, true);
+        assert.equal(parseToolResult(syncResult).ok, true);
+        assert.equal(parseToolResult(cleanupResult).ok, true);
+      }
     },
   );
 
@@ -320,12 +329,14 @@ test("trigger_syncとcleanupはGoogle→Notion所有資源routeだけを使う",
     [
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync/cleanup`,
     ],
   );
   assert.equal(calls.every((call) => call.options.method === "POST"), true);
   assert.deepEqual(
     audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
-    ["google_notion", "google_notion"],
+    ["google_notion", "google_notion", "google_discord", "google_discord"],
   );
 });
 
@@ -458,7 +469,10 @@ test("同期lockのHTTP 200 skipを実行成功として扱わない", async () 
       for (const name of ["trigger_sync", "trigger_webhook"]) {
         const result = await client.callTool({
           name,
-          arguments: { run_id: RUN_ID },
+          arguments: {
+            run_id: RUN_ID,
+            ...(name === "trigger_sync" ? { scenario: "google_notion" } : {}),
+          },
         });
         const payload = parseToolResult(result);
 

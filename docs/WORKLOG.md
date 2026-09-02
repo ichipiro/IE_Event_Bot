@@ -27,9 +27,14 @@
 - E2E MCP設定、Secret hygiene、workflow policy、Bash構文検査が成功した。
 - 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
 
+### 実環境検証
+
+- upstream PR #23とfork同期PR #19をmerge後、fork `develop` の[専用E2E workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33579456642)をrequired reviewer承認付きで実行した。
+- ローカルvalidation、専用Worker deploy、Google event作成・読取、既存適用処理によるNotion page作成・検証、run内cleanup、`always()` cleanup、マスク済みevidence収集が成功した。
+- artifactを独立に確認し、対象revision一致、repository clean、全操作成功、`google_notion` manifest clean、必須stage成功、raw resource ID不在を確認した。
+
 ### 未確認
 
-- 専用 Worker 上での Google→Notion scenario の実サービス実行と artifact
 - Google 差分取得、同期 cursor / queue、Discord 反映
 - 実 Google webhook、Cron、定期ジョブ
 

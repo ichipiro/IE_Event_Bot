@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   COMMANDS,
+  CLEANUP_TARGETS,
   E2eWorkflowError,
   SERVICES,
   cleanupServices,
@@ -12,6 +13,7 @@ import {
   parseArguments,
   parseToolPayload,
   runDeployAndCrudSmoke,
+  runDeployAndGoogleNotionSmoke,
   runPreflight,
   touchedServicesFromAudit,
 } from "./run_e2e_workflow.mjs";
@@ -160,6 +162,36 @@ test("deploy後に3サービスの自己cleanup型CRUDと所有状態を確認�
 });
 
 
+test("deploy後にGoogle→Notion適用と所有状態を確認する", async () => {
+  const calls = [];
+  const callTool = async (name, args) => {
+    calls.push({ name, args });
+    return toolResult({ ok: true, run_id: RUN_ID });
+  };
+
+  const result = await runDeployAndGoogleNotionSmoke(callTool, RUN_ID, {
+    preflight: { attempts: 1 },
+  });
+
+  assert.deepEqual(result, { ok: true, scenarios: ["google_notion"] });
+  assert.deepEqual(
+    calls.map(({ name, args }) => [name, args.service ?? null]),
+    [
+      ["deploy_e2e", null],
+      ["preflight", null],
+      ["trigger_sync", null],
+      ["assert_external_state", "google_notion"],
+      ["cleanup_run", "google_notion"],
+    ],
+  );
+  assert.equal(
+    calls.at(-1).args.confirmation,
+    `cleanup:google_notion:${RUN_ID}`,
+  );
+  assert.equal(CLEANUP_TARGETS.includes("google_notion"), true);
+});
+
+
 test("CRUD途中失敗時も開始済みserviceだけをcleanupする", async () => {
   const calls = [];
   const callTool = async (name, args) => {
@@ -207,7 +239,7 @@ test("cleanupは一時失敗だけを再試行し所有権不一致では停止�
           : { ok: true },
       );
     }
-    return toolResult({ ok: false, error: "cleanup_run_id_mismatch" });
+    return toolResult({ ok: false, error: "cleanup_target_mismatch" });
   };
 
   const result = await cleanupServices(
@@ -236,6 +268,7 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     { run_id: RUN_ID, tool: "seed_fixture", target: "google", phase: "start" },
     { run_id: RUN_ID, tool: "seed_fixture", target: "google", phase: "start" },
     { run_id: RUN_ID, tool: "cleanup_run", target: "notion", phase: "start" },
+    { run_id: RUN_ID, tool: "trigger_sync", target: "google_notion", phase: "start" },
     {
       run_id: "E2E-20260901T000001Z-1234abcd",
       tool: "seed_fixture",
@@ -244,7 +277,11 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     },
   ];
 
-  assert.deepEqual(touchedServicesFromAudit(entries, RUN_ID), ["google", "discord"]);
+  assert.deepEqual(touchedServicesFromAudit(entries, RUN_ID), [
+    "google",
+    "discord",
+    "google_notion",
+  ]);
 });
 
 

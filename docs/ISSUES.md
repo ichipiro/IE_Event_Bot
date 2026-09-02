@@ -52,7 +52,8 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 ### サービス間同期・Webhook・定期ジョブの自己cleanup型 E2E
 
 - 状態: 対応中
-- 根拠: 現行 cleanup は service 単位の CRUD fixture だけを所有し、同期・通知・cleanup ジョブが変更する下流資源と KV 状態へ run ID を伝播しない。
-- 暫定対応: `E2E_ORCHESTRATED_WRITES_ENABLED` を既定無効とし、同期、Webhook simulation、ジョブの E2E route を `404` で隠す。read-only preflight と自己 cleanup 型 CRUD smoke は継続する。
+- 対応済み範囲: Google→Notion は、専用 Google event と Notion page を同じ強整合 manifest で所有し、既存のアプリケーション適用処理を通した検証と自己 cleanup を行う専用 scenario を実装した。通常 KV の同期対応表と queue、外部 Notion DB、Discord は変更対象にしない。
+- 未対応範囲: Google 差分取得と cursor、Discord を含む全体同期、Webhook simulation、実 webhook / Cron、定期ジョブが変更する下流資源と状態には run ID が伝播していない。
+- 暫定対応: 未対応の通常同期、Webhook simulation、ジョブは `E2E_ORCHESTRATED_WRITES_ENABLED=false` で `404` にする。read-only preflight、service CRUD、所有資源限定の Google→Notion scenario は別 route で継続する。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)

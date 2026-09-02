@@ -29,7 +29,9 @@
 
 ### 実環境検証
 
-- 未実施。実装を upstream と fork の `develop` へ反映した後、required reviewer 承認付きの専用 workflow で実行する。
+- [upstream PR #33](https://github.com/ichipiro/IE_Event_Bot/pull/33) と [fork 同期 PR #29](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/29) を merge 後、fork `develop` の[専用 E2E workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33599347577)を required reviewer 承認付きで実行した。
+- ローカル validation、専用 Worker deploy、Discord Scheduled Event の作成・読取、既存処理による Discord message 作成・読取、通知済み cache 更新、2回目の重複抑止、run 内 cleanup、`always()` cleanup、マスク済み evidence 収集が成功した。
+- artifact を独立に確認し、対象 revision `597e1a1`、repository clean、専用 reminder route のみの実行、2回の cleanup 成功、`reminder` manifest clean、全16 stage 成功、raw resource ID と認証情報の不在を確認した。
 
 ### 未確認
 

@@ -22,6 +22,7 @@
 - required reviewer承認付きの専用workflowでDiscord→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでDiscord→Google scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでQA通知scenarioを実行し、Notion pageとDiscord messageのcleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
+- required reviewer 承認付きの専用 workflow で前日リマインド scenario を実行し、Discord Scheduled Event と message の cleanup、重複抑止、マスク済み artifact を確認した結果を作業履歴と課題へ記録した。
 
 ## 2026-08-29
 

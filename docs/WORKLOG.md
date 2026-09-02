@@ -6,6 +6,33 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Google→Notion 自己cleanup型 E2E scenario
+
+### 目的
+
+通常の全体同期を公開せず、所有・回収できる最小範囲で既存の Google→Notion 適用処理を実サービス検証できるようにする。
+
+### 変更
+
+- 専用 Google event を作成・読取し、`apply_google_events` で専用 Notion 内部 DB へ反映して内容を確認する E2E scenario を追加した。
+- Google event と Notion page を `google_notion` の強整合 manifest で所有し、片方でも cleanup または所有権確認に失敗した場合は dirty を維持する。
+- 外部 Notion DB、Discord 反映、Notion プロパティ名上書きを事前拒否し、同期対応表と queue を永続化しない境界を追加した。
+- MCP `trigger_sync` を通常の `/sync/all` から専用 scenario route へ変更し、workflow に `deploy-and-google-notion-smoke` を追加した。
+- 通常同期、Webhook simulation、ジョブの既定拒否は維持した。
+
+### ローカル検証
+
+- `ruff check .` と `pyright` が成功した。
+- Python 単体テスト92件、MCP / workflow契約テスト25件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文検査が成功した。
+- 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
+
+### 未確認
+
+- 専用 Worker 上での Google→Notion scenario の実サービス実行と artifact
+- Google 差分取得、同期 cursor / queue、Discord 反映
+- 実 Google webhook、Cron、定期ジョブ
+
 ## 2026-09-02: 未所有 E2E orchestration の既定拒否
 
 ### 目的

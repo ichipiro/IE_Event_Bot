@@ -199,6 +199,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false },
       },
       routes_enabled: { google: true, discord: true, notion: true },
+      scenario_routes_enabled: { google_notion: true },
       required_envs: Object.fromEntries([
         "notion_token",
         "notion_internal_db",
@@ -227,6 +228,9 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         google: { present: true, dirty: false, run_id: RUN_ID, outcome: "passed" },
         discord: { present: false, dirty: false, run_id: null },
         notion: { present: false, dirty: false, run_id: null },
+      },
+      scenarios: {
+        google_notion: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -259,6 +263,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
     assert.equal(serialized.includes(ENV.E2E_WORKER_URL), false);
     assert.equal(Object.values(payload.checks).every(Boolean), true);
     assert.equal(payload.checks.unowned_writes_blocked, true);
+    assert.equal(payload.checks.scenario_routes, true);
     assert.equal(payload.e2e_status.orchestrated_writes_enabled, false);
     assert.equal(payload.error, null);
 
@@ -272,6 +277,56 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
     assert.equal(unsafePayload.checks.unowned_writes_blocked, false);
     assert.equal(unsafePayload.error, "preflight_unowned_writes_blocked_failed");
   });
+});
+
+
+test("trigger_syncとcleanupはGoogle→Notion所有資源routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: { application_apply: 200 },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const syncResult = await client.callTool({
+        name: "trigger_sync",
+        arguments: { run_id: RUN_ID },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "google_notion",
+          confirmation: `cleanup:google_notion:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(syncResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["google_notion", "google_notion"],
+  );
 });
 
 
@@ -591,6 +646,17 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
         resource_fingerprints: { event_id_sha256: resourceFingerprint },
       },
     },
+    scenarios: {
+      google_notion: {
+        present: true,
+        dirty: false,
+        run_id: RUN_ID,
+        outcome: "passed",
+        cleanup_attempts: 1,
+        stages: { application_apply: 200, google_delete: 204 },
+        resource_fingerprints: { notion_page_id_sha256: "d".repeat(64) },
+      },
+    },
   });
 
   await withClient(
@@ -665,6 +731,11 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
         resourceFingerprint,
       );
       assert.equal(manifest.watch.channel_id_sha256.length, 64);
+      assert.equal(manifest.scenarios.google_notion.run_id, RUN_ID);
+      assert.equal(
+        manifest.scenarios.google_notion.resource_fingerprints.notion_page_id_sha256,
+        "d".repeat(64),
+      );
 
       const serialized = JSON.stringify(payload);
       assert.equal(serialized.includes(ENV.E2E_WORKER_URL), false);

@@ -407,7 +407,7 @@ test("deploy後にNotion期限cleanupとinterval guardを確認する", async ()
 });
 
 
-test("deploy後にWebhook dispatch simulationと分離状態を確認する", async () => {
+test("deploy後にWebhook ingress simulationと分離状態を確認する", async () => {
   const calls = [];
   const callTool = async (name, args) => {
     calls.push({ name, args });

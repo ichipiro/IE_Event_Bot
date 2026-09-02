@@ -59,6 +59,7 @@ const NON_RETRYABLE_CLEANUP_ERRORS = new Set([
   "e2e_mcp_configuration_invalid",
   "invalid_dirty_manifest",
   "legacy_e2e_manifest_review_required",
+  "webhook_dedupe_target_mismatch",
 ]);
 
 

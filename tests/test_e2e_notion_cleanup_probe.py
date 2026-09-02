@@ -62,6 +62,12 @@ def _response_properties(raw: dict) -> dict:
     for prop in properties.values():
         if not isinstance(prop, dict):
             continue
+        date_value = prop.get("date")
+        if isinstance(date_value, dict):
+            for key in ("start", "end"):
+                value = date_value.get(key)
+                if isinstance(value, str) and value.endswith("+00:00"):
+                    date_value[key] = f"{value[:-6]}Z"
         for property_type in ("title", "rich_text"):
             nodes = prop.get(property_type)
             if not isinstance(nodes, list):

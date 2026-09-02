@@ -11,6 +11,7 @@ on:
         options:
           - preflight
           - deploy-and-crud-smoke
+          - deploy-and-discord-notion-smoke
           - deploy-and-google-discord-smoke
           - deploy-and-google-notion-smoke
 
@@ -114,6 +115,7 @@ jobs:
       - name: Deploy and run selected write smoke
         if: >-
           ${{ inputs.mode == 'deploy-and-crud-smoke' ||
+          inputs.mode == 'deploy-and-discord-notion-smoke' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' }}
         env:
@@ -131,6 +133,7 @@ jobs:
         if: >-
           ${{ always() &&
           (inputs.mode == 'deploy-and-crud-smoke' ||
+          inputs.mode == 'deploy-and-discord-notion-smoke' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke') &&
           steps.run_id.outcome == 'success' }}

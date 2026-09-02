@@ -38,6 +38,7 @@ const SERVICE_ROUTES = Object.freeze({
   notion: "/admin/e2e/notion-crud",
 });
 const SCENARIO_ROUTES = Object.freeze({
+  discord_notion: "/admin/e2e/discord-notion-sync",
   google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
 });
@@ -45,6 +46,7 @@ const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
   discord: "/admin/e2e/discord-crud/cleanup",
   notion: "/admin/e2e/notion-crud/cleanup",
+  discord_notion: "/admin/e2e/discord-notion-sync/cleanup",
   google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
 });
@@ -82,11 +84,16 @@ const runIdField = z
   .regex(RUN_ID_PATTERN)
   .describe("E2E-<UTC timestamp>-<8 lowercase hex>形式のrun ID");
 const serviceField = z.enum(["google", "discord", "notion"]);
-const scenarioField = z.enum(["google_discord", "google_notion"]);
+const scenarioField = z.enum([
+  "discord_notion",
+  "google_discord",
+  "google_notion",
+]);
 const cleanupTargetField = z.enum([
   "google",
   "discord",
   "notion",
+  "discord_notion",
   "google_discord",
   "google_notion",
 ]);
@@ -989,7 +996,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "選択した所有資源限定のGoogle適用シナリオを実行し、両資源をcleanupする。",
+      description: "選択した所有資源限定の適用シナリオを実行し、両資源をcleanupする。",
       inputSchema: { run_id: runIdField, scenario: scenarioField },
       annotations: {
         readOnlyHint: false,

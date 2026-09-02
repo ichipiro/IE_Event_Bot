@@ -7,6 +7,7 @@ from workers import DurableObject, Response
 
 
 _E2E_MANIFEST_KINDS = {
+    "discord_notion": "discord_notion_sync",
     "google": "google_calendar_event",
     "google_discord": "google_discord_sync",
     "google_notion": "google_notion_sync",

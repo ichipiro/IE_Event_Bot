@@ -205,7 +205,11 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false },
       },
       routes_enabled: { google: true, discord: true, notion: true },
-      scenario_routes_enabled: { google_discord: true, google_notion: true },
+      scenario_routes_enabled: {
+        discord_notion: true,
+        google_discord: true,
+        google_notion: true,
+      },
       required_envs: Object.fromEntries([
         "notion_token",
         "notion_internal_db",
@@ -236,6 +240,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false, run_id: null },
       },
       scenarios: {
+        discord_notion: { present: false, dirty: false, run_id: null },
         google_discord: { present: false, dirty: false, run_id: null },
         google_notion: { present: false, dirty: false, run_id: null },
       },
@@ -287,7 +292,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
 });
 
 
-test("trigger_syncとcleanupは選択したGoogle所有資源routeだけを使う", async () => {
+test("trigger_syncとcleanupは選択した所有資源routeだけを使う", async () => {
   const calls = [];
   const audit = [];
   const fetchImpl = async (url, options) => {
@@ -304,7 +309,11 @@ test("trigger_syncとcleanupは選択したGoogle所有資源routeだけを使�
   await withClient(
     { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
     async (client) => {
-      for (const scenario of ["google_notion", "google_discord"]) {
+      for (const scenario of [
+        "google_notion",
+        "google_discord",
+        "discord_notion",
+      ]) {
         const syncResult = await client.callTool({
           name: "trigger_sync",
           arguments: { run_id: RUN_ID, scenario },
@@ -331,12 +340,21 @@ test("trigger_syncとcleanupは選択したGoogle所有資源routeだけを使�
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync/cleanup`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync/cleanup`,
     ],
   );
   assert.equal(calls.every((call) => call.options.method === "POST"), true);
   assert.deepEqual(
     audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
-    ["google_notion", "google_notion", "google_discord", "google_discord"],
+    [
+      "google_notion",
+      "google_notion",
+      "google_discord",
+      "google_discord",
+      "discord_notion",
+      "discord_notion",
+    ],
   );
 });
 

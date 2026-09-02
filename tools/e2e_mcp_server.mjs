@@ -45,6 +45,7 @@ const SCENARIO_ROUTES = Object.freeze({
   qa_notification: "/admin/e2e/qa-notification",
   reminder: "/admin/e2e/reminder",
   notion_cleanup: "/admin/e2e/notion-cleanup",
+  webhook_dispatch: "/admin/e2e/trigger-webhook",
 });
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
@@ -57,6 +58,7 @@ const CLEANUP_ROUTES = Object.freeze({
   qa_notification: "/admin/e2e/qa-notification/cleanup",
   reminder: "/admin/e2e/reminder/cleanup",
   notion_cleanup: "/admin/e2e/notion-cleanup/cleanup",
+  webhook_dispatch: "/admin/e2e/trigger-webhook/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
   qa_check: "/admin/e2e/qa-notification",
@@ -109,6 +111,7 @@ const cleanupTargetField = z.enum([
   "qa_notification",
   "reminder",
   "notion_cleanup",
+  "webhook_dispatch",
 ]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
@@ -1048,7 +1051,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_webhook",
     {
-      description: "所有権対応後に、認証済みwebhook-dispatch simulationを実行する。",
+      description: "所有資源限定の認証済みwebhook-dispatch simulationを実行する。",
       inputSchema: { run_id: runIdField },
       annotations: {
         readOnlyHint: false,
@@ -1069,7 +1072,15 @@ export function createE2eMcpServer(options = {}) {
             runId,
             fetchImpl,
           );
-          return sanitizeOperation(response, runId);
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
         },
       );
       return toolResult(result, !result.ok);

@@ -6,6 +6,36 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Webhook dispatch 自己cleanup型 E2E simulation
+
+### 目的
+
+通常のWebhook受信や共有同期状態を公開せず、所有・回収できるGoogle event 1件だけで差分取得から同期dispatchまでを実サービス検証できるようにする。
+
+### 変更
+
+- 専用Calendarのrun marker付きeventを、通常同期と共通のGoogle差分取得と`_run_sync_dispatch`へ通し、event IDとrun markerが一致する1件だけをNotionへ適用するprobeを追加した。
+- Google eventとNotion pageを`webhook_dispatch`の強整合manifestで所有し、run IDと対象fingerprintの一致後だけcleanupする。
+- 同期cursor、最終実行時刻、最終結果、Google認証cache、適用時の対応表とqueueを実行内へ閉じ込め、共有KVへ書き込まない。
+- MCP `trigger_webhook`を専用simulation routeへ接続し、workflowに`deploy-and-webhook-simulation-smoke`と監査開始済みscenarioの`always()` cleanupを追加した。
+- 通常の`/gcal/webhook`、watch channel、Webhook token、message-number重複抑止、全体同期、実Cronは既定拒否のまま維持した。
+
+### ローカル検証
+
+- `ruff check .`と`pyright`が成功した。
+- Python単体テスト154件、MCP / workflow契約テスト34件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデル、追跡対象Markdownの相対リンク検査が成功した。
+- 固定WranglerによるE2E Workerのdeploy dry-runが成功した。
+
+### 実環境検証
+
+- 未実施。upstreamとforkのレビュー経路へ反映後、required reviewer付きの専用workflowで確認する。
+
+### 未確認
+
+- Googleから`/gcal/webhook`への実配信、watch channel、Webhook token、message-number重複抑止
+- 通常同期の共有cursor、対応表、queue、全体同期、実Cron配信
+
 ## 2026-09-02: Notion期限cleanup 自己cleanup型 E2E scenario
 
 ### 目的

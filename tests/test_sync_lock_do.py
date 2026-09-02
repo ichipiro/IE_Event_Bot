@@ -314,3 +314,29 @@ def test_notion_cleanup_manifest_uses_dedicated_service_kind() -> None:
 
     assert stored.status == 200
     assert response_json(loaded) == {"ok": True, "manifest": manifest}
+
+
+def test_webhook_dispatch_manifest_uses_dedicated_service_kind() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = {
+        "version": 1,
+        "kind": "google_webhook_simulation",
+        "dirty": False,
+        "last_run_id": "E2E-20260902T090000Z-1234abcd",
+    }
+
+    stored = post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "webhook_dispatch",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+    loaded = post(
+        coordinator,
+        {"action": "get_e2e_manifest", "service": "webhook_dispatch"},
+    )
+
+    assert stored.status == 200
+    assert response_json(loaded) == {"ok": True, "manifest": manifest}

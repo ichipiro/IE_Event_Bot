@@ -20,6 +20,7 @@ import {
   runDeployAndNotionCleanupSmoke,
   runDeployAndQaNotificationSmoke,
   runDeployAndReminderSmoke,
+  runDeployAndWebhookSimulationSmoke,
   runPreflight,
   touchedServicesFromAudit,
 } from "./run_e2e_workflow.mjs";
@@ -406,6 +407,36 @@ test("deploy後にNotion期限cleanupとinterval guardを確認する", async ()
 });
 
 
+test("deploy後にWebhook dispatch simulationと分離状態を確認する", async () => {
+  const calls = [];
+  const callTool = async (name, args) => {
+    calls.push({ name, args });
+    return toolResult({ ok: true, run_id: RUN_ID });
+  };
+
+  const result = await runDeployAndWebhookSimulationSmoke(callTool, RUN_ID, {
+    preflight: { attempts: 1 },
+  });
+
+  assert.deepEqual(result, { ok: true, scenarios: ["webhook_dispatch"] });
+  assert.deepEqual(
+    calls.map(({ name, args }) => [name, args.service ?? null]),
+    [
+      ["deploy_e2e", null],
+      ["preflight", null],
+      ["trigger_webhook", null],
+      ["assert_external_state", "webhook_dispatch"],
+      ["cleanup_run", "webhook_dispatch"],
+    ],
+  );
+  assert.equal(
+    calls.at(-1).args.confirmation,
+    `cleanup:webhook_dispatch:${RUN_ID}`,
+  );
+  assert.equal(CLEANUP_TARGETS.includes("webhook_dispatch"), true);
+});
+
+
 test("CRUD途中失敗時も開始済みserviceだけをcleanupする", async () => {
   const calls = [];
   const callTool = async (name, args) => {
@@ -490,6 +521,12 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     { run_id: RUN_ID, tool: "trigger_job", target: "reminder", phase: "start" },
     { run_id: RUN_ID, tool: "trigger_job", target: "cleanup", phase: "start" },
     {
+      run_id: RUN_ID,
+      tool: "trigger_webhook",
+      target: "webhook_dispatch",
+      phase: "start",
+    },
+    {
       run_id: "E2E-20260901T000001Z-1234abcd",
       tool: "seed_fixture",
       target: "notion",
@@ -507,6 +544,7 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     "qa_notification",
     "reminder",
     "notion_cleanup",
+    "webhook_dispatch",
   ]);
 });
 

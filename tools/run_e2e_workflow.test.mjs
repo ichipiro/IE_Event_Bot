@@ -13,6 +13,7 @@ import {
   parseArguments,
   parseToolPayload,
   runDeployAndCrudSmoke,
+  runDeployAndDiscordNotionSmoke,
   runDeployAndGoogleDiscordSmoke,
   runDeployAndGoogleNotionSmoke,
   runPreflight,
@@ -231,6 +232,40 @@ test("deploy後にGoogle→Discord適用と所有状態を確認する", async (
 });
 
 
+test("deploy後にDiscord→Notion適用と所有状態を確認する", async () => {
+  const calls = [];
+  const callTool = async (name, args) => {
+    calls.push({ name, args });
+    return toolResult({ ok: true, run_id: RUN_ID });
+  };
+
+  const result = await runDeployAndDiscordNotionSmoke(callTool, RUN_ID, {
+    preflight: { attempts: 1 },
+  });
+
+  assert.deepEqual(result, { ok: true, scenarios: ["discord_notion"] });
+  assert.deepEqual(
+    calls.map(({ name, args }) => [name, args.service ?? null]),
+    [
+      ["deploy_e2e", null],
+      ["preflight", null],
+      ["trigger_sync", null],
+      ["assert_external_state", "discord_notion"],
+      ["cleanup_run", "discord_notion"],
+    ],
+  );
+  assert.equal(
+    calls.find((call) => call.name === "trigger_sync").args.scenario,
+    "discord_notion",
+  );
+  assert.equal(
+    calls.at(-1).args.confirmation,
+    `cleanup:discord_notion:${RUN_ID}`,
+  );
+  assert.equal(CLEANUP_TARGETS.includes("discord_notion"), true);
+});
+
+
 test("CRUD途中失敗時も開始済みserviceだけをcleanupする", async () => {
   const calls = [];
   const callTool = async (name, args) => {
@@ -309,6 +344,7 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     { run_id: RUN_ID, tool: "cleanup_run", target: "notion", phase: "start" },
     { run_id: RUN_ID, tool: "trigger_sync", target: "google_discord", phase: "start" },
     { run_id: RUN_ID, tool: "trigger_sync", target: "google_notion", phase: "start" },
+    { run_id: RUN_ID, tool: "trigger_sync", target: "discord_notion", phase: "start" },
     {
       run_id: "E2E-20260901T000001Z-1234abcd",
       tool: "seed_fixture",
@@ -320,6 +356,7 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
   assert.deepEqual(touchedServicesFromAudit(entries, RUN_ID), [
     "google",
     "discord",
+    "discord_notion",
     "google_discord",
     "google_notion",
   ]);

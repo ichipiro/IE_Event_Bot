@@ -6,6 +6,36 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Discord→Notion 自己cleanup型 E2E scenario
+
+### 目的
+
+通常の全体同期を公開せず、所有・回収できる最小範囲で既存の Discord→Notion 適用処理を実サービス検証できるようにする。
+
+### 変更
+
+- 専用 Discord Scheduled Event を作成・読取し、既存の `_sync_discord_event_upsert` で専用 Notion 内部 DB の page へ反映して内容を確認する E2E scenario を追加した。
+- Discord Scheduled Event と Notion page を `discord_notion` の強整合 manifest で所有し、片方でも cleanup または所有権確認に失敗した場合は dirty を維持する。
+- Google 同期、外部 Notion DB、Notion プロパティ名上書きを事前拒否し、通常の Discord snapshot / queue と作成通知を変更しない境界を追加した。
+- MCP `trigger_sync` に固定 `discord_notion` scenario を追加し、workflow に `deploy-and-discord-notion-smoke` と監査開始済み scenario の `always()` cleanup を追加した。
+- 通常同期、Webhook simulation、ジョブの既定拒否は維持した。
+
+### ローカル検証
+
+- `ruff check .` と `pyright` が成功した。
+- Python 単体テスト109件、MCP / workflow契約テスト27件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデル検査が成功した。
+- 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
+
+### 実環境検証
+
+- 未実施。ローカル検証は Cloudflare、Discord、Notion の実サービス動作を証明しない。
+
+### 未確認
+
+- Discord 一覧差分、snapshot / queue、更新・削除経路、作成通知
+- Discord→Google、全体同期、実 webhook、Cron、定期ジョブ
+
 ## 2026-09-02: Google→Discord 自己cleanup型 E2E scenario
 
 ### 目的

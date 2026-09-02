@@ -184,3 +184,29 @@ def test_google_discord_manifest_uses_dedicated_service_kind() -> None:
 
     assert stored.status == 200
     assert response_json(loaded) == {"ok": True, "manifest": manifest}
+
+
+def test_discord_notion_manifest_uses_dedicated_service_kind() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = {
+        "version": 1,
+        "kind": "discord_notion_sync",
+        "dirty": False,
+        "last_run_id": "E2E-20260902T000000Z-1234abcd",
+    }
+
+    stored = post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "discord_notion",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+    loaded = post(
+        coordinator,
+        {"action": "get_e2e_manifest", "service": "discord_notion"},
+    )
+
+    assert stored.status == 200
+    assert response_json(loaded) == {"ok": True, "manifest": manifest}

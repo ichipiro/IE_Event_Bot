@@ -22,6 +22,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_notion",
   "google_discord",
   "google_notion",
+  "qa_notification",
 ]);
 export const COMMANDS = Object.freeze([
   "run-id",
@@ -31,6 +32,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-discord-notion-smoke",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
+  "deploy-and-qa-notification-smoke",
   "cleanup",
   "evidence",
 ]);
@@ -413,6 +415,41 @@ export async function runDeployAndDiscordNotionSmoke(callTool, runId, options = 
 }
 
 
+export async function runDeployAndQaNotificationSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_job", {
+      run_id: runId,
+      job: "qa_check",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "qa_notification",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["qa_notification"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["qa_notification"] };
+}
+
+
 export function touchedServicesFromAudit(entries, runId) {
   const touched = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -427,10 +464,11 @@ export function touchedServicesFromAudit(entries, runId) {
             "discord_notion",
             "google_discord",
             "google_notion",
-          ].includes(entry.target))
+          ].includes(entry.target)) ||
+        (entry.tool === "trigger_job" && entry.target === "qa_check")
       )
     ) {
-      touched.add(entry.target);
+      touched.add(entry.target === "qa_check" ? "qa_notification" : entry.target);
     }
   }
   return CLEANUP_TARGETS.filter((service) => touched.has(service));
@@ -577,6 +615,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-discord-smoke") {
       await runDeployAndGoogleDiscordSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-qa-notification-smoke") {
+      await runDeployAndQaNotificationSmoke(callTool, runId);
       return;
     }
     if (command === "cleanup") {

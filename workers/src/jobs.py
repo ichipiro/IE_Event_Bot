@@ -269,6 +269,61 @@ async def ensure_qa_question_numbers(env):
             next_num += 1
 
 
+async def _run_qa_notification_pages(
+    env,
+    state,
+    pages: list[dict],
+    return_detail: bool = False,
+):
+    """取得済みQ&Aページへ初回抑止と更新通知を適用する。"""
+    channel_id = str(getattr(env, "QA_CHANNEL_ID", "") or "").strip()
+    cache = await state.get_json("qa_cache", {}) if state.enabled() else {}
+    if not isinstance(cache, dict):
+        cache = {}
+    first_run = bool(cache.get("_first_qa_run", True))
+    new_cache: dict[str, str | bool] = {"_first_qa_run": False}
+    had_error = False
+    failed_page_ids = []
+
+    for page in pages:
+        page_id_raw = (page or {}).get("id")
+        if not page_id_raw:
+            continue
+        page_id = str(page_id_raw)
+        last = str((page or {}).get("last_edited_time") or "")
+        new_cache[page_id] = last
+        if first_run:
+            continue
+        if str(cache.get(page_id) or "") == last:
+            continue
+        question = _extract_title(page, "質問") or "(質問なし)"
+        answer = _extract_rich_text(page, "回答") or "(回答なし)"
+        if answer != "(回答なし)":
+            continue
+        q_number = _extract_number(page, "質問番号")
+        display = q_number if q_number is not None else "?"
+        msg = (
+            f"❓ 質問番号 #{display} に更新があります\n"
+            f"質問: {question}\n"
+            f"回答: {answer}"
+        )
+        sent = await _discord_send_message(env, channel_id, msg)
+        if not sent:
+            had_error = True
+            failed_page_ids.append(page_id)
+
+    if state.enabled():
+        await state.put_json_if_changed("qa_cache", new_cache)
+    if return_detail:
+        return {
+            "ok": not had_error,
+            "first_run": first_run,
+            "failed_count": len(failed_page_ids),
+            "failed_page_ids": failed_page_ids[:20],
+        }
+    return not had_error
+
+
 async def run_qa_notification_job(env, state, return_detail: bool = False):
     """
     QA通知ジョブ本体。
@@ -290,56 +345,12 @@ async def run_qa_notification_job(env, state, return_detail: bool = False):
     await ensure_qa_question_numbers(env)
     # Q&A DB の全ページを取得
     pages = await _notion_query_all_pages(env, db_id)
-    # キャッシュを取得
-    cache = await state.get_json("qa_cache", {}) if state.enabled() else {}
-    if not isinstance(cache, dict):
-        cache = {}
-    # 初回実行判定(キャッシュに _first_qa_run が無ければ True)
-    first_run = bool(cache.get("_first_qa_run", True))
-    new_cache: dict[str, str | bool] = {"_first_qa_run": False}
-    had_error = False
-    failed_page_ids = []
-
-    for page in pages:
-        page_id_raw = (page or {}).get("id")
-        if not page_id_raw:
-            continue
-        page_id = str(page_id_raw)
-        last = str((page or {}).get("last_edited_time") or "")
-        new_cache[page_id] = last
-        if first_run:
-            continue
-        if str(cache.get(page_id) or "") == last:
-            continue
-        question = _extract_title(page, "質問") or "(質問なし)"
-        answer = _extract_rich_text(page, "回答") or "(回答なし)"
-        # 回答済みなら通知しない
-        if answer != "(回答なし)":
-            continue
-        q_number = _extract_number(page, "質問番号")
-        display = q_number if q_number is not None else "?"
-        msg = (
-            f"❓ 質問番号 #{display} に更新があります\n"
-            f"質問: {question}\n"
-            f"回答: {answer}"
-        )
-        # Discordへ送信
-        sent = await _discord_send_message(env, channel_id, msg)
-        if not sent:
-            had_error = True
-            failed_page_ids.append(str(page_id))
-
-    # キャッシュ保存
-    if state.enabled():
-        await state.put_json_if_changed("qa_cache", new_cache)
-    if return_detail:
-        return {
-            "ok": not had_error,
-            "first_run": first_run,
-            "failed_count": len(failed_page_ids),
-            "failed_page_ids": failed_page_ids[:20],
-        }
-    return not had_error
+    return await _run_qa_notification_pages(
+        env,
+        state,
+        pages,
+        return_detail=return_detail,
+    )
 
 
 async def _list_discord_events(env):

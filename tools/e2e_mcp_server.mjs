@@ -44,6 +44,7 @@ const SCENARIO_ROUTES = Object.freeze({
   google_notion: "/admin/e2e/google-notion-sync",
   qa_notification: "/admin/e2e/qa-notification",
   reminder: "/admin/e2e/reminder",
+  notion_cleanup: "/admin/e2e/notion-cleanup",
 });
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
@@ -55,11 +56,12 @@ const CLEANUP_ROUTES = Object.freeze({
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
   qa_notification: "/admin/e2e/qa-notification/cleanup",
   reminder: "/admin/e2e/reminder/cleanup",
+  notion_cleanup: "/admin/e2e/notion-cleanup/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
   qa_check: "/admin/e2e/qa-notification",
   reminder: "/admin/e2e/reminder",
-  cleanup: "/jobs/cleanup",
+  cleanup: "/admin/e2e/notion-cleanup",
   run_all: "/jobs/run-all",
 });
 const REQUIRED_ENV_KEYS = [
@@ -106,6 +108,7 @@ const cleanupTargetField = z.enum([
   "google_notion",
   "qa_notification",
   "reminder",
+  "notion_cleanup",
 ]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 

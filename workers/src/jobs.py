@@ -560,16 +560,23 @@ def _cleanup_interval_seconds(env) -> int:
         return 86400
 
 
-async def run_auto_clean_job(env, state, return_detail: bool = False):
-    """
-    Notion cleanup ジョブ本体。
-    - interval guard を満たさない場合は skip
-    - 内部DBの条件に従って対象ページをアーカイブ
-    - 最終実行時刻を KV に保存
-    """
-    internal_db = _env_text(env, "NOTION_EVENT_INTERNAL_ID", "")
+async def _run_auto_clean_pages(
+    env,
+    state,
+    pages: list[dict] | None,
+    *,
+    now_utc: datetime | None = None,
+    return_detail: bool = False,
+    archive_page: Any | None = None,
+):
+    """取得済みページへ期限判定とinterval guardを適用する。"""
     date_prop = _env_text(env, "NOTION_PROP_DATE", "日時")
-    now_utc = _utc_now()
+    if now_utc is None:
+        now_utc = _utc_now()
+    elif now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
 
     # 前回実行時刻 cleanup:last_epoch を読んで、まだ十分時間が経っていなければ処理をスキップ
     if state.enabled():
@@ -582,22 +589,28 @@ async def run_auto_clean_job(env, state, return_detail: bool = False):
             detail = {"ok": True, "skipped": True, "reason": "interval_guard"}
             return detail if return_detail else True
 
+    if pages is None:
+        internal_db = _env_text(env, "NOTION_EVENT_INTERNAL_ID", "")
+        pages = (
+            await _notion_query_all_pages(env, internal_db)
+            if internal_db
+            else []
+        )
+
     scanned = 0
     archived = 0
     had_error = False
 
-    # 内部DBを掃除
-    if internal_db:
-        pages = await _notion_query_all_pages(env, internal_db)
-        for page in pages:
-            scanned += 1
-            if not _archive_internal_due(_extract_date(page, date_prop), now_utc):
-                continue
-            ok = await _notion_archive_page(env, str((page or {}).get("id") or ""))
-            if ok:
-                archived += 1
-            else:
-                had_error = True
+    archiver = archive_page or _notion_archive_page
+    for page in pages:
+        scanned += 1
+        if not _archive_internal_due(_extract_date(page, date_prop), now_utc):
+            continue
+        ok = await archiver(env, str((page or {}).get("id") or ""))
+        if ok:
+            archived += 1
+        else:
+            had_error = True
 
     # 最終実行時刻を保存
     if state.enabled():
@@ -610,3 +623,18 @@ async def run_auto_clean_job(env, state, return_detail: bool = False):
             "archived": archived,
         }
     return not had_error
+
+
+async def run_auto_clean_job(env, state, return_detail: bool = False):
+    """
+    Notion cleanup ジョブ本体。
+    - interval guard を満たさない場合は skip
+    - 内部DBの条件に従って対象ページをアーカイブ
+    - 最終実行時刻を KV に保存
+    """
+    return await _run_auto_clean_pages(
+        env,
+        state,
+        None,
+        return_detail=return_detail,
+    )

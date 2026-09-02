@@ -212,6 +212,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         google_notion: true,
         qa_notification: true,
         reminder: true,
+        notion_cleanup: true,
       },
       required_envs: Object.fromEntries([
         "notion_token",
@@ -249,6 +250,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         google_notion: { present: false, dirty: false, run_id: null },
         qa_notification: { present: false, dirty: false, run_id: null },
         reminder: { present: false, dirty: false, run_id: null },
+        notion_cleanup: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -370,7 +372,7 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
 });
 
 
-test("trigger_jobは通知jobごとの所有資源限定routeだけを使う", async () => {
+test("trigger_jobはjobごとの所有資源限定routeだけを使う", async () => {
   const calls = [];
   const audit = [];
   const fetchImpl = async (url, options) => {
@@ -418,6 +420,22 @@ test("trigger_jobは通知jobごとの所有資源限定routeだけを使う", a
 
       assert.equal(parseToolResult(reminderResult).ok, true);
       assert.equal(parseToolResult(reminderCleanupResult).ok, true);
+
+      const notionCleanupResult = await client.callTool({
+        name: "trigger_job",
+        arguments: { run_id: RUN_ID, job: "cleanup" },
+      });
+      const notionCleanupCleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "notion_cleanup",
+          confirmation: `cleanup:notion_cleanup:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(notionCleanupResult).ok, true);
+      assert.equal(parseToolResult(notionCleanupCleanupResult).ok, true);
     },
   );
 
@@ -428,12 +446,21 @@ test("trigger_jobは通知jobごとの所有資源限定routeだけを使う", a
       `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification/cleanup`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/reminder`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/reminder/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup/cleanup`,
     ],
   );
   assert.equal(calls.every((call) => call.options.method === "POST"), true);
   assert.deepEqual(
     audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
-    ["qa_check", "qa_notification", "reminder", "reminder"],
+    [
+      "qa_check",
+      "qa_notification",
+      "reminder",
+      "reminder",
+      "cleanup",
+      "notion_cleanup",
+    ],
   );
 });
 

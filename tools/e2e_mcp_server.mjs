@@ -18,6 +18,7 @@ export const TOOL_NAMES = [
   "trigger_sync",
   "trigger_webhook",
   "trigger_webhook_delivery",
+  "trigger_webhook_change",
   "trigger_job",
   "read_status",
   "assert_external_state",
@@ -50,6 +51,7 @@ const SCENARIO_ROUTES = Object.freeze({
   notion_cleanup: "/admin/e2e/notion-cleanup",
   webhook_dispatch: "/admin/e2e/trigger-webhook",
   webhook_delivery: "/admin/e2e/google-webhook-delivery",
+  webhook_change: "/admin/e2e/google-webhook-change",
 });
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
@@ -64,6 +66,7 @@ const CLEANUP_ROUTES = Object.freeze({
   notion_cleanup: "/admin/e2e/notion-cleanup/cleanup",
   webhook_dispatch: "/admin/e2e/trigger-webhook/cleanup",
   webhook_delivery: "/admin/e2e/google-webhook-delivery/cleanup",
+  webhook_change: "/admin/e2e/google-webhook-change/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
   qa_check: "/admin/e2e/qa-notification",
@@ -120,6 +123,7 @@ const cleanupTargetField = z.enum([
   "notion_cleanup",
   "webhook_dispatch",
   "webhook_delivery",
+  "webhook_change",
 ]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
@@ -818,6 +822,9 @@ function operationRoute(tool, target) {
   if (tool === "trigger_webhook_delivery") {
     return "/admin/e2e/google-webhook-delivery";
   }
+  if (tool === "trigger_webhook_change") {
+    return "/admin/e2e/google-webhook-change";
+  }
   if (tool === "trigger_job") {
     return JOB_ROUTES[target] ?? null;
   }
@@ -1187,6 +1194,45 @@ export function createE2eMcpServer(options = {}) {
           const response = await workerRequest(
             config,
             SCENARIO_ROUTES.webhook_delivery,
+            "POST",
+            runId,
+            fetchImpl,
+          );
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
+        },
+      );
+      return toolResult(result, !result.ok);
+    },
+  );
+
+  server.registerTool(
+    "trigger_webhook_change",
+    {
+      description: "Googleの実exists通知から所有eventだけを共通dispatchでNotionへ反映・回収する。",
+      inputSchema: { run_id: runIdField },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ run_id: runId }) => {
+      const result = await runAudited(
+        auditImpl,
+        { run_id: runId, tool: "trigger_webhook_change", target: "webhook_change" },
+        async () => {
+          const response = await workerRequest(
+            config,
+            SCENARIO_ROUTES.webhook_change,
             "POST",
             runId,
             fetchImpl,

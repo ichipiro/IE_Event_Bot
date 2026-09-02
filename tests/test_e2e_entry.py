@@ -154,6 +154,24 @@ def test_e2e_status_masks_resource_identifiers() -> None:
                     "watch_resource_id_sha256": "9" * 64,
                 },
             },
+            "webhook_change": {
+                "version": 1,
+                "kind": "google_webhook_change_dispatch",
+                "dirty": False,
+                "last_run_id": RUN_ID,
+                "outcome": "passed",
+                "cleanup_attempts": 1,
+                "stages": {
+                    "watch_create": 200,
+                    "webhook_exists_delivery": 204,
+                    "watch_stop": 204,
+                },
+                "resource_fingerprints": {
+                    "watch_channel_id_sha256": "a" * 64,
+                    "watch_resource_id_sha256": "b" * 64,
+                    "webhook_message_number_sha256": "c" * 64,
+                },
+            },
         }
     )
     worker = make_worker(
@@ -169,6 +187,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             E2E_NOTION_CLEANUP_ENABLED="true",
             E2E_WEBHOOK_SIMULATION_ENABLED="true",
             E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED="true",
+            E2E_GOOGLE_WEBHOOK_CHANGE_ENABLED="true",
             GOOGLE_API_BEARER_TOKEN="fake-google-token",
             GOOGLE_CALENDAR_ID="calendar-id",
             GCAL_WEBHOOK_URL="https://bot.test/gcal/webhook",
@@ -298,6 +317,24 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             "watch_resource_id_sha256": "9" * 64,
         },
     }
+    assert payload["scenarios"]["webhook_change"] == {
+        "present": True,
+        "dirty": False,
+        "run_id": RUN_ID,
+        "outcome": "passed",
+        "stage": None,
+        "cleanup_attempts": 1,
+        "stages": {
+            "watch_create": 200,
+            "webhook_exists_delivery": 204,
+            "watch_stop": 204,
+        },
+        "resource_fingerprints": {
+            "watch_channel_id_sha256": "a" * 64,
+            "watch_resource_id_sha256": "b" * 64,
+            "webhook_message_number_sha256": "c" * 64,
+        },
+    }
     assert payload["worker_version"] == {
         "present": True,
         "id_sha256": sha256(b"sensitive-worker-version-id").hexdigest(),
@@ -327,6 +364,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
     assert payload["scenario_routes_enabled"]["notion_cleanup"] is True
     assert payload["scenario_routes_enabled"]["webhook_dispatch"] is True
     assert payload["scenario_routes_enabled"]["webhook_delivery"] is True
+    assert payload["scenario_routes_enabled"]["webhook_change"] is True
     serialized = json.dumps(payload)
     assert "must-not-be-returned" not in serialized
     assert "sensitive-watch-channel-id" not in serialized
@@ -452,6 +490,60 @@ def test_e2e_google_webhook_delivery_routes_use_exact_run_id(monkeypatch) -> Non
         worker.fetch(
             Request(
                 "https://bot.test/admin/e2e/google-webhook-delivery/cleanup",
+                method="POST",
+                headers=AUTH_HEADERS,
+            )
+        )
+    )
+
+    assert run_response.status == 200
+    assert cleanup_response.status == 200
+    assert calls == [("run", RUN_ID), ("cleanup", RUN_ID)]
+
+
+def test_e2e_google_webhook_change_routes_are_lock_free_and_use_exact_run_id(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def fake_probe(env, state, run_id):
+        calls.append(("run", run_id))
+        return {"ok": True, "dirty": False, "run_id": run_id}
+
+    async def fake_cleanup(env, state, expected_run_id):
+        calls.append(("cleanup", expected_run_id))
+        return {"ok": True, "dirty": False, "action": "noop_clean"}
+
+    async def unexpected_lock(*args, **kwargs):
+        raise AssertionError("callback側が取得するlockを管理routeで保持しない")
+
+    monkeypatch.setattr(e2e_entry, "run_google_webhook_change_probe", fake_probe)
+    monkeypatch.setattr(
+        e2e_entry,
+        "cleanup_google_webhook_change_probe",
+        fake_cleanup,
+    )
+    worker = make_worker(
+        SimpleNamespace(
+            INTERNAL_API_TOKEN="test-token",
+            E2E_GOOGLE_WEBHOOK_CHANGE_ENABLED="true",
+        )
+    )
+    monkeypatch.setattr(worker, "_acquire_sync_lock", unexpected_lock)
+
+    run_response = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/admin/e2e/google-webhook-change",
+                method="POST",
+                headers=AUTH_HEADERS,
+            )
+        )
+    )
+    cleanup_response = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/admin/e2e/google-webhook-change/cleanup",
                 method="POST",
                 headers=AUTH_HEADERS,
             )

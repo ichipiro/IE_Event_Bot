@@ -137,6 +137,23 @@ def test_e2e_status_masks_resource_identifiers() -> None:
                     "webhook_message_number_sha256": "7" * 64,
                 },
             },
+            "webhook_delivery": {
+                "version": 1,
+                "kind": "google_webhook_delivery",
+                "dirty": False,
+                "last_run_id": RUN_ID,
+                "outcome": "passed",
+                "cleanup_attempts": 1,
+                "stages": {
+                    "watch_create": 200,
+                    "webhook_sync_delivery": 204,
+                    "watch_stop": 204,
+                },
+                "resource_fingerprints": {
+                    "watch_channel_id_sha256": "8" * 64,
+                    "watch_resource_id_sha256": "9" * 64,
+                },
+            },
         }
     )
     worker = make_worker(
@@ -151,8 +168,11 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             E2E_REMINDER_ENABLED="true",
             E2E_NOTION_CLEANUP_ENABLED="true",
             E2E_WEBHOOK_SIMULATION_ENABLED="true",
+            E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED="true",
             GOOGLE_API_BEARER_TOKEN="fake-google-token",
             GOOGLE_CALENDAR_ID="calendar-id",
+            GCAL_WEBHOOK_URL="https://bot.test/gcal/webhook",
+            GCAL_WEBHOOK_TOKEN="channel-token",
             NOTION_TOKEN="fake-notion-token",
             NOTION_EVENT_INTERNAL_ID="notion-event-db",
             NOTION_QA_ID="notion-qa-db",
@@ -261,6 +281,23 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             "webhook_message_number_sha256": "7" * 64,
         },
     }
+    assert payload["scenarios"]["webhook_delivery"] == {
+        "present": True,
+        "dirty": False,
+        "run_id": RUN_ID,
+        "outcome": "passed",
+        "stage": None,
+        "cleanup_attempts": 1,
+        "stages": {
+            "watch_create": 200,
+            "webhook_sync_delivery": 204,
+            "watch_stop": 204,
+        },
+        "resource_fingerprints": {
+            "watch_channel_id_sha256": "8" * 64,
+            "watch_resource_id_sha256": "9" * 64,
+        },
+    }
     assert payload["worker_version"] == {
         "present": True,
         "id_sha256": sha256(b"sensitive-worker-version-id").hexdigest(),
@@ -289,6 +326,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
     assert payload["scenario_routes_enabled"]["reminder"] is True
     assert payload["scenario_routes_enabled"]["notion_cleanup"] is True
     assert payload["scenario_routes_enabled"]["webhook_dispatch"] is True
+    assert payload["scenario_routes_enabled"]["webhook_delivery"] is True
     serialized = json.dumps(payload)
     assert "must-not-be-returned" not in serialized
     assert "sensitive-watch-channel-id" not in serialized
@@ -374,6 +412,55 @@ def test_e2e_webhook_simulation_requires_run_id(monkeypatch) -> None:
     assert success.status == 200
     assert response_json(success) == {"ok": True, "dirty": False, "run_id": RUN_ID}
     assert run_ids == [RUN_ID]
+
+
+def test_e2e_google_webhook_delivery_routes_use_exact_run_id(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def fake_probe(env, state, run_id):
+        calls.append(("run", run_id))
+        return {"ok": True, "dirty": False, "run_id": run_id}
+
+    async def fake_cleanup(env, state, expected_run_id):
+        calls.append(("cleanup", expected_run_id))
+        return {"ok": True, "dirty": False, "action": "noop_clean"}
+
+    monkeypatch.setattr(e2e_entry, "run_google_webhook_delivery_probe", fake_probe)
+    monkeypatch.setattr(
+        e2e_entry,
+        "cleanup_google_webhook_delivery_probe",
+        fake_cleanup,
+    )
+    worker = make_worker(
+        SimpleNamespace(
+            INTERNAL_API_TOKEN="test-token",
+            E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED="true",
+            SYNC_DO_LOCK_ENABLED="false",
+        )
+    )
+
+    run_response = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/admin/e2e/google-webhook-delivery",
+                method="POST",
+                headers=AUTH_HEADERS,
+            )
+        )
+    )
+    cleanup_response = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/admin/e2e/google-webhook-delivery/cleanup",
+                method="POST",
+                headers=AUTH_HEADERS,
+            )
+        )
+    )
+
+    assert run_response.status == 200
+    assert cleanup_response.status == 200
+    assert calls == [("run", RUN_ID), ("cleanup", RUN_ID)]
 
 
 def test_orchestrated_write_routes_require_post_and_run_id(monkeypatch) -> None:
@@ -520,6 +607,119 @@ def test_unmanaged_mutating_routes_are_hidden(monkeypatch) -> None:
         assert response_json(response) == {"ok": False, "error": "not_found"}
 
     assert delegated_paths == []
+
+
+def test_google_webhook_delivery_callback_records_only_owned_initial_sync() -> None:
+    channel_id = "e2e-webhook-owned-channel"
+    namespace = make_sync_coordinator_namespace(
+        {
+            "webhook_delivery": {
+                "version": 1,
+                "kind": "google_webhook_delivery",
+                "dirty": True,
+                "run_id": RUN_ID,
+                "channel_id": channel_id,
+                "stage": "watch_create_started",
+                "stages": {},
+            }
+        }
+    )
+    worker = make_worker(
+        SimpleNamespace(
+            E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED="true",
+            GCAL_WEBHOOK_TOKEN="channel-token",
+            SYNC_COORDINATOR=namespace,
+        )
+    )
+    headers = {
+        "X-Goog-Channel-Token": "channel-token",
+        "X-Goog-Channel-ID": channel_id,
+        "X-Goog-Resource-ID": "google-resource-id",
+        "X-Goog-Resource-State": "sync",
+        "X-Goog-Message-Number": "1",
+    }
+
+    accepted = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/gcal/webhook",
+                method="POST",
+                headers=headers,
+            )
+        )
+    )
+    duplicate = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/gcal/webhook",
+                method="POST",
+                headers=headers,
+            )
+        )
+    )
+    wrong_channel = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/gcal/webhook",
+                method="POST",
+                headers={**headers, "X-Goog-Channel-ID": "not-owned"},
+            )
+        )
+    )
+
+    assert accepted.status == 204
+    assert duplicate.status == 204
+    assert wrong_channel.status == 404
+    manifest = run(StateStore(worker.env).get_e2e_manifest("webhook_delivery"))
+    assert isinstance(manifest, dict)
+    assert manifest["notification"] == {
+        "resource_id": "google-resource-id",
+        "resource_state": "sync",
+        "message_number": "1",
+        "received_at_epoch": manifest["notification"]["received_at_epoch"],
+    }
+
+
+def test_google_webhook_delivery_callback_fails_closed_before_state_write() -> None:
+    namespace = make_sync_coordinator_namespace()
+    worker = make_worker(
+        SimpleNamespace(
+            E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED="true",
+            GCAL_WEBHOOK_TOKEN="channel-token",
+            SYNC_COORDINATOR=namespace,
+        )
+    )
+    base_headers = {
+        "X-Goog-Channel-ID": "e2e-webhook-owned-channel",
+        "X-Goog-Resource-ID": "google-resource-id",
+        "X-Goog-Resource-State": "sync",
+        "X-Goog-Message-Number": "1",
+    }
+
+    unauthorized = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/gcal/webhook",
+                method="POST",
+                headers={**base_headers, "X-Goog-Channel-Token": "wrong"},
+            )
+        )
+    )
+    inactive = run(
+        worker.fetch(
+            Request(
+                "https://bot.test/gcal/webhook",
+                method="POST",
+                headers={**base_headers, "X-Goog-Channel-Token": "channel-token"},
+            )
+        )
+    )
+
+    assert unauthorized.status == 401
+    assert inactive.status == 404
+    assert "e2e:manifest:webhook_delivery" not in (
+        namespace.stub.durable_object.ctx.storage.data
+    )
 
 
 def test_e2e_scheduled_entry_is_disabled(monkeypatch) -> None:

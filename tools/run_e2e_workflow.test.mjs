@@ -18,6 +18,7 @@ import {
   runDeployAndGoogleDiscordSmoke,
   runDeployAndGoogleNotionSmoke,
   runDeployAndQaNotificationSmoke,
+  runDeployAndReminderSmoke,
   runPreflight,
   touchedServicesFromAudit,
 } from "./run_e2e_workflow.mjs";
@@ -336,6 +337,40 @@ test("deploy後にQA更新通知と所有状態を確認する", async () => {
 });
 
 
+test("deploy後に前日リマインドと重複抑止の所有状態を確認する", async () => {
+  const calls = [];
+  const callTool = async (name, args) => {
+    calls.push({ name, args });
+    return toolResult({ ok: true, run_id: RUN_ID });
+  };
+
+  const result = await runDeployAndReminderSmoke(callTool, RUN_ID, {
+    preflight: { attempts: 1 },
+  });
+
+  assert.deepEqual(result, { ok: true, scenarios: ["reminder"] });
+  assert.deepEqual(
+    calls.map(({ name, args }) => [name, args.service ?? null]),
+    [
+      ["deploy_e2e", null],
+      ["preflight", null],
+      ["trigger_job", null],
+      ["assert_external_state", "reminder"],
+      ["cleanup_run", "reminder"],
+    ],
+  );
+  assert.equal(
+    calls.find((call) => call.name === "trigger_job").args.job,
+    "reminder",
+  );
+  assert.equal(
+    calls.at(-1).args.confirmation,
+    `cleanup:reminder:${RUN_ID}`,
+  );
+  assert.equal(CLEANUP_TARGETS.includes("reminder"), true);
+});
+
+
 test("CRUD途中失敗時も開始済みserviceだけをcleanupする", async () => {
   const calls = [];
   const callTool = async (name, args) => {
@@ -417,6 +452,7 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     { run_id: RUN_ID, tool: "trigger_sync", target: "discord_google", phase: "start" },
     { run_id: RUN_ID, tool: "trigger_sync", target: "discord_notion", phase: "start" },
     { run_id: RUN_ID, tool: "trigger_job", target: "qa_check", phase: "start" },
+    { run_id: RUN_ID, tool: "trigger_job", target: "reminder", phase: "start" },
     {
       run_id: "E2E-20260901T000001Z-1234abcd",
       tool: "seed_fixture",
@@ -433,6 +469,7 @@ test("監査startがあるserviceだけを常時cleanup対象にする", () => {
     "google_discord",
     "google_notion",
     "qa_notification",
+    "reminder",
   ]);
 });
 

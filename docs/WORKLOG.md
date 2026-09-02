@@ -6,6 +6,36 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: 前日リマインド 自己cleanup型 E2E scenario
+
+### 目的
+
+通常の Guild event 全件処理を公開せず、所有・回収できる1件だけで既存の前日リマインド判定と重複抑止を実サービス検証できるようにする。
+
+### 変更
+
+- 通知ウィンドウ判定、message 作成、通知済み cache 更新を `_run_reminder_events` へ分離し、通常ジョブからも同じ処理を呼ぶようにした。
+- 通知ウィンドウ内の専用 Discord Scheduled Event と作成された message を `reminder` の強整合 manifest で所有し、応答喪失時は run marker で再探索する自己 cleanup 型 probe を追加した。
+- 通知済み cache は probe 内へ閉じ込め、同じ event を2回処理して2回目の message が作成されないことを検証する。共有 KV の `reminder_cache` は変更しない。
+- MCP `trigger_job` の `reminder` を通常の `/jobs/reminder` ではなく所有資源限定 route へ接続し、workflow に `deploy-and-reminder-smoke` と監査開始済み scenario の `always()` cleanup を追加した。
+- 通常のジョブ route、Guild event 全件取得、共有 KV、実 Cron 配信は既定拒否のまま維持した。
+
+### ローカル検証
+
+- `ruff check .` と `pyright` が成功した。
+- Python 単体テスト139件、MCP / workflow 契約テスト31件が成功した。
+- E2E MCP 設定、Secret hygiene、workflow policy、Bash 構文、PlantUML モデル、追跡対象 Markdown の相対リンク検査が成功した。
+- 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
+
+### 実環境検証
+
+- 未実施。実装を upstream と fork の `develop` へ反映した後、required reviewer 承認付きの専用 workflow で実行する。
+
+### 未確認
+
+- 通常リマインドジョブの Guild event 全件取得、共有 KV cache、実 Cron 配信
+- Notion cleanup、Webhook simulation
+
 ## 2026-09-02: QA通知 自己cleanup型 E2E scenario
 
 ### 目的

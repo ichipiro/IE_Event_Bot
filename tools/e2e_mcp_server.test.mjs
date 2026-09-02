@@ -211,6 +211,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         google_discord: true,
         google_notion: true,
         qa_notification: true,
+        reminder: true,
       },
       required_envs: Object.fromEntries([
         "notion_token",
@@ -247,6 +248,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         google_discord: { present: false, dirty: false, run_id: null },
         google_notion: { present: false, dirty: false, run_id: null },
         qa_notification: { present: false, dirty: false, run_id: null },
+        reminder: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -368,7 +370,7 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
 });
 
 
-test("trigger_jobはQA通知の所有資源限定routeだけを使う", async () => {
+test("trigger_jobは通知jobごとの所有資源限定routeだけを使う", async () => {
   const calls = [];
   const audit = [];
   const fetchImpl = async (url, options) => {
@@ -400,6 +402,22 @@ test("trigger_jobはQA通知の所有資源限定routeだけを使う", async ()
 
       assert.equal(parseToolResult(jobResult).ok, true);
       assert.equal(parseToolResult(cleanupResult).ok, true);
+
+      const reminderResult = await client.callTool({
+        name: "trigger_job",
+        arguments: { run_id: RUN_ID, job: "reminder" },
+      });
+      const reminderCleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "reminder",
+          confirmation: `cleanup:reminder:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(reminderResult).ok, true);
+      assert.equal(parseToolResult(reminderCleanupResult).ok, true);
     },
   );
 
@@ -408,12 +426,14 @@ test("trigger_jobはQA通知の所有資源限定routeだけを使う", async ()
     [
       `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/reminder`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/reminder/cleanup`,
     ],
   );
   assert.equal(calls.every((call) => call.options.method === "POST"), true);
   assert.deepEqual(
     audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
-    ["qa_check", "qa_notification"],
+    ["qa_check", "qa_notification", "reminder", "reminder"],
   );
 });
 

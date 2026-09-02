@@ -15,6 +15,7 @@
 - 所有資源を専用 Discord Scheduled Event と Notion page に限定し、既存の適用処理を通して検証・cleanupする Discord→Notion E2E mode を追加した。
 - 所有資源を専用 Discord Scheduled Event と Google event に限定し、既存の適用処理を通して検証・cleanupする Discord→Google E2E mode を追加した。
 - 所有資源を専用Notion Q&A pageとDiscord messageに限定し、通常ジョブと共通の初回抑止・更新通知処理を検証・cleanupするQA通知E2E modeを追加した。
+- 所有資源を専用 Discord Scheduled Event と message に限定し、通常ジョブと共通の通知ウィンドウ判定・重複抑止を検証・cleanup する前日リマインド E2E mode を追加した。
 - 通常の `/sync/all`、Webhook simulation、ジョブを既定拒否のまま維持し、新しい scenario が保証しない差分取得、KV 状態、実 webhook / Cron の境界を明記した。
 - required reviewer承認付きの専用workflowでGoogle→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでGoogle→Discord scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。

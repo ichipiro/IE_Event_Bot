@@ -90,11 +90,12 @@ def _page_payload(
     probe_now: datetime,
 ) -> tuple[dict, dict]:
     marker = _page_marker(run_id, page_kind)
+    probe_minute = probe_now.replace(second=0, microsecond=0)
     if page_kind == "due":
-        start = probe_now - timedelta(hours=1)
-        end = probe_now - timedelta(minutes=1)
+        start = probe_minute - timedelta(hours=1)
+        end = probe_minute - timedelta(minutes=1)
     else:
-        start = probe_now + timedelta(days=7)
+        start = probe_minute + timedelta(days=7)
         end = start + timedelta(minutes=30)
     expected = {
         "title": f"[E2E] Notion cleanup {page_kind} {run_id}",
@@ -159,6 +160,41 @@ def _same_timestamp(actual: object, expected: object) -> bool:
     return actual_utc is not None and actual_utc == expected_utc
 
 
+def _page_mismatch(
+    page: dict,
+    *,
+    page_id: str,
+    database_id: str,
+    expected: dict,
+    archived: bool,
+) -> str:
+    date_value = _property_date(page, "日時")
+    checks = (
+        ("page_id", _canonical_id(page.get("id")) == _canonical_id(page_id)),
+        (
+            "database_id",
+            _canonical_id(_page_database_id(page)) == _canonical_id(database_id),
+        ),
+        (
+            "title",
+            _property_text(page, "イベント名", "title") == expected["title"],
+        ),
+        (
+            "content",
+            _property_text(page, "内容", "rich_text") == expected["content"],
+        ),
+        (
+            "marker",
+            _property_text(page, _MARKER_PROPERTY, "rich_text")
+            == expected["marker"],
+        ),
+        ("start", _same_timestamp(date_value.get("start"), expected["start"])),
+        ("end", _same_timestamp(date_value.get("end"), expected["end"])),
+        ("archive", _page_archived(page) is archived),
+    )
+    return next((name for name, matches in checks if not matches), "")
+
+
 def _page_matches(
     page: dict,
     *,
@@ -167,17 +203,12 @@ def _page_matches(
     expected: dict,
     archived: bool,
 ) -> bool:
-    date_value = _property_date(page, "日時")
-    return (
-        _canonical_id(page.get("id")) == _canonical_id(page_id)
-        and _canonical_id(_page_database_id(page)) == _canonical_id(database_id)
-        and _property_text(page, "イベント名", "title") == expected["title"]
-        and _property_text(page, "内容", "rich_text") == expected["content"]
-        and _property_text(page, _MARKER_PROPERTY, "rich_text")
-        == expected["marker"]
-        and _same_timestamp(date_value.get("start"), expected["start"])
-        and _same_timestamp(date_value.get("end"), expected["end"])
-        and _page_archived(page) is archived
+    return not _page_mismatch(
+        page,
+        page_id=page_id,
+        database_id=database_id,
+        expected=expected,
+        archived=archived,
     )
 
 
@@ -263,21 +294,31 @@ async def _create_owned_page(
         "GET",
         f"/pages/{quote(page_id, safe='')}",
     )
-    if not (
-        200 <= read_status < 300
-        and isinstance(page, dict)
-        and _page_matches(
+    read_mismatch = (
+        _page_mismatch(
             page,
             page_id=page_id,
             database_id=database_id,
             expected=expected,
             archived=False,
         )
+        if isinstance(page, dict)
+        else "response"
+    )
+    if not (
+        200 <= read_status < 300
+        and isinstance(page, dict)
+        and not read_mismatch
     ):
+        error_suffix = (
+            f"{read_mismatch}_mismatch"
+            if 200 <= read_status < 300 and read_mismatch
+            else f"failed_{read_status}"
+        )
         return (
             page_id,
             page if isinstance(page, dict) else {},
-            f"notion_{page_kind}_read_verification_failed_{read_status}",
+            f"notion_{page_kind}_read_verification_{error_suffix}",
         )
     return page_id, page, ""
 

@@ -71,7 +71,7 @@ bash -n tools/configure_github_e2e_environment.sh
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
-| `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、所有 Google event を差分取得・同期 dispatch 経由で Notion へ反映して検証後、両資源を cleanup する |
+| `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
 
 書き込みモードは、各 `seed_fixture`、`trigger_sync`、または所有資源限定の `trigger_job` の監査開始記録がある service / scenario だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
 
@@ -93,7 +93,7 @@ QA通知モードは、専用 Q&A DB に run marker付きの未回答pageを1件
 
 Notion cleanup モードは、専用内部 DB に run marker が異なる期限到来 page と将来日時 page を1件ずつ作成して読み戻し、通常ジョブと共通の `_run_auto_clean_pages` へその2件だけを渡す。期限到来 page だけが archive され、将来日時 page が残り、同じ時刻の2回目は interval guard で skip されることを確認する。fixture日時は分境界へ揃え、Notionによる `Z` とUTC offset等の表記正規化を許容して、RFC 3339上の同一時刻として比較する。実行時刻は probe 内状態へ閉じ込めるため、内部 DB の通常全件取得、共有 KV の `cleanup:last_epoch`、実 Cron は使用しない。作成応答を失った場合は page ごとに異なる run marker で再探索し、所有権が未解決なら dirty を維持する。
 
-Webhook simulation モードは、専用 Calendar に run marker 付き event を1件作成し、通常同期と共通の Google 差分取得と `_run_sync_dispatch` を通す。取得結果から event ID と run marker が両方一致する1件だけを `apply_google_events` へ渡し、専用 Notion 内部 DB の page を確認して両資源を cleanup する。同期 cursor、最終実行時刻、最終結果、Google 認証 cache は request 内状態へ閉じ込め、共有 KV の対応表と queue も更新しない。このモードは `/gcal/webhook` への Google からの配信、watch channel、Webhook token、message-number 重複抑止、実 Cron を検証しない。
+Webhook simulation モードは、専用 Calendar に run marker 付き event を1件作成し、通常Workerと共通のWebhook ingress handlerへ内部requestを渡す。誤ったchannel tokenでは重複状態もdispatchも開始せず、正しいtokenの1回目だけがGoogle差分取得と同期dispatchを通り、同じchannel IDとmessage numberの2回目はDurable Objectで抑止される。取得結果からevent IDとrun markerが両方一致する1件だけを`apply_google_events`へ渡し、専用Notion内部DBのpageを確認して両資源とrun所有の重複状態をcleanupする。同期cursor、最終実行時刻、最終結果、Google認証cacheはrequest内状態へ閉じ込め、共有KVの対応表とqueueも更新しない。このモードはGoogleから`/gcal/webhook`への実配信、watch channel作成、実Cronを検証しない。
 
 MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync` のいずれかを呼ぶ。これらが確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
 

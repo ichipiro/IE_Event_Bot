@@ -29,6 +29,7 @@
 - required reviewer 承認付きの専用 workflow で前日リマインド scenario を実行し、Discord Scheduled Event と message の cleanup、重複抑止、マスク済み artifact を確認した結果を作業履歴と課題へ記録した。
 - required reviewer付きの専用workflowでNotion期限cleanup scenarioを実行し、期限判定、interval guard、両pageのcleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer付きの専用workflowでWebhook simulation scenarioを実行し、Google差分取得、所有eventだけのNotion適用、共有状態の分離、両資源cleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
+- Webhook simulationを通常Workerと共通のingress handlerへ拡張し、channel tokenの事前拒否、Durable Objectでのmessage重複抑止、run所有重複状態のcleanupを検証できるようにした。
 
 ## 2026-08-29
 

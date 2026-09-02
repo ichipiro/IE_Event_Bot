@@ -194,6 +194,7 @@ def _clean_manifest(
     google_event_id: str,
     notion_page_id: str,
     started_at: str | None,
+    extra_resource_fingerprints: dict[str, str] | None = None,
 ) -> dict:
     fingerprints = _target_fingerprints(calendar_id, database_id)
     fingerprints["google_event_id_sha256"] = sha256(
@@ -201,6 +202,7 @@ def _clean_manifest(
     ).hexdigest()
     if notion_page_id:
         fingerprints["notion_page_id_sha256"] = _fingerprint(notion_page_id)
+    fingerprints.update(extra_resource_fingerprints or {})
     return {
         "version": 1,
         "kind": manifest_kind,
@@ -291,6 +293,29 @@ async def _cleanup_resources(
     }
 
 
+async def _run_extra_cleanup(runner, manifest: dict) -> dict:
+    """任意の追加cleanupを固定結果へ正規化する。"""
+    if runner is None:
+        return {"ok": True, "attempts": 1, "stages": {}, "error": ""}
+    try:
+        result = await runner(manifest)
+    except Exception:
+        return {
+            "ok": False,
+            "attempts": 1,
+            "stages": {},
+            "error": "extra_cleanup_exception",
+        }
+    if isinstance(result, dict):
+        return result
+    return {
+        "ok": False,
+        "attempts": 1,
+        "stages": {},
+        "error": "extra_cleanup_invalid_result",
+    }
+
+
 def _configuration_error(env) -> str:
     calendar_id = _env_text(env, "GOOGLE_CALENDAR_ID")
     if not calendar_id:
@@ -322,6 +347,8 @@ async def run_google_notion_scenario(
     manifest_kind: str,
     apply_runner=None,
     apply_error: str,
+    cleanup_runner=None,
+    extra_resource_fingerprints: dict[str, str] | None = None,
 ) -> dict:
     """専用Calendar eventを指定した適用経路でNotionへ反映・回収する。"""
     if not state.enabled():
@@ -472,6 +499,15 @@ async def run_google_notion_scenario(
                 apply_result = await apply_runner([google_event], stages)
         except Exception:
             apply_result = {"ok": False}
+        if cleanup_runner is not None:
+            refreshed_manifest = await state.get_e2e_manifest(manifest_service)
+            if not (
+                isinstance(refreshed_manifest, dict)
+                and refreshed_manifest.get("dirty") is True
+                and str(refreshed_manifest.get("run_id") or "") == run_id
+            ):
+                raise RuntimeError("e2e_manifest_refresh_failed")
+            manifest = refreshed_manifest
         if (
             isinstance(apply_result, dict)
             and apply_result.get("_notion_write_started") is False
@@ -546,8 +582,16 @@ async def run_google_notion_scenario(
     cleanup = await _cleanup_resources(env, manifest, bearer_token)
     stages.update(cleanup["stages"])
     retries.update(cleanup["rate_limit_retries"])
-    cleanup_ok = cleanup["ok"] is True
-    cleanup_attempts = int(cleanup.get("attempts") or 1)
+    extra_cleanup = await _run_extra_cleanup(cleanup_runner, manifest)
+    extra_stages = extra_cleanup.get("stages")
+    if isinstance(extra_stages, dict):
+        stages.update(extra_stages)
+    cleanup_ok = cleanup["ok"] is True and extra_cleanup.get("ok") is True
+    cleanup_attempts = max(
+        int(cleanup.get("attempts") or 1),
+        int(extra_cleanup.get("attempts") or 1),
+    )
+    cleanup_error = str(cleanup.get("error") or extra_cleanup.get("error") or "")
     notion_page_id = str(cleanup.get("notion_page_id") or notion_page_id)
 
     if cleanup_ok:
@@ -565,11 +609,12 @@ async def run_google_notion_scenario(
                 google_event_id=google_event_id,
                 notion_page_id=notion_page_id,
                 started_at=str(manifest.get("created_at") or "") or None,
+                extra_resource_fingerprints=extra_resource_fingerprints,
             ),
         )
     else:
         manifest["stage"] = "cleanup_failed"
-        manifest["failure"] = str(cleanup.get("error") or error or "cleanup_failed")
+        manifest["failure"] = cleanup_error or error or "cleanup_failed"
         manifest["cleanup_attempts"] = cleanup_attempts
         manifest["stages"] = dict(stages)
         manifest["rate_limit_retries"] = dict(retries)
@@ -587,7 +632,7 @@ async def run_google_notion_scenario(
     if error:
         result["error"] = error
     if not cleanup_ok:
-        result["error"] = str(cleanup.get("error") or error or "cleanup_failed")
+        result["error"] = cleanup_error or error or "cleanup_failed"
     return result
 
 
@@ -610,6 +655,8 @@ async def cleanup_google_notion_scenario(
     *,
     manifest_service: str,
     manifest_kind: str,
+    cleanup_runner=None,
+    extra_resource_fingerprints: dict[str, str] | None = None,
 ) -> dict:
     """run IDと対象fingerprint確認後にdirtyな両資源のcleanupを再実行する。"""
     if not state.enabled():
@@ -661,12 +708,21 @@ async def cleanup_google_notion_scenario(
     if not isinstance(retries, dict):
         retries = {}
     retries.update(cleanup["rate_limit_retries"])
-    attempts = int(cleanup.get("attempts") or 1)
+    extra_cleanup = await _run_extra_cleanup(cleanup_runner, manifest)
+    extra_stages = extra_cleanup.get("stages")
+    if isinstance(extra_stages, dict):
+        stages.update(extra_stages)
+    attempts = max(
+        int(cleanup.get("attempts") or 1),
+        int(extra_cleanup.get("attempts") or 1),
+    )
     notion_page_id = str(cleanup.get("notion_page_id") or "")
+    cleanup_ok = cleanup.get("ok") is True and extra_cleanup.get("ok") is True
+    cleanup_error = str(cleanup.get("error") or extra_cleanup.get("error") or "")
 
-    if cleanup.get("ok") is not True:
+    if not cleanup_ok:
         manifest["stage"] = "cleanup_failed"
-        manifest["failure"] = str(cleanup.get("error") or "cleanup_failed")
+        manifest["failure"] = cleanup_error or "cleanup_failed"
         manifest["cleanup_attempts"] = attempts
         manifest["stages"] = stages
         manifest["rate_limit_retries"] = retries
@@ -677,7 +733,7 @@ async def cleanup_google_notion_scenario(
             "ok": False,
             "dirty": True,
             "action": "cleanup",
-            "error": str(cleanup.get("error") or "cleanup_failed"),
+            "error": cleanup_error or "cleanup_failed",
             "cleanup": {"ok": False, "attempts": attempts},
         }
 
@@ -695,6 +751,7 @@ async def cleanup_google_notion_scenario(
             google_event_id=google_event_id,
             notion_page_id=notion_page_id,
             started_at=str(manifest.get("created_at") or "") or None,
+            extra_resource_fingerprints=extra_resource_fingerprints,
         ),
     )
     return {

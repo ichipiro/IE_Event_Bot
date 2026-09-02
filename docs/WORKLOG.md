@@ -6,6 +6,36 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Webhook ingress認証・重複抑止 E2E simulation
+
+### 目的
+
+Googleからの実配信を開始する前に、通常Workerと共通のWebhook ingress handlerでtoken認証とmessage重複抑止を自己cleanup型で実サービス検証できるようにする。
+
+### 変更
+
+- 通常の`/gcal/webhook`処理を共通handlerへ分離し、E2E専用routeから所有資源限定の内部requestを渡せるようにした。
+- 誤ったchannel tokenが重複状態とdispatchを変更せず`401`になること、正しいtokenの1回目だけがdispatchされ、同じchannel IDとmessage numberの2回目が`204`で抑止されることを固定stageで確認する。
+- 重複状態へE2E run IDを所有者として保存し、dirty manifest内のchannel ID、message number、run ID、fingerprintが一致する場合だけDurable Objectから削除する。削除失敗時はdirtyを維持し、`always()` cleanupで再試行する。
+- Google event、Notion page、同期cursor、最終実行時刻、最終結果、Google認証cacheの既存の所有・分離境界は維持する。
+- E2E Workerの通常`/gcal/webhook`とwatch作成は公開せず、Googleからの実配信と実Cronはこのsimulationの対象外とする。
+
+### ローカル検証
+
+- `ruff check .`と`pyright`が成功した。
+- Python単体テスト158件、MCP / workflow契約テスト34件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデルが成功した。
+- 固定Wrangler 4.127.1によるE2E Workerのdeploy dry-runが成功した。
+
+### 実環境検証
+
+- 未実施。upstreamとforkのレビュー経路へ反映後、required reviewer付きの専用workflowで確認する。
+
+### 未確認
+
+- Googleから`/gcal/webhook`への実配信とwatch channel作成
+- 通常同期の共有cursor、対応表、queue、全体同期、実Cron配信
+
 ## 2026-09-02: Webhook dispatch 自己cleanup型 E2E simulation
 
 ### 目的

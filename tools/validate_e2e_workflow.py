@@ -87,6 +87,11 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "default: preflight" in text, "write_mode_became_default")
     _expect(
         errors,
+        text.count("deploy-and-google-notion-smoke") == 3,
+        "google_notion_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("timeout-minutes:") == 2,
         "job_timeout_count_changed",
     )
@@ -111,7 +116,7 @@ def _check_workflow(text: str) -> list[str]:
             f"worker_origin_secret_scope_changed:{name}",
         )
 
-    deploy_block = _step_block(text, "Deploy and run service CRUD smoke")
+    deploy_block = _step_block(text, "Deploy and run selected write smoke")
     cleanup_block = _step_block(text, "Always cleanup resources created by this run")
     evidence_block = _step_block(text, "Collect redacted evidence")
     _expect(errors, bool(deploy_block), "deploy_step_missing")
@@ -131,7 +136,12 @@ def _check_workflow(text: str) -> list[str]:
     _expect(
         errors,
         "inputs.mode == 'deploy-and-crud-smoke'" in cleanup_block,
-        "cleanup_write_mode_guard_missing",
+        "cleanup_crud_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-google-notion-smoke'" in cleanup_block,
+        "cleanup_google_notion_mode_guard_missing",
     )
     _check_action_pins(errors, text)
     return errors

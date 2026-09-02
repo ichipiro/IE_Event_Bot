@@ -14,10 +14,17 @@ import {
 
 
 export const SERVICES = Object.freeze(["google", "discord", "notion"]);
+export const CLEANUP_TARGETS = Object.freeze([
+  "google",
+  "discord",
+  "notion",
+  "google_notion",
+]);
 export const COMMANDS = Object.freeze([
   "run-id",
   "preflight",
   "deploy-and-crud-smoke",
+  "deploy-and-google-notion-smoke",
   "cleanup",
   "evidence",
 ]);
@@ -33,6 +40,7 @@ const CLEANUP_DELAY_MS = 1_000;
 const NON_RETRYABLE_CLEANUP_ERRORS = new Set([
   "cleanup_confirmation_mismatch",
   "cleanup_run_id_mismatch",
+  "cleanup_target_mismatch",
   "dirty_manifest_target_mismatch",
   "e2e_mcp_configuration_invalid",
   "invalid_dirty_manifest",
@@ -178,7 +186,7 @@ export async function cleanupServices(callTool, runId, services, options = {}) {
   const attempts = options.attempts ?? CLEANUP_ATTEMPTS;
   const delayMs = options.delayMs ?? CLEANUP_DELAY_MS;
   const sleepImpl = options.sleepImpl ?? sleep;
-  const selected = SERVICES.filter((service) => new Set(services).has(service));
+  const selected = CLEANUP_TARGETS.filter((service) => new Set(services).has(service));
   const results = {};
 
   for (const service of selected) {
@@ -259,19 +267,53 @@ export async function runDeployAndCrudSmoke(callTool, runId, options = {}) {
 }
 
 
+export async function runDeployAndGoogleNotionSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", { run_id: runId });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "google_notion",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["google_notion"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["google_notion"] };
+}
+
+
 export function touchedServicesFromAudit(entries, runId) {
   const touched = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
     if (
       entry?.run_id === runId &&
-      entry.tool === "seed_fixture" &&
       entry.phase === "start" &&
-      SERVICES.includes(entry.target)
+      (
+        (entry.tool === "seed_fixture" && SERVICES.includes(entry.target)) ||
+        (entry.tool === "trigger_sync" && entry.target === "google_notion")
+      )
     ) {
       touched.add(entry.target);
     }
   }
-  return SERVICES.filter((service) => touched.has(service));
+  return CLEANUP_TARGETS.filter((service) => touched.has(service));
 }
 
 
@@ -344,6 +386,7 @@ function unavailableManifest(runId, error) {
     operations: [],
     cleanup: {},
     services: {},
+    scenarios: {},
     watch: { present: false },
     evidence: { ok: false, error },
   };
@@ -398,6 +441,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-crud-smoke") {
       await runDeployAndCrudSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-google-notion-smoke") {
+      await runDeployAndGoogleNotionSmoke(callTool, runId);
       return;
     }
     if (command === "cleanup") {

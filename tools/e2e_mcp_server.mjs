@@ -37,10 +37,14 @@ const SERVICE_ROUTES = Object.freeze({
   discord: "/admin/e2e/discord-crud",
   notion: "/admin/e2e/notion-crud",
 });
+const SCENARIO_ROUTES = Object.freeze({
+  google_notion: "/admin/e2e/google-notion-sync",
+});
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
   discord: "/admin/e2e/discord-crud/cleanup",
   notion: "/admin/e2e/notion-crud/cleanup",
+  google_notion: "/admin/e2e/google-notion-sync/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
   qa_check: "/jobs/qa-check",
@@ -76,6 +80,7 @@ const runIdField = z
   .regex(RUN_ID_PATTERN)
   .describe("E2E-<UTC timestamp>-<8 lowercase hex>形式のrun ID");
 const serviceField = z.enum(["google", "discord", "notion"]);
+const cleanupTargetField = z.enum(["google", "discord", "notion", "google_notion"]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
 
@@ -494,6 +499,12 @@ function sanitizeStatus(response) {
   for (const service of Object.keys(SERVICE_ROUTES)) {
     services[service] = sanitizeManifest(rawServices[service]);
   }
+  const rawScenarios =
+    payload.scenarios && typeof payload.scenarios === "object" ? payload.scenarios : {};
+  const scenarios = {};
+  for (const scenario of Object.keys(SCENARIO_ROUTES)) {
+    scenarios[scenario] = sanitizeManifest(rawScenarios[scenario]);
+  }
 
   const googleAuth =
     payload.google_auth && typeof payload.google_auth === "object" ? payload.google_auth : {};
@@ -504,6 +515,10 @@ function sanitizeStatus(response) {
   const rawRoutes =
     payload.routes_enabled && typeof payload.routes_enabled === "object"
       ? payload.routes_enabled
+      : {};
+  const rawScenarioRoutes =
+    payload.scenario_routes_enabled && typeof payload.scenario_routes_enabled === "object"
+      ? payload.scenario_routes_enabled
       : {};
   const rawWorkerVersion =
     payload.worker_version && typeof payload.worker_version === "object"
@@ -546,6 +561,12 @@ function sanitizeStatus(response) {
     routes_enabled: Object.fromEntries(
       Object.keys(SERVICE_ROUTES).map((service) => [service, rawRoutes[service] === true]),
     ),
+    scenario_routes_enabled: Object.fromEntries(
+      Object.keys(SCENARIO_ROUTES).map((scenario) => [
+        scenario,
+        rawScenarioRoutes[scenario] === true,
+      ]),
+    ),
     required_envs: requiredEnvs,
     google_auth: {
       direct_env: Boolean(googleAuth.direct_env),
@@ -572,6 +593,7 @@ function sanitizeStatus(response) {
       status: Number.isInteger(syncLock.status) ? syncLock.status : null,
     },
     services,
+    scenarios,
     error: response.ok ? null : response.error,
   };
 }
@@ -707,7 +729,7 @@ function operationRoute(tool, target) {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
-    return "/sync/all";
+    return SCENARIO_ROUTES.google_notion;
   }
   if (tool === "trigger_webhook") {
     return "/admin/e2e/trigger-webhook";
@@ -771,6 +793,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
     operations: finished,
     cleanup,
     services: status.services,
+    scenarios: status.scenarios,
     watch: status.watch,
   };
 }
@@ -845,9 +868,14 @@ export function createE2eMcpServer(options = {}) {
           Object.values(status.legacy_manifests).every((value) => value.present === false),
         clean_manifests: Object.values(status.services).every(
           (manifest) => manifest.dirty === false,
+        ) && Object.values(status.scenarios).every(
+          (manifest) => manifest.dirty === false,
         ),
         unowned_writes_blocked: status.orchestrated_writes_enabled === false,
         routes: Object.values(status.routes_enabled).every((enabled) => enabled === true),
+        scenario_routes: Object.values(status.scenario_routes_enabled).every(
+          (enabled) => enabled === true,
+        ),
         required_envs: REQUIRED_ENV_KEYS.every((key) => status.required_envs[key] === true),
         google_auth:
           status.google_auth.direct_env ||
@@ -952,7 +980,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "所有権対応後に、固定E2E Workerの全体同期routeを実行する。",
+      description: "所有資源限定のGoogle→Notion適用シナリオを実行し、両資源をcleanupする。",
       inputSchema: { run_id: runIdField },
       annotations: {
         readOnlyHint: false,
@@ -964,10 +992,24 @@ export function createE2eMcpServer(options = {}) {
     async ({ run_id: runId }) => {
       const result = await runAudited(
         auditImpl,
-        { run_id: runId, tool: "trigger_sync", target: "sync_all" },
+        { run_id: runId, tool: "trigger_sync", target: "google_notion" },
         async () => {
-          const response = await workerRequest(config, "/sync/all", "POST", runId, fetchImpl);
-          return sanitizeOperation(response, runId);
+          const response = await workerRequest(
+            config,
+            SCENARIO_ROUTES.google_notion,
+            "POST",
+            runId,
+            fetchImpl,
+          );
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
         },
       );
       return toolResult(result, !result.ok);
@@ -1060,7 +1102,7 @@ export function createE2eMcpServer(options = {}) {
     "assert_external_state",
     {
       description: "指定serviceの直近manifestが同じrun IDでcleanかを確認する。",
-      inputSchema: { run_id: runIdField, service: serviceField },
+      inputSchema: { run_id: runIdField, service: cleanupTargetField },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ run_id: runId, service }) => {
@@ -1072,7 +1114,7 @@ export function createE2eMcpServer(options = {}) {
         fetchImpl,
       );
       const status = sanitizeStatus(response);
-      const manifest = status.services[service];
+      const manifest = status.services[service] ?? status.scenarios[service];
       const ok =
         status.ok && manifest.present && !manifest.dirty && manifest.run_id === runId;
       return toolResult(
@@ -1143,10 +1185,10 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "cleanup_run",
     {
-      description: "manifestとrun IDが一致するserviceだけをcleanupする。",
+      description: "manifestとrun IDが一致するserviceまたはscenarioだけをcleanupする。",
       inputSchema: {
         run_id: runIdField,
-        service: serviceField,
+        service: cleanupTargetField,
         confirmation: z.string().describe("cleanup:<service>:<run ID>の完全一致"),
       },
       annotations: {

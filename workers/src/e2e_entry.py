@@ -14,6 +14,11 @@ from e2e_google_probe import (
     cleanup_google_calendar_crud_probe,
     run_google_calendar_crud_probe,
 )
+from e2e_google_notion_probe import (
+    GOOGLE_NOTION_SYNC_MANIFEST_SERVICE,
+    cleanup_google_notion_sync_probe,
+    run_google_notion_sync_probe,
+)
 from e2e_notion_probe import (
     NOTION_CRUD_MANIFEST_SERVICE,
     cleanup_notion_crud_probe,
@@ -30,6 +35,8 @@ __all__ = ["Default", "SyncCoordinator"]
 
 _GOOGLE_CRUD_PATH = "/admin/e2e/google-crud"
 _GOOGLE_CLEANUP_PATH = "/admin/e2e/google-crud/cleanup"
+_GOOGLE_NOTION_SYNC_PATH = "/admin/e2e/google-notion-sync"
+_GOOGLE_NOTION_CLEANUP_PATH = "/admin/e2e/google-notion-sync/cleanup"
 _DISCORD_CRUD_PATH = "/admin/e2e/discord-crud"
 _DISCORD_CLEANUP_PATH = "/admin/e2e/discord-crud/cleanup"
 _NOTION_CRUD_PATH = "/admin/e2e/notion-crud"
@@ -199,6 +206,11 @@ def _e2e_orchestration_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_google_notion_sync_enabled(env) -> bool:
+    value = getattr(env, "E2E_GOOGLE_NOTION_SYNC_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -206,6 +218,10 @@ class Default(ApplicationDefault):
         path = urlparse(request.url).path
         method = str(request.method or "GET").upper()
         google_route = path in (_GOOGLE_CRUD_PATH, _GOOGLE_CLEANUP_PATH)
+        google_notion_route = path in (
+            _GOOGLE_NOTION_SYNC_PATH,
+            _GOOGLE_NOTION_CLEANUP_PATH,
+        )
         discord_route = path in (_DISCORD_CRUD_PATH, _DISCORD_CLEANUP_PATH)
         notion_route = path in (_NOTION_CRUD_PATH, _NOTION_CLEANUP_PATH)
         status_route = path == _STATUS_PATH
@@ -220,6 +236,7 @@ class Default(ApplicationDefault):
         if not any(
             (
                 google_route,
+                google_notion_route,
                 discord_route,
                 notion_route,
                 status_route,
@@ -229,6 +246,8 @@ class Default(ApplicationDefault):
         ):
             return await super().fetch(request)
         if google_route and not _e2e_google_crud_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if google_notion_route and not _e2e_google_notion_sync_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_route and not _e2e_discord_crud_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -250,6 +269,11 @@ class Default(ApplicationDefault):
                     "google": await state.get_e2e_manifest(GOOGLE_CRUD_MANIFEST_SERVICE),
                     "discord": await state.get_e2e_manifest(DISCORD_CRUD_MANIFEST_SERVICE),
                     "notion": await state.get_e2e_manifest(NOTION_CRUD_MANIFEST_SERVICE),
+                }
+                scenario_manifests = {
+                    "google_notion": await state.get_e2e_manifest(
+                        GOOGLE_NOTION_SYNC_MANIFEST_SERVICE
+                    ),
                 }
                 legacy_manifests = {
                     service: await state.get_legacy_e2e_manifest(service)
@@ -290,9 +314,16 @@ class Default(ApplicationDefault):
                         "discord": _e2e_discord_crud_enabled(self.env),
                         "notion": _e2e_notion_crud_enabled(self.env),
                     },
+                    "scenario_routes_enabled": {
+                        "google_notion": _e2e_google_notion_sync_enabled(self.env),
+                    },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
                         for service in ("google", "discord", "notion")
+                    },
+                    "scenarios": {
+                        scenario: _manifest_summary(scenario_manifests.get(scenario))
+                        for scenario in ("google_notion",)
                     },
                 }
             )
@@ -310,6 +341,8 @@ class Default(ApplicationDefault):
             return await self._run_sync_dispatch(request, state, source="e2e-webhook")
         if google_route:
             lock_source = "e2e-google-crud"
+        elif google_notion_route:
+            lock_source = "e2e-google-notion-sync"
         elif discord_route:
             lock_source = "e2e-discord-crud"
         else:
@@ -334,6 +367,18 @@ class Default(ApplicationDefault):
                 )
             elif path == _GOOGLE_CRUD_PATH:
                 result = await run_google_calendar_crud_probe(
+                    self.env,
+                    state,
+                    run_id=run_id,
+                )
+            elif path == _GOOGLE_NOTION_CLEANUP_PATH:
+                result = await cleanup_google_notion_sync_probe(
+                    self.env,
+                    state,
+                    expected_run_id=run_id,
+                )
+            elif path == _GOOGLE_NOTION_SYNC_PATH:
+                result = await run_google_notion_sync_probe(
                     self.env,
                     state,
                     run_id=run_id,

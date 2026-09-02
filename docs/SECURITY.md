@@ -71,9 +71,12 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - HTTP 200 でも `cooldown_skip` または `in_progress_skip` なら未実行として失敗扱いにする。
 - status と run manifest は実 URL、Worker version ID、watch ID、外部資源 ID、token を返さず fingerprint だけを残す。
 - create の成否を確定できず検索結果も 0 件の場合、clean と推測せず dirty を維持する。
+- Google→Notion scenario は外部 Notion DB、Discord 反映、Notion プロパティ名の上書きを実行前に拒否し、同期対応表と queue を永続化しない。
+- Notion page の cleanup は DB、page、Google event ID、run ID 入り title の一致を確認してから archive する。Google event も private run marker の一致を確認してから削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。
-- preflight は旧 KV manifest だけでなく、現行 Durable Object manifest が1件でも dirty なら失敗する。
-- 同期、Webhook simulation、ジョブは下流資源と状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。
+- preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
+- `trigger_sync` は通常の `/sync/all` ではなく、所有資源限定の Google→Notion route だけを呼ぶ。
+- 通常の同期、Webhook simulation、ジョブは下流資源と状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。
 
 ## E2E GitHub Actions 境界
 
@@ -82,7 +85,7 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - Worker URLとfingerprintはActionsログへの露出を防ぐため、GitHub Environment secretからだけ渡す。
 - Cloudflare account ID と API token は deploy step だけへ渡し、cleanup と evidence へ継承しない。
 - 外部 action は完全な commit SHA へ固定し、checkout 後の Git credential 永続化を無効にする。
-- run ID と監査開始記録が一致する service だけを `always()` cleanup の対象にする。
+- run ID と監査開始記録が一致する service / scenario だけを `always()` cleanup の対象にする。
 - artifact は固定フィールドでマスクした監査要約と manifest に限定し、14日で失効させる。
 
 ## 設定値の扱い

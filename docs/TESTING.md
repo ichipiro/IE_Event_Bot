@@ -64,16 +64,19 @@ bash -n tools/configure_github_e2e_environment.sh
 | --- | --- |
 | `preflight` | E2E Worker の health とマスク済み status を読む。既定値であり、deploy と外部 CRUD は行わない |
 | `deploy-and-crud-smoke` | 専用 Worker を deploy し、Google、Discord、Notion の自己 cleanup 型 CRUD probe と所有状態確認を順に行う |
+| `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 
-書き込みモードは、各 `seed_fixture` の監査開始記録がある service だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
+書き込みモードは、各 `seed_fixture` または `trigger_sync` の監査開始記録がある service / scenario だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
 
 実行前に `e2e` Environment に Secret 5件が設定済みで、variableが0件であることを値を表示せず確認する。Worker URLとそのfingerprintもActionsログでマスクするためSecretとして扱う。設定helperは同名の旧variableがあればSecret登録後に削除する。Google、Discord、Notion の実行時 Secret は Cloudflare Worker だけに保持し、GitHub Actions へ複製しない。
 
 artifact は JUnit XML、マスク済み MCP 監査要約、run manifest だけを14日保持する。run manifest の Worker URL、version、watch、外部資源は SHA-256 fingerprint または真偽値であり、生の識別子、token、request / response 本文を保存しない。
 
-この workflow が現時点で行うのは service 単位の CRUD smoke である。削除前に fixture 自身を cleanup するため、サービス間同期、実 webhook / Cron 配信、Playwright によるブラウザ表示までは保証しない。
+Google→Notion モードは、専用 Calendar に一意な event を作成して読み戻し、現行の `apply_google_events` へ渡し、専用 Notion 内部 DB に作られた page の内容を確認する。外部 Notion DB が空、`DISCORD_SYNC_ENABLED=false`、既定の Notion プロパティ名であることを事前に強制し、適用処理には一時状態を渡すため、同期対応表と再試行キューを KV へ保存しない。Google 認証 token の取得・更新に伴う認証 cache はこの制限の対象外である。
 
-MCP の `trigger_sync`、`trigger_webhook`、`trigger_job` は将来の orchestration 用に固定 route として登録されているが、下流資源と KV 状態を run ID で所有・回収できるまでは実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で該当 route を `404` にし、preflight はこの既定拒否が維持されていることを確認する。追跡は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で行う。
+MCP の `trigger_sync` は `/sync/all` ではなく、所有資源を Google event と Notion page に限定した `/admin/e2e/google-notion-sync` を呼ぶ。これにより確認できるのは Google の作成・読取からアプリケーション適用処理を経た Notion 作成までであり、Google 差分取得、同期 cursor / queue、Discord 反映、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
+
+`trigger_webhook`、`trigger_job` と通常の同期・ジョブ route は、下流資源と状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で該当 route を `404` にし、preflight はこの既定拒否と、Google→Notion 専用 route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
 
 ## テスト構成
 
@@ -87,7 +90,7 @@ MCP の `trigger_sync`、`trigger_webhook`、`trigger_job` は将来の orchestr
 | `tests/test_sync_lock_do.py` | ロック競合・解放、Webhook 重複レコードの期限 |
 | `tests/test_sync_queues.py` | Google / Discord 同期の件数制限、失敗と残件の繰り越し |
 | `tests/test_e2e_entry.py` | E2E route allowlist、run ID、status のマスキング、Cron 無効化 |
-| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、DO manifest、cleanup、応答喪失、rate limit |
+| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD / Google→Notion 適用、DO manifest、cleanup、応答喪失、rate limit |
 | `tools/e2e_mcp_server.test.mjs` | MCP tool allowlist、接続先 fingerprint、承認、skip 判定、run manifest |
 | `tools/run_e2e_workflow.test.mjs` | workflow 順序、途中失敗時 cleanup、再試行、監査対象、evidence の固定エラー |
 

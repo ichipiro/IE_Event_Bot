@@ -4,13 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "実行範囲。deploy と外部 CRUD は明示選択時だけ実行する"
+        description: "実行範囲。deploy と外部書き込みは明示選択時だけ実行する"
         required: true
         default: preflight
         type: choice
         options:
           - preflight
           - deploy-and-crud-smoke
+          - deploy-and-google-notion-smoke
 
 permissions:
   contents: read
@@ -109,21 +110,26 @@ jobs:
           E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: node tools/run_e2e_workflow.mjs preflight --run-id "$E2E_RUN_ID"
-      - name: Deploy and run service CRUD smoke
-        if: ${{ inputs.mode == 'deploy-and-crud-smoke' }}
+      - name: Deploy and run selected write smoke
+        if: >-
+          ${{ inputs.mode == 'deploy-and-crud-smoke' ||
+          inputs.mode == 'deploy-and-google-notion-smoke' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
+          E2E_MODE: ${{ inputs.mode }}
           E2E_WORKER_URL: ${{ secrets.E2E_WORKER_URL }}
           E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: >-
-          node tools/run_e2e_workflow.mjs deploy-and-crud-smoke
+          node tools/run_e2e_workflow.mjs "$E2E_MODE"
           --run-id "$E2E_RUN_ID"
       - name: Always cleanup resources created by this run
         if: >-
-          ${{ always() && inputs.mode == 'deploy-and-crud-smoke' &&
+          ${{ always() &&
+          (inputs.mode == 'deploy-and-crud-smoke' ||
+          inputs.mode == 'deploy-and-google-notion-smoke') &&
           steps.run_id.outcome == 'success' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}

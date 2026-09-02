@@ -206,6 +206,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       },
       routes_enabled: { google: true, discord: true, notion: true },
       scenario_routes_enabled: {
+        discord_google: true,
         discord_notion: true,
         google_discord: true,
         google_notion: true,
@@ -240,6 +241,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false, run_id: null },
       },
       scenarios: {
+        discord_google: { present: false, dirty: false, run_id: null },
         discord_notion: { present: false, dirty: false, run_id: null },
         google_discord: { present: false, dirty: false, run_id: null },
         google_notion: { present: false, dirty: false, run_id: null },
@@ -313,6 +315,7 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
         "google_notion",
         "google_discord",
         "discord_notion",
+        "discord_google",
       ]) {
         const syncResult = await client.callTool({
           name: "trigger_sync",
@@ -342,6 +345,8 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync/cleanup`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-google-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-google-sync/cleanup`,
     ],
   );
   assert.equal(calls.every((call) => call.options.method === "POST"), true);
@@ -354,6 +359,8 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
       "google_discord",
       "discord_notion",
       "discord_notion",
+      "discord_google",
+      "discord_google",
     ],
   );
 });

@@ -80,13 +80,14 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - Notion期限cleanup scenario は専用内部 DB に作成した期限到来・将来日時の page 2件だけを通常ジョブと共通の期限判定へ渡し、最終実行時刻を実行内へ閉じ込める。通常の内部 DB 全件取得、共有 KV の `cleanup:last_epoch`、実 Cron は変更しない。
 - Webhook simulation scenario は通常Workerと共通のingress handlerでchannel token不一致の事前拒否、正しいtokenによる1回目のdispatch、同じchannel IDとmessage numberによる2回目の重複抑止を確認する。重複状態はrun ID付きでDurable Objectに所有し、fingerprint一致後だけ削除する。Google差分取得結果からevent IDとrun markerが一致する1件だけを適用し、同期cursor、最終実行時刻、最終結果、Google認証cacheはrequest内へ閉じ込め、共有KVの対応表とqueueは変更しない。これはGoogleからの実配信やwatch channel作成の確認ではない。
 - Google Webhook実配信 scenario は外部request前にrun所有channelをdirty manifestへ記録し、600秒のTTLを付けたwatchだけを作成する。Googleからのcallbackは共通channel tokenを定時間比較した後、Durable Object内のchannel ID、resource ID、`sync`、message number `1`が一致する場合だけ`204`を返す。watch応答と初回通知の競合は同じDurable Objectで解決し、通常の同期dispatchと共有状態には接続しない。停止または所有権解決に失敗した場合はcleanと推測せずdirtyを維持する。
+- Google変更起因Webhook scenario は、所有eventを更新する前にcursorとwatch所有権をDurable Objectへ記録する。callbackはchannel token、channel / resource ID、`exists`、message numberを検証し、最初の通知だけを原子的にclaimする。共通Webhook ingressの差分取得結果からevent IDとrun markerが一致する1件だけをNotionへ適用し、cursor、最終時刻、最終結果、認証cache、対応表はrequest内へ閉じ込める。cleanupはwatch停止とrun所有dedupe削除をevent削除より先に必須とし、失敗時はdirtyを維持する。
 - Notion page の cleanup は DB、page、source event ID、run ID 入り title または content marker の一致を確認してから archive する。Google event も private source event ID、run ID 入り summary と description marker の一致を確認してから削除する。
 - Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。Wranglerへrun IDをversion tagとして固定指定し、同じtagを専用Workerのversion metadataから読み戻せるまで外部書き込みscenarioを開始しない。規定回数内に反映を確認できなければ、旧revisionでscenarioを実行せず失敗させる。
 - preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
 - `trigger_sync` は任意 URL を受け取らず、通常の `/sync/all` ではなく、所有資源限定の Google→Notion / Discord と Discord→Notion / Google route だけを固定列挙から呼ぶ。
 - `trigger_job` の `qa_check`、`reminder`、`cleanup` は通常の `/jobs/*` ではなく、所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼ぶ。run-all は通常 route のまま既定拒否を維持する。
-- 通常の同期、通常Webhookの同期dispatch、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation と初回実配信確認は、それぞれ専用フラグと route で分離する。
+- 通常の同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation、初回実配信、変更起因実配信は、それぞれ専用フラグと route で分離する。
 
 ## E2E GitHub Actions 境界
 

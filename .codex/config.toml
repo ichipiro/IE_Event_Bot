@@ -14,6 +14,7 @@ enabled_tools = [
   "trigger_sync",
   "trigger_webhook",
   "trigger_webhook_delivery",
+  "trigger_webhook_change",
   "trigger_job",
   "read_status",
   "assert_external_state",
@@ -50,6 +51,9 @@ approval_mode = "prompt"
 approval_mode = "prompt"
 
 [mcp_servers.ie_event_bot_e2e.tools.trigger_webhook_delivery]
+approval_mode = "prompt"
+
+[mcp_servers.ie_event_bot_e2e.tools.trigger_webhook_change]
 approval_mode = "prompt"
 
 [mcp_servers.ie_event_bot_e2e.tools.trigger_job]

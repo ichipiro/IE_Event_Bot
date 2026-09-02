@@ -33,6 +33,7 @@
 - E2E deployへrun IDのWorker version tagを付与し、同じtagを`/admin/e2e/status`から読み戻すまで外部書き込みscenarioを開始しないrevision gateを追加した。
 - required reviewer付きの専用workflowでWebhook ingress simulationを再実行し、revision tag、token拒否、message重複抑止、run所有重複状態を含む全資源cleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - run所有の短命Google watchを作成し、初回`sync`通知の実配信確認後に停止する自己cleanup型E2E modeを追加した。通常同期dispatch、共有状態、watch維持、実Cronとは分離した。
+- run所有eventの更新でGoogleの実`exists`通知を発生させ、共通Webhook ingressと同期dispatchからその1件だけをNotionへ適用・回収する自己cleanup型E2E modeを追加した。共有cursor、全件適用、通常watch更新、実Cronとは分離した。
 - required reviewer付きの専用workflowでGoogle Webhook初回実配信scenarioを実行し、revision tag、watch作成、初回通知、watch停止、`dirty=false`、マスク済みartifactを確認した結果を作業履歴、課題、セキュリティ境界へ記録した。
 
 ## 2026-08-29

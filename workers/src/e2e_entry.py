@@ -29,6 +29,12 @@ from e2e_google_webhook_delivery_probe import (
     cleanup_google_webhook_delivery_probe,
     run_google_webhook_delivery_probe,
 )
+from e2e_google_webhook_change_probe import (
+    GOOGLE_WEBHOOK_CHANGE_MANIFEST_SERVICE,
+    cleanup_google_webhook_change_probe,
+    handle_google_webhook_change_callback,
+    run_google_webhook_change_probe,
+)
 from e2e_google_discord_probe import (
     GOOGLE_DISCORD_SYNC_MANIFEST_SERVICE,
     cleanup_google_discord_sync_probe,
@@ -98,6 +104,8 @@ _TRIGGER_WEBHOOK_PATH = "/admin/e2e/trigger-webhook"
 _TRIGGER_WEBHOOK_CLEANUP_PATH = "/admin/e2e/trigger-webhook/cleanup"
 _WEBHOOK_DELIVERY_PATH = "/admin/e2e/google-webhook-delivery"
 _WEBHOOK_DELIVERY_CLEANUP_PATH = "/admin/e2e/google-webhook-delivery/cleanup"
+_WEBHOOK_CHANGE_PATH = "/admin/e2e/google-webhook-change"
+_WEBHOOK_CHANGE_CLEANUP_PATH = "/admin/e2e/google-webhook-change/cleanup"
 _ORCHESTRATED_WRITE_PATHS = frozenset(
     {
         "/sync/all",
@@ -310,6 +318,11 @@ def _e2e_google_webhook_delivery_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_google_webhook_change_enabled(env) -> bool:
+    value = getattr(env, "E2E_GOOGLE_WEBHOOK_CHANGE_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -317,7 +330,9 @@ class Default(ApplicationDefault):
         path = urlparse(request.url).path
         method = str(request.method or "GET").upper()
         if path == "/gcal/webhook":
-            if not _e2e_google_webhook_delivery_enabled(self.env):
+            delivery_enabled = _e2e_google_webhook_delivery_enabled(self.env)
+            change_enabled = _e2e_google_webhook_change_enabled(self.env)
+            if not delivery_enabled and not change_enabled:
                 return _json_response({"ok": False, "error": "not_found"}, status=404)
             if method != "POST":
                 return _json_response(
@@ -330,6 +345,27 @@ class Default(ApplicationDefault):
             if token_status:
                 return Response("unauthorized", status=401)
             state = StateStore(self.env)
+            if change_enabled:
+                async def deliver(webhook_request, sync_state, google_applier):
+                    return await self._handle_gcal_webhook(
+                        webhook_request,
+                        sync_state,
+                        google_applier=google_applier,
+                    )
+
+                try:
+                    change_response = await handle_google_webhook_change_callback(
+                        self.env,
+                        state,
+                        request,
+                        deliver,
+                    )
+                except Exception:
+                    return Response("webhook unavailable", status=503)
+                if change_response is not None:
+                    return change_response
+            if not delivery_enabled:
+                return Response("", status=404)
             try:
                 accepted = await state.record_e2e_webhook_delivery(
                     channel_id=_header(request, "X-Goog-Channel-ID") or "",
@@ -378,6 +414,10 @@ class Default(ApplicationDefault):
             _WEBHOOK_DELIVERY_PATH,
             _WEBHOOK_DELIVERY_CLEANUP_PATH,
         )
+        webhook_change_route = path in (
+            _WEBHOOK_CHANGE_PATH,
+            _WEBHOOK_CHANGE_CLEANUP_PATH,
+        )
         orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
         if path in _BLOCKED_APPLICATION_WRITE_PATHS:
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -398,6 +438,7 @@ class Default(ApplicationDefault):
                 status_route,
                 webhook_route,
                 webhook_delivery_route,
+                webhook_change_route,
                 orchestrated_write_route,
             )
         ):
@@ -425,6 +466,8 @@ class Default(ApplicationDefault):
         if webhook_route and not _e2e_webhook_simulation_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if webhook_delivery_route and not _e2e_google_webhook_delivery_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if webhook_change_route and not _e2e_google_webhook_change_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not self._authorized(request):
             return Response("unauthorized", status=401)
@@ -470,6 +513,9 @@ class Default(ApplicationDefault):
                     ),
                     "webhook_delivery": await state.get_e2e_manifest(
                         GOOGLE_WEBHOOK_DELIVERY_MANIFEST_SERVICE
+                    ),
+                    "webhook_change": await state.get_e2e_manifest(
+                        GOOGLE_WEBHOOK_CHANGE_MANIFEST_SERVICE
                     ),
                 }
                 legacy_manifests = {
@@ -525,6 +571,9 @@ class Default(ApplicationDefault):
                         "webhook_delivery": _e2e_google_webhook_delivery_enabled(
                             self.env
                         ),
+                        "webhook_change": _e2e_google_webhook_change_enabled(
+                            self.env
+                        ),
                     },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
@@ -542,6 +591,7 @@ class Default(ApplicationDefault):
                             "notion_cleanup",
                             "webhook_dispatch",
                             "webhook_delivery",
+                            "webhook_change",
                         )
                     },
                 }
@@ -556,6 +606,34 @@ class Default(ApplicationDefault):
             return await super().fetch(request)
 
         state = StateStore(self.env)
+        if webhook_change_route:
+            try:
+                if path == _WEBHOOK_CHANGE_CLEANUP_PATH:
+                    result = await cleanup_google_webhook_change_probe(
+                        self.env,
+                        state,
+                        expected_run_id=run_id,
+                    )
+                else:
+                    result = await run_google_webhook_change_probe(
+                        self.env,
+                        state,
+                        run_id=run_id,
+                    )
+            except Exception:
+                result = {
+                    "ok": False,
+                    "dirty": True,
+                    "error": "e2e_probe_exception",
+                    "cleanup_required": True,
+                }
+            if result.get("ok"):
+                status = 200
+            elif result.get("dirty") or result.get("error") == "environment_dirty":
+                status = 409
+            else:
+                status = 500
+            return _json_response(result, status=status)
         if path == _TRIGGER_WEBHOOK_PATH:
             async def deliver(webhook_request, sync_state, google_applier):
                 return await self._handle_gcal_webhook(

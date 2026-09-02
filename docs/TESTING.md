@@ -73,6 +73,7 @@ bash -n tools/configure_github_e2e_environment.sh
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
 | `deploy-and-webhook-delivery-smoke` | 専用 Worker を deploy し、run所有の短命watchを作成してGoogleの初回`sync`通知到達を確認後、watchを停止する |
+| `deploy-and-webhook-change-smoke` | 専用 Worker を deploy し、所有eventの更新でGoogleの実`exists`通知を発生させ、共通dispatchからその1件だけをNotionへ反映後、watch、dedupe、event、pageをcleanupする |
 
 書き込みモードは、各 `seed_fixture`、`trigger_sync`、または所有資源限定の `trigger_job` の監査開始記録がある service / scenario だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
 
@@ -98,9 +99,11 @@ Webhook simulation モードは、専用 Calendar に run marker 付き event �
 
 Google Webhook実配信モードは、専用Calendarにrun所有channel ID、固定HTTPS callback、channel token、有効期間600秒を指定して`events.watch`を実行する。Googleの初回`sync`通知だけを専用callbackで受け、watch応答との順序にかかわらず同じresource IDへ原子的に紐付けた後、`channels.stop`で直ちに停止する。通常の同期dispatch、共有KV、`gcal_watch_state`、Google認証cacheは変更しない。停止後のartifactはchannel / resource IDとcallback URLをSHA-256 fingerprintだけで保持する。このモードは変更起因の`exists`通知、通常のWebhook同期、watch renew、実Cronを保証しない。
 
+Google変更起因Webhookモードは、専用Calendarにrun marker付きeventを作成後、600秒のwatchを登録し、初回`sync`を確認してからeventを更新する。Googleが実際に送る`exists` callbackは共通Webhook ingressと同期dispatchを通るが、Durable Objectで最初の1通知だけをclaimし、Google差分結果からevent IDとrun markerが一致する1件だけを`apply_google_events`へ渡す。Notion pageの内容と所有権を確認後、watchをevent削除より先に停止し、run所有dedupe、page、eventを回収する。同期cursor、最終時刻、最終結果、Google認証cacheとNotion対応表はrequest内へ閉じ込め、共有KVと`gcal_watch_state`は更新しない。このモードは通常watchのrenew、共有cursor、全Calendarの全件適用、Discord反映、実Cronを保証しない。
+
 MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync` のいずれかを呼ぶ。これらが確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
 
-`trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook` は所有資源限定の `/admin/e2e/trigger-webhook` を内部simulation用に呼び、`trigger_webhook_delivery`は短命watch専用の管理routeを呼ぶ。Googleからのcallbackだけが`/gcal/webhook`へ到達するが、初回`sync`の所有確認だけを行い通常同期は起動しない。run-all、通常の同期・Webhook同期・ジョブ route は、下流資源と共有状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と9つの所有資源限定 route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
+`trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook` は内部simulation用route、`trigger_webhook_delivery`は初回実配信用route、`trigger_webhook_change`は実`exists`通知と所有event限定dispatch用routeをそれぞれ呼ぶ。Googleからのcallbackだけが`/gcal/webhook`へ到達し、初回配信モードは`sync`の所有確認だけ、変更起因モードは最初の`exists`だけを共通dispatchへ渡す。run-all、共有状態と全件適用を伴う通常の同期・Webhook同期・ジョブ route は、下流資源と共有状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と10個の所有資源限定 scenario route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
 
 ## テスト構成
 
@@ -112,6 +115,7 @@ MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` では
 | `tests/test_google_watch.py` | channel token の必須・最大長・登録、旧 watch と token 変更時の更新、外部エラー本文の非公開 |
 | `tests/test_state.py` | KV 読み書き、重複抑止、Durable Object 優先経路 |
 | `tests/test_sync_lock_do.py` | ロック競合・解放、Webhook 重複レコードの期限 |
+| `tests/test_e2e_google_webhook_change_probe.py` | 実`sync` / `exists` callback、所有event限定dispatch、後続通知抑止、watch先行cleanup |
 | `tests/test_sync_queues.py` | Google / Discord 同期の件数制限、失敗と残件の繰り越し |
 | `tests/test_e2e_entry.py` | E2E route allowlist、run ID、status のマスキング、Cron 無効化 |
 | `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、サービス間適用、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google初回Webhook配信、DO manifest、cleanup、応答喪失、rate limit |

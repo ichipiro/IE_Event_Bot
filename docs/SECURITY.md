@@ -114,10 +114,12 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 
 次はローカル静的検査では未確認となるため、デプロイ時に別途確認する。
 
+2026-09-02の専用E2Eでは、共通channel tokenを付けた600秒の短命watch、Googleからの初回`sync`通知、直後のwatch停止を実サービスで確認した。この結果は、次に挙げる通常運用のwatchや変更起因通知を証明しない。
+
 - Cloudflare 上の Secret 登録
 - KV と Durable Object の実バインディング
 - Webhook URL と外部サービス側の登録
-- token 付き watch の再登録と `X-Goog-Channel-Token` を含む実通知
+- 通常Workerにおけるtoken付きwatchの再登録・更新、変更起因の`exists`通知、通常同期dispatch
 - 必要に応じた Cloudflare WAF とレート制限の設定
 - API トークンの権限と有効期限
 - GitHub の Secret、Actions 権限、branch protection、ruleset

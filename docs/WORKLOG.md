@@ -6,6 +6,42 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Google Webhook初回実配信 自己cleanup型 E2E
+
+### 目的
+
+内部requestによるWebhook simulationとは別に、Google Calendarが作成直後のwatchへ送る初回`sync`通知が専用Workerの`/gcal/webhook`へ実際に到達することを、短命かつ自己cleanup型で確認する。
+
+### 変更
+
+- 外部request前にrun所有channel IDを強整合manifestへ記録し、固定HTTPS callback、channel token、有効期間600秒を指定して`events.watch`を呼ぶ専用probeを追加した。
+- watch応答より初回通知が先に到達する場合と、応答後に到達する場合の両方をDurable Objectで原子的に解決する。channel ID、resource ID、`sync`、message number `1`が一致する通知だけを受理する。
+- 初回通知の確認後は`channels.stop`でwatchを直ちに停止し、channel ID、resource ID、Calendar ID、callback URLはSHA-256 fingerprintだけをclean manifestへ残す。停止または所有権確認に失敗した場合はdirtyを維持する。
+- 通常の同期dispatch、共有KV、`gcal_watch_state`、Google認証cache、Cronへ接続しない専用routeとして、MCPと手動GitHub Actionsへ`deploy-and-webhook-delivery-smoke`を追加した。
+
+### ローカル検証
+
+- `ruff check .`と`pyright`が成功した。
+- Python単体テスト170件、MCP / workflow契約テスト38件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデルが成功した。
+- 固定Wrangler 4.127.1によるE2E Workerのdeploy dry-runが成功した。
+
+### 反映
+
+- 実装を[upstream PR #44](https://github.com/ichipiro/IE_Event_Bot/pull/44)と[fork同期PR #40](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/40)へ反映した。
+- `RELEASE_AUTOMATION_TOKEN`はorg側で必要権限が未付与のため、付与済みとは扱わず、認証済み対話セッションの`gh`でPR作成、merge、fork同期、Environment承認を手動実行した。
+
+### 実環境検証
+
+- fork revision `8762928fc398b07085e615e550d54c5d0e4724da`の[専用E2E workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33616522253)をrequired reviewer承認後に実行し、ローカルvalidation、専用Worker deploy、実配信scenario、run内cleanup、`always()` cleanup、マスク済みevidence収集が成功した。
+- artifact `e2e-evidence-33616522253-1`でrun ID `E2E-20260902T095359Z-f1a8a192`とWorker version tagの一致、repository clean、`watch_create=200`、`webhook_sync_delivery=204`、`watch_stop=204`を確認した。
+- `webhook_delivery` manifestは`outcome=passed`、`dirty=false`、cleanupは`200`である。外部識別子は4件のSHA-256 fingerprintだけであり、固定schema検査と認証値・URL・生IDの混入検査も成功した。
+
+### 未確認
+
+- Google Calendar変更に起因する`exists`通知と、その通知から通常同期dispatchへ進む経路
+- 通常Workerのwatch再登録・更新、共有cursor・対応表・queue、全体同期、実Cron配信
+
 ## 2026-09-02: Webhook ingress認証・重複抑止 E2E simulation
 
 ### 目的

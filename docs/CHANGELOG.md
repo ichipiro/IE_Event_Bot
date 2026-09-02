@@ -20,7 +20,7 @@
 - Notion pageの日時読戻しは文字列表現ではなく、timezone付きRFC 3339をUTCの同一時刻として検証するようにした。
 - Notion cleanup fixtureの日時を既存Notion CRUDと同じ分境界へ揃え、読戻し不一致時は値を出さず項目名だけを固定エラーに残すようにした。
 - 所有資源を専用Google eventとNotion pageに限定し、Google差分取得と通常同期dispatchを検証・cleanupするWebhook simulation E2E modeを追加した。
-- 通常の `/sync/all`、`/gcal/webhook`、ジョブを既定拒否のまま維持し、新しい scenario が保証しない共有KV状態、実 webhook / Cron の境界を明記した。
+- 通常の `/sync/all`、通常Webhookの同期dispatch、ジョブを既定拒否のまま維持し、新しい scenario が保証しない共有KV状態、変更起因Webhook / Cron の境界を明記した。
 - required reviewer承認付きの専用workflowでGoogle→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでGoogle→Discord scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでDiscord→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
@@ -32,6 +32,8 @@
 - Webhook simulationを通常Workerと共通のingress handlerへ拡張し、channel tokenの事前拒否、Durable Objectでのmessage重複抑止、run所有重複状態のcleanupを検証できるようにした。
 - E2E deployへrun IDのWorker version tagを付与し、同じtagを`/admin/e2e/status`から読み戻すまで外部書き込みscenarioを開始しないrevision gateを追加した。
 - required reviewer付きの専用workflowでWebhook ingress simulationを再実行し、revision tag、token拒否、message重複抑止、run所有重複状態を含む全資源cleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
+- run所有の短命Google watchを作成し、初回`sync`通知の実配信確認後に停止する自己cleanup型E2E modeを追加した。通常同期dispatch、共有状態、watch維持、実Cronとは分離した。
+- required reviewer付きの専用workflowでGoogle Webhook初回実配信scenarioを実行し、revision tag、watch作成、初回通知、watch停止、`dirty=false`、マスク済みartifactを確認した結果を作業履歴、課題、セキュリティ境界へ記録した。
 
 ## 2026-08-29
 

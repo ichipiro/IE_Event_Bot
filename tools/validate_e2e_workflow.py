@@ -92,6 +92,11 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
+        text.count("deploy-and-google-discord-smoke") == 3,
+        "google_discord_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("timeout-minutes:") == 2,
         "job_timeout_count_changed",
     )
@@ -142,6 +147,11 @@ def _check_workflow(text: str) -> list[str]:
         errors,
         "inputs.mode == 'deploy-and-google-notion-smoke'" in cleanup_block,
         "cleanup_google_notion_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-google-discord-smoke'" in cleanup_block,
+        "cleanup_google_discord_mode_guard_missing",
     )
     _check_action_pins(errors, text)
     return errors

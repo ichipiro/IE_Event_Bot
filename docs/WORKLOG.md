@@ -6,6 +6,36 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Google→Discord 自己cleanup型 E2E scenario
+
+### 目的
+
+通常の全体同期を公開せず、所有・回収できる最小範囲で既存の Google→Discord 適用処理を実サービス検証できるようにする。
+
+### 変更
+
+- 専用 Google event を作成・読取し、既存の `_sync_to_discord` で専用 Discord Guild の Scheduled Event へ反映して内容を確認する E2E scenario を追加した。
+- Google event と Discord Scheduled Event を `google_discord` の強整合 manifest で所有し、片方でも cleanup または所有権確認に失敗した場合は dirty を維持する。
+- 通常設定の `DISCORD_SYNC_ENABLED=false` を維持し、専用 event 1件の適用呼び出しだけを一時的に有効化する境界を追加した。Notion、通常 KV の同期対応表、queue は変更しない。
+- MCP `trigger_sync` に固定 `scenario` 列挙を追加し、workflow に `deploy-and-google-discord-smoke` と監査開始済み scenario の `always()` cleanup を追加した。
+- 通常同期、Webhook simulation、ジョブの既定拒否は維持した。
+
+### ローカル検証
+
+- `ruff check .` と `pyright` が成功した。
+- Python 単体テスト100件、MCP / workflow契約テスト26件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文検査が成功した。
+- 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
+
+### 実環境検証
+
+- 未実施。ローカル検証は Cloudflare、Google、Discord の実サービス動作を証明しない。
+
+### 未確認
+
+- Google 差分取得、同期 cursor / queue、全体同期
+- Notion 反映、実 Google webhook、Cron、定期ジョブ
+
 ## 2026-09-02: Google→Notion 自己cleanup型 E2E scenario
 
 ### 目的

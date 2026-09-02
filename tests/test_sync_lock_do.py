@@ -158,3 +158,29 @@ def test_e2e_manifest_rejects_invalid_service_kind_and_size() -> None:
         "ok": False,
         "error": "e2e_manifest_too_large",
     }
+
+
+def test_google_discord_manifest_uses_dedicated_service_kind() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = {
+        "version": 1,
+        "kind": "google_discord_sync",
+        "dirty": False,
+        "last_run_id": "E2E-20260901T000000Z-1234abcd",
+    }
+
+    stored = post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "google_discord",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+    loaded = post(
+        coordinator,
+        {"action": "get_e2e_manifest", "service": "google_discord"},
+    )
+
+    assert stored.status == 200
+    assert response_json(loaded) == {"ok": True, "manifest": manifest}

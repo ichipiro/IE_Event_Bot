@@ -27,9 +27,14 @@
 - E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデル・構文、追跡対象Markdownの相対リンク検査が成功した。
 - 固定WranglerによるE2E Workerのdeploy dry-runが成功した。
 
+### 実環境検証
+
+- [upstream PR #31](https://github.com/ichipiro/IE_Event_Bot/pull/31) と [fork同期PR #27](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/27) をmerge後、fork `develop` の[専用E2E workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33593477413)をrequired reviewer承認付きで実行した。
+- ローカルvalidation、専用Worker deploy、Notion Q&A pageの作成・読取・更新、初回通知抑止、既存処理によるDiscord message作成・読取、run内cleanup、`always()` cleanup、マスク済みevidence収集が成功した。
+- artifactを独立に確認し、対象revision `2d956cc`、repository clean、専用QA通知routeのみの実行、2回のcleanup成功、`qa_notification` manifest clean、全20 stage成功、raw resource IDと認証情報の不在を確認した。
+
 ### 未確認
 
-- Cloudflare専用Worker、Notion、Discordへ接続するQA通知scenarioの実環境動作
 - 通常QAジョブのQ&A DB全件取得、質問番号補完、共有KV cache、実Cron配信
 - 前日リマインド、Notion cleanup、Webhook simulation
 

@@ -31,7 +31,9 @@ Googleからの実配信を開始する前に、通常Workerと共通のWebhook 
 ### 実環境検証
 
 - 1回目の[専用workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33612323486)はGitHub Actions上で成功したが、artifactのWorker version時刻とWebhook stageが更新前revisionのままであり、今回追加したtoken拒否・message重複抑止・重複状態fingerprintを証明しなかった。この実行は受入証拠に使用しない。更新前scenarioが作成したGoogle eventとNotion pageのcleanup、および`dirty=false`は確認した。
-- 原因境界はWrangler processの正常終了後、専用Worker URLが新versionを返すことを確認せず直ちにscenarioを開始していた点である。run ID version tagのread-back gateをupstreamとforkへ反映後、required reviewer付きworkflowを再実行する。
+- 原因境界はWrangler processの正常終了後、専用Worker URLが新versionを返すことを確認せず直ちにscenarioを開始していた点である。Webhook ingress実装をupstream [PR #41](https://github.com/ichipiro/IE_Event_Bot/pull/41)とfork [PR #37](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/37)、run ID version tagのread-back gateをupstream [PR #42](https://github.com/ichipiro/IE_Event_Bot/pull/42)とfork [PR #38](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/38)へ反映した。
+- 修正後の[専用workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33613460405)をrequired reviewer承認後にfork revision `3890ca60347c22101b0d63392fa5ea7750748bee`で実行した。artifact `e2e-evidence-33613460405-1`でrun IDとWorker version tagの一致、token不一致の`401`と副作用なし、初回・重複配信の`204`、message重複抑止、Google差分取得、所有eventだけのNotion適用、実行内状態の分離を確認した。
+- 同artifactでGoogle event、Notion page、run所有の重複状態がすべてcleanupされ、`webhook_dispatch`が`outcome=passed`、`dirty=false`であることを確認した。`webhook_dispatch`の識別子は6件のSHA-256 fingerprintだけであり、schema検査と認証値・URL・生IDの混入検査も成功した。
 
 ### 未確認
 

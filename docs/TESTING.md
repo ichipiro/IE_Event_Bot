@@ -72,6 +72,7 @@ bash -n tools/configure_github_e2e_environment.sh
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
+| `deploy-and-webhook-delivery-smoke` | 専用 Worker を deploy し、run所有の短命watchを作成してGoogleの初回`sync`通知到達を確認後、watchを停止する |
 
 書き込みモードは、各 `seed_fixture`、`trigger_sync`、または所有資源限定の `trigger_job` の監査開始記録がある service / scenario だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
 
@@ -95,9 +96,11 @@ Notion cleanup モードは、専用内部 DB に run marker が異なる期限�
 
 Webhook simulation モードは、専用 Calendar に run marker 付き event を1件作成し、通常Workerと共通のWebhook ingress handlerへ内部requestを渡す。誤ったchannel tokenでは重複状態もdispatchも開始せず、正しいtokenの1回目だけがGoogle差分取得と同期dispatchを通り、同じchannel IDとmessage numberの2回目はDurable Objectで抑止される。取得結果からevent IDとrun markerが両方一致する1件だけを`apply_google_events`へ渡し、専用Notion内部DBのpageを確認して両資源とrun所有の重複状態をcleanupする。同期cursor、最終実行時刻、最終結果、Google認証cacheはrequest内状態へ閉じ込め、共有KVの対応表とqueueも更新しない。このモードはGoogleから`/gcal/webhook`への実配信、watch channel作成、実Cronを検証しない。
 
+Google Webhook実配信モードは、専用Calendarにrun所有channel ID、固定HTTPS callback、channel token、有効期間600秒を指定して`events.watch`を実行する。Googleの初回`sync`通知だけを専用callbackで受け、watch応答との順序にかかわらず同じresource IDへ原子的に紐付けた後、`channels.stop`で直ちに停止する。通常の同期dispatch、共有KV、`gcal_watch_state`、Google認証cacheは変更しない。停止後のartifactはchannel / resource IDとcallback URLをSHA-256 fingerprintだけで保持する。このモードは変更起因の`exists`通知、通常のWebhook同期、watch renew、実Cronを保証しない。
+
 MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync` のいずれかを呼ぶ。これらが確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
 
-`trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook` は所有資源限定の `/admin/e2e/trigger-webhook` を呼び、通常の `/gcal/webhook` は呼ばない。run-all、通常の同期・Webhook・ジョブ route は、下流資源と共有状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と8つの所有資源限定 route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
+`trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook` は所有資源限定の `/admin/e2e/trigger-webhook` を内部simulation用に呼び、`trigger_webhook_delivery`は短命watch専用の管理routeを呼ぶ。Googleからのcallbackだけが`/gcal/webhook`へ到達するが、初回`sync`の所有確認だけを行い通常同期は起動しない。run-all、通常の同期・Webhook同期・ジョブ route は、下流資源と共有状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と9つの所有資源限定 route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
 
 ## テスト構成
 
@@ -111,7 +114,7 @@ MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` では
 | `tests/test_sync_lock_do.py` | ロック競合・解放、Webhook 重複レコードの期限 |
 | `tests/test_sync_queues.py` | Google / Discord 同期の件数制限、失敗と残件の繰り越し |
 | `tests/test_e2e_entry.py` | E2E route allowlist、run ID、status のマスキング、Cron 無効化 |
-| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、サービス間適用、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、DO manifest、cleanup、応答喪失、rate limit |
+| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、サービス間適用、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google初回Webhook配信、DO manifest、cleanup、応答喪失、rate limit |
 | `tests/test_jobs.py` | Q&A更新通知、前日リマインド、Notion期限cleanupの共通処理と実行内状態 |
 | `tools/e2e_mcp_server.test.mjs` | MCP tool allowlist、接続先 fingerprint、承認、skip 判定、run manifest |
 | `tools/run_e2e_workflow.test.mjs` | workflow 順序、途中失敗時 cleanup、再試行、監査対象、evidence の固定エラー |
@@ -133,7 +136,7 @@ MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` では
 - Cloudflare の Python Workers、Workers KV、Durable Objects の実ランタイム互換性
 - `workers/wrangler.jsonc` と Cloudflare 管理画面側バインディングの一致
 - Discord、Google、Notion の現在の API 仕様、権限、レート制限、データ内容
-- Cron、Google watch、Webhook の実配信
+- Cron、デプロイ済みWorker上でのGoogle watchとWebhook実配信（専用workflowの実行証跡とは別）
 - デプロイ後の疎通、性能、可用性
 
 これらはローカル単体テストと分け、認証情報と実行許可を確認したうえで preview または実環境の検証として扱う。

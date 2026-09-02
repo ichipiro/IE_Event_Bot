@@ -17,6 +17,7 @@ export const TOOL_NAMES = [
   "seed_fixture",
   "trigger_sync",
   "trigger_webhook",
+  "trigger_webhook_delivery",
   "trigger_job",
   "read_status",
   "assert_external_state",
@@ -48,6 +49,7 @@ const SCENARIO_ROUTES = Object.freeze({
   reminder: "/admin/e2e/reminder",
   notion_cleanup: "/admin/e2e/notion-cleanup",
   webhook_dispatch: "/admin/e2e/trigger-webhook",
+  webhook_delivery: "/admin/e2e/google-webhook-delivery",
 });
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
@@ -61,6 +63,7 @@ const CLEANUP_ROUTES = Object.freeze({
   reminder: "/admin/e2e/reminder/cleanup",
   notion_cleanup: "/admin/e2e/notion-cleanup/cleanup",
   webhook_dispatch: "/admin/e2e/trigger-webhook/cleanup",
+  webhook_delivery: "/admin/e2e/google-webhook-delivery/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
   qa_check: "/admin/e2e/qa-notification",
@@ -73,6 +76,8 @@ const REQUIRED_ENV_KEYS = [
   "notion_internal_db",
   "notion_qa_db",
   "google_calendar_id",
+  "gcal_webhook_url",
+  "gcal_webhook_token",
   "discord_token",
   "discord_guild_id",
   "discord_event_channel",
@@ -114,6 +119,7 @@ const cleanupTargetField = z.enum([
   "reminder",
   "notion_cleanup",
   "webhook_dispatch",
+  "webhook_delivery",
 ]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
@@ -809,6 +815,9 @@ function operationRoute(tool, target) {
   if (tool === "trigger_webhook") {
     return "/admin/e2e/trigger-webhook";
   }
+  if (tool === "trigger_webhook_delivery") {
+    return "/admin/e2e/google-webhook-delivery";
+  }
   if (tool === "trigger_job") {
     return JOB_ROUTES[target] ?? null;
   }
@@ -1139,6 +1148,45 @@ export function createE2eMcpServer(options = {}) {
           const response = await workerRequest(
             config,
             "/admin/e2e/trigger-webhook",
+            "POST",
+            runId,
+            fetchImpl,
+          );
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
+        },
+      );
+      return toolResult(result, !result.ok);
+    },
+  );
+
+  server.registerTool(
+    "trigger_webhook_delivery",
+    {
+      description: "短命なrun所有watchを作成し、Googleからの初回sync通知到達後に停止する。",
+      inputSchema: { run_id: runIdField },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ run_id: runId }) => {
+      const result = await runAudited(
+        auditImpl,
+        { run_id: runId, tool: "trigger_webhook_delivery", target: "webhook_delivery" },
+        async () => {
+          const response = await workerRequest(
+            config,
+            SCENARIO_ROUTES.webhook_delivery,
             "POST",
             runId,
             fetchImpl,

@@ -18,6 +18,7 @@
 - 所有資源を専用 Discord Scheduled Event と message に限定し、通常ジョブと共通の通知ウィンドウ判定・重複抑止を検証・cleanup する前日リマインド E2E mode を追加した。
 - 所有資源を専用 Notion 内部 DB の期限到来・将来日時 page に限定し、通常ジョブと共通の期限判定・interval guard を検証・cleanup する Notion期限cleanup E2E mode を追加した。
 - Notion pageの日時読戻しは文字列表現ではなく、timezone付きRFC 3339をUTCの同一時刻として検証するようにした。
+- Notion cleanup fixtureの日時を既存Notion CRUDと同じ分境界へ揃え、読戻し不一致時は値を出さず項目名だけを固定エラーに残すようにした。
 - 通常の `/sync/all`、Webhook simulation、ジョブを既定拒否のまま維持し、新しい scenario が保証しない差分取得、KV 状態、実 webhook / Cron の境界を明記した。
 - required reviewer承認付きの専用workflowでGoogle→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでGoogle→Discord scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。

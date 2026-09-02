@@ -23,7 +23,7 @@
 ### ローカル検証
 
 - `ruff check .` と `pyright` が成功した。
-- Python 単体テスト149件、MCP / workflow 契約テスト32件が成功した。
+- Python 単体テスト150件、MCP / workflow 契約テスト32件が成功した。
 - E2E MCP 設定、Secret hygiene、workflow policy、Bash 構文、PlantUML モデル、追跡対象 Markdown の相対リンク検査が成功した。
 - 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
 
@@ -31,7 +31,8 @@
 
 - [初回workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33602595302)は、Notionが日時のUTC表現を正規化したため、HTTP 200の読戻しを文字列完全一致で検証した段階で失敗した。
 - 初回失敗後もrun内cleanupと`always()` cleanupは成功し、artifactで `notion_cleanup` manifestが `failed_clean`、対象revision一致、repository clean、残存するdirty所有権なしであることを確認した。
-- UTC offset と `Z` を同じ時刻として比較する再現テストと修正を追加した。修正版のrequired reviewer付きworkflowは未実施である。
+- UTC offset と `Z` を同じ時刻として比較する修正後の[再実行workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33603187882)も同じ読戻し段階で失敗した。2回のcleanup、`failed_clean`、対象revision一致、repository cleanは再度確認した。
+- 既存Notion CRUDとの入力差分だった秒精度をstubで再現し、fixture日時を分境界へ揃えた。不一致時は機密値を返さず項目名だけを固定エラーにする診断も追加した。修正版のrequired reviewer付きworkflowは未実施である。
 
 ### 未確認
 

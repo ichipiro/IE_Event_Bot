@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from workers import Response
@@ -142,3 +143,131 @@ def test_qa_page_processor_does_not_notify_answered_page(monkeypatch) -> None:
     assert result["ok"] is True
     assert result["first_run"] is False
     assert calls == []
+
+
+def test_reminder_event_processor_notifies_once_and_updates_only_local_cache() -> None:
+    now_utc = datetime(2026, 9, 2, 6, 0, tzinfo=timezone.utc)
+    event_start = now_utc + timedelta(hours=24, minutes=5)
+    event = {
+        "id": "event-owned-by-run",
+        "name": "[E2E] reminder [ie-event-bot-e2e:test-run]",
+        "scheduled_start_time": event_start.isoformat(),
+        "entity_metadata": {"location": "E2E reminder location"},
+    }
+    sent: list[dict] = []
+
+    async def send_message(env, channel_id, content, allowed_mentions=None):
+        sent.append(
+            {
+                "channel_id": channel_id,
+                "content": content,
+                "allowed_mentions": allowed_mentions,
+            }
+        )
+        return True
+
+    env = SimpleNamespace(
+        DISCORD_GUILD_ID="guild-id",
+        REMINDER_CHANNEL_ID="reminder-channel-id",
+        REMINDER_ROLE_ID="reminder-role-id",
+        REMINDER_WINDOW_MINUTES="15",
+        STATE_KV=MemoryKV(),
+    )
+    state = StateStore(env)
+
+    first = run(
+        jobs._run_reminder_events(
+            env,
+            state,
+            [event],
+            now_utc=now_utc,
+            return_detail=True,
+            send_message=send_message,
+        )
+    )
+    second = run(
+        jobs._run_reminder_events(
+            env,
+            state,
+            [event],
+            now_utc=now_utc,
+            return_detail=True,
+            send_message=send_message,
+        )
+    )
+
+    expected_detail = {
+        "ok": True,
+        "failed_count": 0,
+        "failed_event_ids": [],
+    }
+    assert first == expected_detail
+    assert second == expected_detail
+    assert sent == [
+        {
+            "channel_id": "reminder-channel-id",
+            "content": (
+                "<@&reminder-role-id>\n"
+                "🔔 明日開催のイベントがあります\n"
+                "イベント名: [E2E] reminder [ie-event-bot-e2e:test-run]\n"
+                "開始日時: 2026年9月3日 木曜日 15:05\n"
+                "場所: E2E reminder location\n"
+                "https://discord.com/events/guild-id/event-owned-by-run"
+            ),
+            "allowed_mentions": {
+                "parse": [],
+                "roles": ["reminder-role-id"],
+                "replied_user": False,
+            },
+        }
+    ]
+    assert json.loads(env.STATE_KV.data["reminder_cache"]) == {
+        "event-owned-by-run": now_utc.isoformat()
+    }
+
+
+def test_reminder_event_processor_ignores_events_outside_window() -> None:
+    now_utc = datetime(2026, 9, 2, 6, 0, tzinfo=timezone.utc)
+    calls: list[str] = []
+
+    async def send_message(env, channel_id, content, allowed_mentions=None):
+        calls.append(content)
+        return True
+
+    env = SimpleNamespace(
+        DISCORD_GUILD_ID="guild-id",
+        REMINDER_CHANNEL_ID="reminder-channel-id",
+        REMINDER_ROLE_ID="reminder-role-id",
+        REMINDER_WINDOW_MINUTES="15",
+        STATE_KV=MemoryKV(),
+    )
+    events = [
+        {
+            "id": "too-early",
+            "scheduled_start_time": (now_utc + timedelta(hours=23, minutes=59)).isoformat(),
+        },
+        {
+            "id": "upper-bound",
+            "scheduled_start_time": (now_utc + timedelta(hours=24, minutes=15)).isoformat(),
+        },
+        {"id": "invalid", "scheduled_start_time": "not-a-timestamp"},
+    ]
+
+    result = run(
+        jobs._run_reminder_events(
+            env,
+            StateStore(env),
+            events,
+            now_utc=now_utc,
+            return_detail=True,
+            send_message=send_message,
+        )
+    )
+
+    assert result == {
+        "ok": True,
+        "failed_count": 0,
+        "failed_event_ids": [],
+    }
+    assert calls == []
+    assert "reminder_cache" not in env.STATE_KV.data

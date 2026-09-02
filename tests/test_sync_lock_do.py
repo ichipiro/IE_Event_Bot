@@ -262,3 +262,29 @@ def test_qa_notification_manifest_uses_dedicated_service_kind() -> None:
 
     assert stored.status == 200
     assert response_json(loaded) == {"ok": True, "manifest": manifest}
+
+
+def test_reminder_manifest_uses_dedicated_service_kind() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    manifest = {
+        "version": 1,
+        "kind": "day_before_reminder",
+        "dirty": False,
+        "last_run_id": "E2E-20260902T070000Z-1234abcd",
+    }
+
+    stored = post(
+        coordinator,
+        {
+            "action": "put_e2e_manifest",
+            "service": "reminder",
+            "manifest_json": json.dumps(manifest),
+        },
+    )
+    loaded = post(
+        coordinator,
+        {"action": "get_e2e_manifest", "service": "reminder"},
+    )
+
+    assert stored.status == 200
+    assert response_json(loaded) == {"ok": True, "manifest": manifest}

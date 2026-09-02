@@ -12,6 +12,7 @@ _E2E_MANIFEST_KINDS = {
     "google": "google_calendar_event",
     "google_discord": "google_discord_sync",
     "google_notion": "google_notion_sync",
+    "notion_cleanup": "notion_cleanup_job",
     "qa_notification": "qa_notification_job",
     "reminder": "day_before_reminder",
     "discord": "discord_event_message",

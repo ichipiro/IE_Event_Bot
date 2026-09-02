@@ -117,6 +117,11 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
+        text.count("deploy-and-notion-cleanup-smoke") == 3,
+        "notion_cleanup_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("timeout-minutes:") == 2,
         "job_timeout_count_changed",
     )
@@ -192,6 +197,11 @@ def _check_workflow(text: str) -> list[str]:
         errors,
         "inputs.mode == 'deploy-and-reminder-smoke'" in cleanup_block,
         "cleanup_reminder_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-notion-cleanup-smoke'" in cleanup_block,
+        "cleanup_notion_cleanup_mode_guard_missing",
     )
     _check_action_pins(errors, text)
     return errors

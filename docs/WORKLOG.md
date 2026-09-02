@@ -6,6 +6,36 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Notion期限cleanup 自己cleanup型 E2E scenario
+
+### 目的
+
+通常の内部 DB 全件処理と共有状態を公開せず、所有・回収できる2件だけで既存の期限判定と interval guard を実サービス検証できるようにする。
+
+### 変更
+
+- 期限判定、page archive、実行間隔判定を `_run_auto_clean_pages` へ分離し、通常ジョブからも同じ処理を呼ぶようにした。
+- 専用内部 DB に作成する期限到来・将来日時 page を `notion_cleanup` の強整合 manifest で所有し、応答喪失時は page ごとに異なる run marker で再探索する自己 cleanup 型 probe を追加した。
+- 最終実行時刻は probe 内へ閉じ込め、期限到来 page だけの archive と2回目の interval guard を確認する。共有 KV の `cleanup:last_epoch` は変更しない。
+- MCP `trigger_job` の `cleanup` を通常の `/jobs/cleanup` ではなく所有資源限定 route へ接続し、workflow に `deploy-and-notion-cleanup-smoke` と監査開始済み scenario の `always()` cleanup を追加した。
+- 通常のジョブ route、内部 DB 全件取得、共有 KV、実 Cron 配信は既定拒否のまま維持した。
+
+### ローカル検証
+
+- `ruff check .` と `pyright` が成功した。
+- Python 単体テスト149件、MCP / workflow 契約テスト32件が成功した。
+- E2E MCP 設定、Secret hygiene、workflow policy、Bash 構文、PlantUML モデル、追跡対象 Markdown の相対リンク検査が成功した。
+- 固定 Wrangler による E2E Worker の deploy dry-run が成功した。
+
+### 実環境検証
+
+- 未実施。upstream と fork のレビュー経路へ反映後、required reviewer 付きの専用 workflow で確認する。
+
+### 未確認
+
+- 通常Notion cleanupジョブの内部DB全件取得、共有 KV の `cleanup:last_epoch`、実 Cron 配信
+- Webhook simulation
+
 ## 2026-09-02: 前日リマインド 自己cleanup型 E2E scenario
 
 ### 目的

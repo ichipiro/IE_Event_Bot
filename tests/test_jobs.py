@@ -271,3 +271,105 @@ def test_reminder_event_processor_ignores_events_outside_window() -> None:
     }
     assert calls == []
     assert "reminder_cache" not in env.STATE_KV.data
+
+
+def cleanup_page(page_id: str, *, start: str | None, end: str | None = None) -> dict:
+    date = None if start is None else {"start": start, "end": end}
+    return {
+        "id": page_id,
+        "properties": {
+            "日時": {"date": date},
+        },
+    }
+
+
+def test_auto_clean_page_processor_archives_only_due_page_and_guards_second_run() -> None:
+    now_utc = datetime(2026, 9, 2, 6, 0, tzinfo=timezone.utc)
+    archived_page_ids: list[str] = []
+
+    async def archive_page(_env, page_id: str) -> bool:
+        archived_page_ids.append(page_id)
+        return True
+
+    env = SimpleNamespace(
+        CLEANUP_INTERVAL_SECONDS="300",
+        STATE_KV=MemoryKV(),
+    )
+    state = StateStore(env)
+    pages = [
+        cleanup_page(
+            "due-page-id",
+            start=(now_utc - timedelta(hours=1)).isoformat(),
+            end=now_utc.isoformat(),
+        ),
+        cleanup_page(
+            "future-page-id",
+            start=(now_utc + timedelta(days=1)).isoformat(),
+        ),
+        cleanup_page("invalid-page-id", start=None),
+    ]
+
+    first = run(
+        jobs._run_auto_clean_pages(
+            env,
+            state,
+            pages,
+            now_utc=now_utc,
+            return_detail=True,
+            archive_page=archive_page,
+        )
+    )
+    second = run(
+        jobs._run_auto_clean_pages(
+            env,
+            state,
+            pages,
+            now_utc=now_utc,
+            return_detail=True,
+            archive_page=archive_page,
+        )
+    )
+
+    assert first == {
+        "ok": True,
+        "scanned": 3,
+        "archived": 1,
+    }
+    assert second == {
+        "ok": True,
+        "skipped": True,
+        "reason": "interval_guard",
+    }
+    assert archived_page_ids == ["due-page-id"]
+    assert env.STATE_KV.data["cleanup:last_epoch"] == str(now_utc.timestamp())
+
+
+def test_auto_clean_job_checks_interval_before_listing_pages(monkeypatch) -> None:
+    now_utc = datetime(2026, 9, 2, 6, 0, tzinfo=timezone.utc)
+
+    async def fail_if_listed(_env, _database_id):
+        raise AssertionError("interval guard後にだけ一覧を取得する必要がある")
+
+    monkeypatch.setattr(jobs, "_utc_now", lambda: now_utc)
+    monkeypatch.setattr(jobs, "_notion_query_all_pages", fail_if_listed)
+    env = SimpleNamespace(
+        NOTION_EVENT_INTERNAL_ID="internal-database-id",
+        CLEANUP_INTERVAL_SECONDS="300",
+        STATE_KV=MemoryKV(
+            {"cleanup:last_epoch": str(now_utc.timestamp())}
+        ),
+    )
+
+    result = run(
+        jobs.run_auto_clean_job(
+            env,
+            StateStore(env),
+            return_detail=True,
+        )
+    )
+
+    assert result == {
+        "ok": True,
+        "skipped": True,
+        "reason": "interval_guard",
+    }

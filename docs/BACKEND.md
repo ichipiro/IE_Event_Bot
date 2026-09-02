@@ -102,7 +102,7 @@ StateStore
 
 ## E2E 専用 Worker
 
-`workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook実配信の専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
+`workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
 
 Google→Notion scenario は、専用 Calendar の event を `apply_google_events` へ渡し、専用 Notion 内部 DB の page を確認後に両方を cleanup する。外部 Notion DB と Discord 反映を事前に拒否し、一時状態により通常の同期対応表と queue を変更しない。Google event ID、Notion page ID、対象 fingerprint は `google_notion` の Durable Object manifest で管理する。
 
@@ -122,7 +122,9 @@ Webhook simulation scenario は、通常Workerと共通のWebhook ingress handle
 
 Google Webhook実配信 scenario は、専用Calendarへ有効期間600秒のrun所有`events.watch`を登録し、Googleが送る初回`sync`通知の`X-Goog-Channel-ID`、`X-Goog-Resource-ID`、`X-Goog-Resource-State`、`X-Goog-Message-Number`を専用callbackで確認した後、直ちに`channels.stop`する。Googleはwatch作成応答より先に初回通知を送る場合があるため、manifestを外部request前にdirty化し、watch応答のresource ID紐付けと通知記録を同じDurable Objectで原子的に行う。停止成功後は生IDをfingerprintへ置換し、停止または所有権解決に失敗した場合だけdirtyを維持する。callbackは通常の同期dispatch、重複抑止、共有KV、`gcal_watch_state`を変更しない。このscenarioが確認するのはwatch APIとGoogleから専用Workerへの初回通知到達だけであり、変更通知の`exists`、通常同期、実Cron、通常watch維持は確認しない。
 
-通常の全体同期、通常Webhookの同期dispatch、通常のジョブ route の下流資源と共有状態はまだ run ID で所有できないため、`E2E_ORCHESTRATED_WRITES_ENABLED` の既定値を `false` とし、該当 route を `404` で隠す。所有資源限定 route の `E2E_GOOGLE_NOTION_SYNC_ENABLED`、`E2E_GOOGLE_DISCORD_SYNC_ENABLED`、`E2E_DISCORD_NOTION_SYNC_ENABLED`、`E2E_DISCORD_GOOGLE_SYNC_ENABLED`、`E2E_QA_NOTIFICATION_ENABLED`、`E2E_REMINDER_ENABLED`、`E2E_NOTION_CLEANUP_ENABLED`、`E2E_WEBHOOK_SIMULATION_ENABLED`、`E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED` とは別の境界である。
+Google変更起因Webhook scenario は、専用Calendarにrun marker付きeventを作成した後に600秒のrun所有watchを登録し、初回`sync`を確認してからそのeventを更新する。実際の`exists` callbackはchannel tokenとchannel / resource IDを検証し、Durable Objectで最初の1通知だけを原子的にclaimして通常Workerと共通のWebhook ingressと同期dispatchへ渡す。Google差分取得の結果からevent IDとrun markerが一致する1件だけを`apply_google_events`へ渡し、専用Notion内部DBのpageを確認する。同期cursor、最終時刻、最終結果、Google認証cache、Notion対応表とqueueはrequest内状態へ閉じ込める。cleanupはwatch停止とrun所有dedupe削除をevent削除より先に行い、停止に失敗すれば下流資源を削除せずdirtyを維持する。これは共有状態と全Calendarを使う通常運用のwatch更新、全件適用、Discord反映、Cronを確認するものではない。
+
+通常の全体同期、共有状態と全件適用を伴う通常Webhook同期、通常のジョブ route の下流資源と共有状態はまだ run ID で所有できないため、`E2E_ORCHESTRATED_WRITES_ENABLED` の既定値を `false` とし、該当 route を `404` で隠す。所有資源限定 route の `E2E_GOOGLE_NOTION_SYNC_ENABLED`、`E2E_GOOGLE_DISCORD_SYNC_ENABLED`、`E2E_DISCORD_NOTION_SYNC_ENABLED`、`E2E_DISCORD_GOOGLE_SYNC_ENABLED`、`E2E_QA_NOTIFICATION_ENABLED`、`E2E_REMINDER_ENABLED`、`E2E_NOTION_CLEANUP_ENABLED`、`E2E_WEBHOOK_SIMULATION_ENABLED`、`E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED`、`E2E_GOOGLE_WEBHOOK_CHANGE_ENABLED` とは別の境界である。
 
 通常 Worker の token 登録、通常watch ensure、通常Webhookの同期dispatch、migration status は E2E entry から公開しない。scheduled handler も設定値にかかわらず空結果を返す。E2E status は実 ID や Secret を返さず、worker version、watch、外部資源を SHA-256 fingerprint と真偽値だけで要約する。
 

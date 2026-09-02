@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from hashlib import sha256
 from types import SimpleNamespace
 from urllib.parse import urlparse
@@ -67,7 +68,7 @@ def _response_properties(raw: dict) -> dict:
             for key in ("start", "end"):
                 value = date_value.get(key)
                 if isinstance(value, str) and value.endswith("+00:00"):
-                    date_value[key] = f"{value[:-6]}Z"
+                    date_value[key] = f"{value[:16]}:00Z"
         for property_type in ("title", "rich_text"):
             nodes = prop.get(property_type)
             if not isinstance(nodes, list):
@@ -194,6 +195,23 @@ def install_notion_api_stub(
     monkeypatch.setattr(e2e_notion_probe, "fetch", fake_fetch)
     monkeypatch.setattr(jobs, "fetch", fake_fetch)
     return pages, calls, control
+
+
+def test_notion_cleanup_payload_uses_notion_minute_precision() -> None:
+    payload, expected = e2e_notion_cleanup_probe._page_payload(
+        DATABASE_ID,
+        RUN_ID,
+        "due",
+        datetime(2026, 9, 2, 8, 12, 34, tzinfo=timezone.utc),
+    )
+
+    date_value = payload["properties"]["日時"]["date"]
+    assert date_value == {
+        "start": "2026-09-02T07:12:00+00:00",
+        "end": "2026-09-02T08:11:00+00:00",
+    }
+    assert expected["start"] == date_value["start"]
+    assert expected["end"] == date_value["end"]
 
 
 def test_notion_cleanup_probe_archives_only_due_page_then_cleans_both(

@@ -44,6 +44,11 @@ from e2e_qa_notification_probe import (
     cleanup_qa_notification_probe,
     run_qa_notification_probe,
 )
+from e2e_reminder_probe import (
+    REMINDER_MANIFEST_SERVICE,
+    cleanup_reminder_probe,
+    run_reminder_probe,
+)
 from entry import Default as ApplicationDefault
 from entry import _json_response
 from google_auth import describe_google_auth_sources
@@ -69,6 +74,8 @@ _NOTION_CRUD_PATH = "/admin/e2e/notion-crud"
 _NOTION_CLEANUP_PATH = "/admin/e2e/notion-crud/cleanup"
 _QA_NOTIFICATION_PATH = "/admin/e2e/qa-notification"
 _QA_NOTIFICATION_CLEANUP_PATH = "/admin/e2e/qa-notification/cleanup"
+_REMINDER_PATH = "/admin/e2e/reminder"
+_REMINDER_CLEANUP_PATH = "/admin/e2e/reminder/cleanup"
 _STATUS_PATH = "/admin/e2e/status"
 _TRIGGER_WEBHOOK_PATH = "/admin/e2e/trigger-webhook"
 _ORCHESTRATED_WRITE_PATHS = frozenset(
@@ -259,6 +266,11 @@ def _e2e_qa_notification_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_reminder_enabled(env) -> bool:
+    value = getattr(env, "E2E_REMINDER_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -288,6 +300,7 @@ class Default(ApplicationDefault):
             _QA_NOTIFICATION_PATH,
             _QA_NOTIFICATION_CLEANUP_PATH,
         )
+        reminder_route = path in (_REMINDER_PATH, _REMINDER_CLEANUP_PATH)
         status_route = path == _STATUS_PATH
         webhook_route = path == _TRIGGER_WEBHOOK_PATH
         orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
@@ -307,6 +320,7 @@ class Default(ApplicationDefault):
                 discord_route,
                 notion_route,
                 qa_notification_route,
+                reminder_route,
                 status_route,
                 webhook_route,
                 orchestrated_write_route,
@@ -328,6 +342,8 @@ class Default(ApplicationDefault):
         if notion_route and not _e2e_notion_crud_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if qa_notification_route and not _e2e_qa_notification_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if reminder_route and not _e2e_reminder_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not self._authorized(request):
             return Response("unauthorized", status=401)
@@ -361,6 +377,9 @@ class Default(ApplicationDefault):
                     ),
                     "qa_notification": await state.get_e2e_manifest(
                         QA_NOTIFICATION_MANIFEST_SERVICE
+                    ),
+                    "reminder": await state.get_e2e_manifest(
+                        REMINDER_MANIFEST_SERVICE
                     ),
                 }
                 legacy_manifests = {
@@ -408,6 +427,7 @@ class Default(ApplicationDefault):
                         "google_notion": _e2e_google_notion_sync_enabled(self.env),
                         "discord_notion": _e2e_discord_notion_sync_enabled(self.env),
                         "qa_notification": _e2e_qa_notification_enabled(self.env),
+                        "reminder": _e2e_reminder_enabled(self.env),
                     },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
@@ -421,6 +441,7 @@ class Default(ApplicationDefault):
                             "google_discord",
                             "google_notion",
                             "qa_notification",
+                            "reminder",
                         )
                     },
                 }
@@ -449,6 +470,8 @@ class Default(ApplicationDefault):
             lock_source = "e2e-discord-notion-sync"
         elif qa_notification_route:
             lock_source = "e2e-qa-notification"
+        elif reminder_route:
+            lock_source = "e2e-reminder"
         elif discord_route:
             lock_source = "e2e-discord-crud"
         else:
@@ -533,6 +556,18 @@ class Default(ApplicationDefault):
                 )
             elif path == _QA_NOTIFICATION_PATH:
                 result = await run_qa_notification_probe(
+                    self.env,
+                    state,
+                    run_id=run_id,
+                )
+            elif path == _REMINDER_CLEANUP_PATH:
+                result = await cleanup_reminder_probe(
+                    self.env,
+                    state,
+                    expected_run_id=run_id,
+                )
+            elif path == _REMINDER_PATH:
+                result = await run_reminder_probe(
                     self.env,
                     state,
                     run_id=run_id,

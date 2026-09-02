@@ -54,6 +54,11 @@ from e2e_reminder_probe import (
     cleanup_reminder_probe,
     run_reminder_probe,
 )
+from e2e_webhook_probe import (
+    WEBHOOK_DISPATCH_MANIFEST_SERVICE,
+    cleanup_webhook_dispatch_probe,
+    run_webhook_dispatch_probe,
+)
 from entry import Default as ApplicationDefault
 from entry import _json_response
 from google_auth import describe_google_auth_sources
@@ -85,6 +90,7 @@ _REMINDER_PATH = "/admin/e2e/reminder"
 _REMINDER_CLEANUP_PATH = "/admin/e2e/reminder/cleanup"
 _STATUS_PATH = "/admin/e2e/status"
 _TRIGGER_WEBHOOK_PATH = "/admin/e2e/trigger-webhook"
+_TRIGGER_WEBHOOK_CLEANUP_PATH = "/admin/e2e/trigger-webhook/cleanup"
 _ORCHESTRATED_WRITE_PATHS = frozenset(
     {
         "/sync/all",
@@ -283,6 +289,11 @@ def _e2e_notion_cleanup_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_webhook_simulation_enabled(env) -> bool:
+    value = getattr(env, "E2E_WEBHOOK_SIMULATION_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -318,13 +329,14 @@ class Default(ApplicationDefault):
             _NOTION_AUTO_CLEAN_CLEANUP_PATH,
         )
         status_route = path == _STATUS_PATH
-        webhook_route = path == _TRIGGER_WEBHOOK_PATH
+        webhook_route = path in (
+            _TRIGGER_WEBHOOK_PATH,
+            _TRIGGER_WEBHOOK_CLEANUP_PATH,
+        )
         orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
         if path in _BLOCKED_APPLICATION_WRITE_PATHS:
             return _json_response({"ok": False, "error": "not_found"}, status=404)
-        if (webhook_route or orchestrated_write_route) and not _e2e_orchestration_enabled(
-            self.env
-        ):
+        if orchestrated_write_route and not _e2e_orchestration_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not any(
             (
@@ -364,6 +376,8 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if notion_cleanup_route and not _e2e_notion_cleanup_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if webhook_route and not _e2e_webhook_simulation_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
         if not self._authorized(request):
             return Response("unauthorized", status=401)
         if status_route:
@@ -402,6 +416,9 @@ class Default(ApplicationDefault):
                     ),
                     "notion_cleanup": await state.get_e2e_manifest(
                         NOTION_CLEANUP_MANIFEST_SERVICE
+                    ),
+                    "webhook_dispatch": await state.get_e2e_manifest(
+                        WEBHOOK_DISPATCH_MANIFEST_SERVICE
                     ),
                 }
                 legacy_manifests = {
@@ -451,6 +468,9 @@ class Default(ApplicationDefault):
                         "qa_notification": _e2e_qa_notification_enabled(self.env),
                         "reminder": _e2e_reminder_enabled(self.env),
                         "notion_cleanup": _e2e_notion_cleanup_enabled(self.env),
+                        "webhook_dispatch": _e2e_webhook_simulation_enabled(
+                            self.env
+                        ),
                     },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
@@ -466,6 +486,7 @@ class Default(ApplicationDefault):
                             "qa_notification",
                             "reminder",
                             "notion_cleanup",
+                            "webhook_dispatch",
                         )
                     },
                 }
@@ -480,8 +501,36 @@ class Default(ApplicationDefault):
             return await super().fetch(request)
 
         state = StateStore(self.env)
-        if webhook_route:
-            return await self._run_sync_dispatch(request, state, source="e2e-webhook")
+        if path == _TRIGGER_WEBHOOK_PATH:
+            async def dispatch(sync_state, google_applier):
+                return await self._run_sync_dispatch(
+                    request,
+                    sync_state,
+                    source="e2e-webhook",
+                    google_applier=google_applier,
+                )
+
+            try:
+                result = await run_webhook_dispatch_probe(
+                    self.env,
+                    state,
+                    dispatch,
+                    run_id=run_id,
+                )
+            except Exception:
+                result = {
+                    "ok": False,
+                    "dirty": True,
+                    "error": "e2e_probe_exception",
+                    "cleanup_required": True,
+                }
+            if result.get("ok"):
+                status = 200
+            elif result.get("dirty") or result.get("error") == "environment_dirty":
+                status = 409
+            else:
+                status = 500
+            return _json_response(result, status=status)
         if google_route:
             lock_source = "e2e-google-crud"
         elif google_discord_route:
@@ -498,6 +547,8 @@ class Default(ApplicationDefault):
             lock_source = "e2e-reminder"
         elif notion_cleanup_route:
             lock_source = "e2e-notion-cleanup"
+        elif webhook_route:
+            lock_source = "e2e-webhook-simulation"
         elif discord_route:
             lock_source = "e2e-discord-crud"
         else:
@@ -609,6 +660,12 @@ class Default(ApplicationDefault):
                     self.env,
                     state,
                     run_id=run_id,
+                )
+            elif path == _TRIGGER_WEBHOOK_CLEANUP_PATH:
+                result = await cleanup_webhook_dispatch_probe(
+                    self.env,
+                    state,
+                    expected_run_id=run_id,
                 )
             elif path == _DISCORD_CLEANUP_PATH:
                 result = await cleanup_discord_crud_probe(

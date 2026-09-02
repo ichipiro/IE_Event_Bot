@@ -8,7 +8,7 @@
 
 - `AGENTS.md` の追跡対象外文書4件をパス表記へ変更し、クリーンなチェックアウトで相対リンク切れが生じないようにした。
 - ローカル補助文書を追跡対象外で維持する方針と、標準文書を正本とする境界は変更していない。
-- E2E Worker の未所有な同期・Webhook simulation・ジョブ route を専用フラグで既定拒否し、status と preflight で無効状態を確認するようにした。
+- E2E Worker の未所有な通常同期・実Webhook・通常ジョブ route を専用フラグで既定拒否し、status と preflight で無効状態を確認するようにした。
 - 自己 cleanup 型のサービス間 E2E を `docs/ISSUES.md` と GitHub Issue #17 で追跡するようにした。
 - 所有資源を専用 Google event と Notion page に限定し、既存の適用処理を通して検証・cleanupする Google→Notion E2E mode を追加した。
 - 所有資源を専用 Google event と Discord Scheduled Event に限定し、既存の適用処理を通して検証・cleanupする Google→Discord E2E mode を追加した。
@@ -19,7 +19,8 @@
 - 所有資源を専用 Notion 内部 DB の期限到来・将来日時 page に限定し、通常ジョブと共通の期限判定・interval guard を検証・cleanup する Notion期限cleanup E2E mode を追加した。
 - Notion pageの日時読戻しは文字列表現ではなく、timezone付きRFC 3339をUTCの同一時刻として検証するようにした。
 - Notion cleanup fixtureの日時を既存Notion CRUDと同じ分境界へ揃え、読戻し不一致時は値を出さず項目名だけを固定エラーに残すようにした。
-- 通常の `/sync/all`、Webhook simulation、ジョブを既定拒否のまま維持し、新しい scenario が保証しない差分取得、KV 状態、実 webhook / Cron の境界を明記した。
+- 所有資源を専用Google eventとNotion pageに限定し、Google差分取得と通常同期dispatchを検証・cleanupするWebhook simulation E2E modeを追加した。
+- 通常の `/sync/all`、`/gcal/webhook`、ジョブを既定拒否のまま維持し、新しい scenario が保証しない共有KV状態、実 webhook / Cron の境界を明記した。
 - required reviewer承認付きの専用workflowでGoogle→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでGoogle→Discord scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - required reviewer承認付きの専用workflowでDiscord→Notion scenarioを実行し、両資源cleanupとマスク済みartifactを確認した結果を作業履歴と課題へ記録した。

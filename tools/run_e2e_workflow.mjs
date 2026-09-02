@@ -25,6 +25,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "qa_notification",
   "reminder",
   "notion_cleanup",
+  "webhook_dispatch",
 ]);
 export const COMMANDS = Object.freeze([
   "run-id",
@@ -37,6 +38,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-qa-notification-smoke",
   "deploy-and-reminder-smoke",
   "deploy-and-notion-cleanup-smoke",
+  "deploy-and-webhook-simulation-smoke",
   "cleanup",
   "evidence",
 ]);
@@ -524,6 +526,40 @@ export async function runDeployAndNotionCleanupSmoke(callTool, runId, options = 
 }
 
 
+export async function runDeployAndWebhookSimulationSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_webhook", {
+      run_id: runId,
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "webhook_dispatch",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["webhook_dispatch"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["webhook_dispatch"] };
+}
+
+
 export function touchedServicesFromAudit(entries, runId) {
   const touched = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
@@ -540,7 +576,8 @@ export function touchedServicesFromAudit(entries, runId) {
             "google_notion",
           ].includes(entry.target)) ||
         (entry.tool === "trigger_job" &&
-          ["qa_check", "reminder", "cleanup"].includes(entry.target))
+          ["qa_check", "reminder", "cleanup"].includes(entry.target)) ||
+        (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch")
       )
     ) {
       const jobService = {
@@ -707,6 +744,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-notion-cleanup-smoke") {
       await runDeployAndNotionCleanupSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-webhook-simulation-smoke") {
+      await runDeployAndWebhookSimulationSmoke(callTool, runId);
       return;
     }
     if (command === "cleanup") {

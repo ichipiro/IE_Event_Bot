@@ -373,7 +373,14 @@ class Default(WorkerEntrypoint):
         token = auth_header[7:].strip()
         return compare_digest(token.encode("utf-8"), required_token.encode("utf-8"))
 
-    async def _run_sync_dispatch(self, request, state: StateStore, source: str):
+    async def _run_sync_dispatch(
+        self,
+        request,
+        state: StateStore,
+        source: str,
+        *,
+        google_applier=None,
+    ):
         """
         同期処理の中核ディスパッチ。
         手順:
@@ -382,6 +389,9 @@ class Default(WorkerEntrypoint):
         3) mode に応じて Google fetch/apply + Discord poll sync 実行
         4) 成功時はカーソル/最終時刻/last_result を更新
         5) finally でロック解放
+
+        google_applier は所有資源限定 E2E だけが差し替える。通常経路では
+        production の apply_google_events を使用する。
         """
         # 同期間隔を取得
         sync_interval = self._sync_interval_seconds()
@@ -421,7 +431,8 @@ class Default(WorkerEntrypoint):
             google_result = await run_google_delta_fetch(self.env, state, commit_cursor=False)
             apply_result = {"ok": True, "skipped": True}
             if google_result.get("ok"):
-                apply_result = await apply_google_events(
+                selected_applier = google_applier or apply_google_events
+                apply_result = await selected_applier(
                     self.env,
                     state,
                     google_result.get("items") or [],

@@ -78,13 +78,14 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - QA通知 scenario は専用 Q&A page 1件だけを通常ジョブと共通の通知判定へ渡し、初回抑止 cache を実行内へ閉じ込める。Q&A DB 全件取得、質問番号補完、共有KVの `qa_cache` は変更しない。
 - 前日リマインド scenario は専用 Scheduled Event 1件だけを通常ジョブと共通の通知判定へ渡し、通知済み cache を実行内へ閉じ込める。通常の Guild event 一覧処理、共有 KV の `reminder_cache`、実 Cron は変更しない。
 - Notion期限cleanup scenario は専用内部 DB に作成した期限到来・将来日時の page 2件だけを通常ジョブと共通の期限判定へ渡し、最終実行時刻を実行内へ閉じ込める。通常の内部 DB 全件取得、共有 KV の `cleanup:last_epoch`、実 Cron は変更しない。
+- Webhook simulation scenario は Google 差分取得と通常同期 dispatch を使用するが、取得結果から event ID と run marker が一致する1件だけを適用する。同期 cursor、最終実行時刻、最終結果、Google 認証 cache は request 内へ閉じ込め、共有 KV の対応表と queue は変更しない。
 - Notion page の cleanup は DB、page、source event ID、run ID 入り title または content marker の一致を確認してから archive する。Google event も private source event ID、run ID 入り summary と description marker の一致を確認してから削除する。
 - Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。
 - preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
 - `trigger_sync` は任意 URL を受け取らず、通常の `/sync/all` ではなく、所有資源限定の Google→Notion / Discord と Discord→Notion / Google route だけを固定列挙から呼ぶ。
 - `trigger_job` の `qa_check`、`reminder`、`cleanup` は通常の `/jobs/*` ではなく、所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼ぶ。run-all は通常 route のまま既定拒否を維持する。
-- 通常の同期、Webhook simulation、通常ジョブ route は下流資源と状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。
+- 通常の同期、実Webhook受信、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation は専用フラグと route で分離する。
 
 ## E2E GitHub Actions 境界
 

@@ -213,6 +213,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         qa_notification: true,
         reminder: true,
         notion_cleanup: true,
+        webhook_dispatch: true,
       },
       required_envs: Object.fromEntries([
         "notion_token",
@@ -251,6 +252,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         qa_notification: { present: false, dirty: false, run_id: null },
         reminder: { present: false, dirty: false, run_id: null },
         notion_cleanup: { present: false, dirty: false, run_id: null },
+        webhook_dispatch: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -368,6 +370,56 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
       "discord_google",
       "discord_google",
     ],
+  );
+});
+
+
+test("trigger_webhookとcleanupは専用simulation routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: { webhook_dispatch: 200 },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const triggerResult = await client.callTool({
+        name: "trigger_webhook",
+        arguments: { run_id: RUN_ID },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "webhook_dispatch",
+          confirmation: `cleanup:webhook_dispatch:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(triggerResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/trigger-webhook`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/trigger-webhook/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["webhook_dispatch", "webhook_dispatch"],
   );
 });
 

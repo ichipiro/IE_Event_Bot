@@ -119,6 +119,22 @@ def test_e2e_status_masks_resource_identifiers() -> None:
                     "future_page_id_sha256": "3" * 64,
                 },
             },
+            "webhook_dispatch": {
+                "version": 1,
+                "kind": "google_webhook_simulation",
+                "dirty": False,
+                "last_run_id": RUN_ID,
+                "outcome": "passed",
+                "cleanup_attempts": 1,
+                "stages": {
+                    "webhook_delta_fetch": 200,
+                    "webhook_dispatch": 200,
+                },
+                "resource_fingerprints": {
+                    "google_event_id_sha256": "4" * 64,
+                    "notion_page_id_sha256": "5" * 64,
+                },
+            },
         }
     )
     worker = make_worker(
@@ -132,6 +148,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             E2E_QA_NOTIFICATION_ENABLED="true",
             E2E_REMINDER_ENABLED="true",
             E2E_NOTION_CLEANUP_ENABLED="true",
+            E2E_WEBHOOK_SIMULATION_ENABLED="true",
             GOOGLE_API_BEARER_TOKEN="fake-google-token",
             GOOGLE_CALENDAR_ID="calendar-id",
             NOTION_TOKEN="fake-notion-token",
@@ -224,6 +241,22 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             "future_page_id_sha256": "3" * 64,
         },
     }
+    assert payload["scenarios"]["webhook_dispatch"] == {
+        "present": True,
+        "dirty": False,
+        "run_id": RUN_ID,
+        "outcome": "passed",
+        "stage": None,
+        "cleanup_attempts": 1,
+        "stages": {
+            "webhook_delta_fetch": 200,
+            "webhook_dispatch": 200,
+        },
+        "resource_fingerprints": {
+            "google_event_id_sha256": "4" * 64,
+            "notion_page_id_sha256": "5" * 64,
+        },
+    }
     assert payload["worker_version"] == {
         "present": True,
         "id_sha256": sha256(b"sensitive-worker-version-id").hexdigest(),
@@ -250,6 +283,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
     assert payload["scenario_routes_enabled"]["qa_notification"] is True
     assert payload["scenario_routes_enabled"]["reminder"] is True
     assert payload["scenario_routes_enabled"]["notion_cleanup"] is True
+    assert payload["scenario_routes_enabled"]["webhook_dispatch"] is True
     serialized = json.dumps(payload)
     assert "must-not-be-returned" not in serialized
     assert "sensitive-watch-channel-id" not in serialized
@@ -300,16 +334,16 @@ def test_e2e_webhook_simulation_requires_run_id(monkeypatch) -> None:
         SimpleNamespace(
             INTERNAL_API_TOKEN="test-token",
             STATE_KV=MemoryKV(),
-            E2E_ORCHESTRATED_WRITES_ENABLED="true",
+            E2E_WEBHOOK_SIMULATION_ENABLED="true",
         )
     )
-    dispatch_sources: list[str] = []
+    run_ids: list[str] = []
 
-    async def fake_dispatch(request, state, source):
-        dispatch_sources.append(source)
-        return e2e_entry._json_response({"ok": True})
+    async def fake_probe(env, state, dispatch, run_id=None):
+        run_ids.append(str(run_id or ""))
+        return {"ok": True, "dirty": False, "run_id": run_id}
 
-    monkeypatch.setattr(worker, "_run_sync_dispatch", fake_dispatch)
+    monkeypatch.setattr(e2e_entry, "run_webhook_dispatch_probe", fake_probe)
 
     missing = run(
         worker.fetch(
@@ -333,8 +367,8 @@ def test_e2e_webhook_simulation_requires_run_id(monkeypatch) -> None:
     assert missing.status == 400
     assert response_json(missing) == {"ok": False, "error": "invalid_run_id"}
     assert success.status == 200
-    assert response_json(success) == {"ok": True}
-    assert dispatch_sources == ["e2e-webhook"]
+    assert response_json(success) == {"ok": True, "dirty": False, "run_id": RUN_ID}
+    assert run_ids == [RUN_ID]
 
 
 def test_orchestrated_write_routes_require_post_and_run_id(monkeypatch) -> None:
@@ -411,7 +445,7 @@ def test_orchestrated_write_routes_are_hidden_by_default(monkeypatch) -> None:
         delegated_paths.append(request.url)
         return e2e_entry._json_response({"ok": True})
 
-    async def fake_dispatch(request, state, source):
+    async def fake_dispatch(request, state, source, *, google_applier=None):
         dispatch_sources.append(source)
         return e2e_entry._json_response({"ok": True})
 

@@ -29,7 +29,11 @@
 
 ### 実環境検証
 
-- 未実施。upstreamとforkのレビュー経路へ反映後、required reviewer付きの専用workflowで確認する。
+- [upstream PR #39](https://github.com/ichipiro/IE_Event_Bot/pull/39)と[fork同期PR #35](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/35)を全チェック成功後にmergeした。
+- fork `develop`の[専用E2E workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33609185862)をrequired reviewer承認付きで実行した。
+- ローカルvalidation、専用Worker deploy、Google eventの作成・読取・差分取得、所有eventだけのNotion適用・読取、実行内状態の更新、run内cleanup、`always()` cleanup、マスク済みevidence収集が成功した。
+- artifactを独立に確認し、対象revision `7035da3`、repository clean、専用Webhook simulation routeのみの実行、2回のcleanup成功、`webhook_dispatch` manifest `passed`・clean、全16 stageがHTTP 200または204であることを確認した。
+- artifactに生のWorker URL、認証情報、Google event ID、Notion page ID、Calendar ID、database IDがなく、外部資源はSHA-256 fingerprintだけであることを確認した。
 
 ### 未確認
 

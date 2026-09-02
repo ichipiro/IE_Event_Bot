@@ -9,6 +9,11 @@ from e2e_discord_probe import (
     cleanup_discord_crud_probe,
     run_discord_crud_probe,
 )
+from e2e_discord_notion_probe import (
+    DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
+    cleanup_discord_notion_sync_probe,
+    run_discord_notion_sync_probe,
+)
 from e2e_google_probe import (
     GOOGLE_CRUD_MANIFEST_SERVICE,
     cleanup_google_calendar_crud_probe,
@@ -44,6 +49,8 @@ _GOOGLE_DISCORD_SYNC_PATH = "/admin/e2e/google-discord-sync"
 _GOOGLE_DISCORD_CLEANUP_PATH = "/admin/e2e/google-discord-sync/cleanup"
 _GOOGLE_NOTION_SYNC_PATH = "/admin/e2e/google-notion-sync"
 _GOOGLE_NOTION_CLEANUP_PATH = "/admin/e2e/google-notion-sync/cleanup"
+_DISCORD_NOTION_SYNC_PATH = "/admin/e2e/discord-notion-sync"
+_DISCORD_NOTION_CLEANUP_PATH = "/admin/e2e/discord-notion-sync/cleanup"
 _DISCORD_CRUD_PATH = "/admin/e2e/discord-crud"
 _DISCORD_CLEANUP_PATH = "/admin/e2e/discord-crud/cleanup"
 _NOTION_CRUD_PATH = "/admin/e2e/notion-crud"
@@ -223,6 +230,11 @@ def _e2e_google_discord_sync_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _e2e_discord_notion_sync_enabled(env) -> bool:
+    value = getattr(env, "E2E_DISCORD_NOTION_SYNC_ENABLED", "false")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 class Default(ApplicationDefault):
     """通常WorkerをE2E専用の明示的な公開面へ制限する。"""
 
@@ -237,6 +249,10 @@ class Default(ApplicationDefault):
         google_notion_route = path in (
             _GOOGLE_NOTION_SYNC_PATH,
             _GOOGLE_NOTION_CLEANUP_PATH,
+        )
+        discord_notion_route = path in (
+            _DISCORD_NOTION_SYNC_PATH,
+            _DISCORD_NOTION_CLEANUP_PATH,
         )
         discord_route = path in (_DISCORD_CRUD_PATH, _DISCORD_CLEANUP_PATH)
         notion_route = path in (_NOTION_CRUD_PATH, _NOTION_CLEANUP_PATH)
@@ -254,6 +270,7 @@ class Default(ApplicationDefault):
                 google_route,
                 google_discord_route,
                 google_notion_route,
+                discord_notion_route,
                 discord_route,
                 notion_route,
                 status_route,
@@ -267,6 +284,8 @@ class Default(ApplicationDefault):
         if google_discord_route and not _e2e_google_discord_sync_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if google_notion_route and not _e2e_google_notion_sync_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if discord_notion_route and not _e2e_discord_notion_sync_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_route and not _e2e_discord_crud_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -295,6 +314,9 @@ class Default(ApplicationDefault):
                     ),
                     "google_notion": await state.get_e2e_manifest(
                         GOOGLE_NOTION_SYNC_MANIFEST_SERVICE
+                    ),
+                    "discord_notion": await state.get_e2e_manifest(
+                        DISCORD_NOTION_SYNC_MANIFEST_SERVICE
                     ),
                 }
                 legacy_manifests = {
@@ -339,6 +361,7 @@ class Default(ApplicationDefault):
                     "scenario_routes_enabled": {
                         "google_discord": _e2e_google_discord_sync_enabled(self.env),
                         "google_notion": _e2e_google_notion_sync_enabled(self.env),
+                        "discord_notion": _e2e_discord_notion_sync_enabled(self.env),
                     },
                     "services": {
                         service: _manifest_summary(manifests.get(service))
@@ -346,7 +369,11 @@ class Default(ApplicationDefault):
                     },
                     "scenarios": {
                         scenario: _manifest_summary(scenario_manifests.get(scenario))
-                        for scenario in ("google_discord", "google_notion")
+                        for scenario in (
+                            "discord_notion",
+                            "google_discord",
+                            "google_notion",
+                        )
                     },
                 }
             )
@@ -368,6 +395,8 @@ class Default(ApplicationDefault):
             lock_source = "e2e-google-discord-sync"
         elif google_notion_route:
             lock_source = "e2e-google-notion-sync"
+        elif discord_notion_route:
+            lock_source = "e2e-discord-notion-sync"
         elif discord_route:
             lock_source = "e2e-discord-crud"
         else:
@@ -416,6 +445,18 @@ class Default(ApplicationDefault):
                 )
             elif path == _GOOGLE_DISCORD_SYNC_PATH:
                 result = await run_google_discord_sync_probe(
+                    self.env,
+                    state,
+                    run_id=run_id,
+                )
+            elif path == _DISCORD_NOTION_CLEANUP_PATH:
+                result = await cleanup_discord_notion_sync_probe(
+                    self.env,
+                    state,
+                    expected_run_id=run_id,
+                )
+            elif path == _DISCORD_NOTION_SYNC_PATH:
+                result = await run_discord_notion_sync_probe(
                     self.env,
                     state,
                     run_id=run_id,

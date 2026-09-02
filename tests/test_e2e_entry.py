@@ -79,6 +79,19 @@ def test_e2e_status_masks_resource_identifiers() -> None:
                 "message_id": "must-not-be-returned",
                 "stages": {"event_create": 200},
             },
+            "qa_notification": {
+                "version": 1,
+                "kind": "qa_notification_job",
+                "dirty": False,
+                "last_run_id": RUN_ID,
+                "outcome": "passed",
+                "cleanup_attempts": 1,
+                "stages": {"job_notify": 200, "message_delete": 204},
+                "resource_fingerprints": {
+                    "notion_page_id_sha256": "c" * 64,
+                    "discord_message_id_sha256": "d" * 64,
+                },
+            },
         }
     )
     worker = make_worker(
@@ -89,6 +102,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             E2E_GOOGLE_CRUD_ENABLED="true",
             E2E_DISCORD_CRUD_ENABLED="true",
             E2E_NOTION_CRUD_ENABLED="true",
+            E2E_QA_NOTIFICATION_ENABLED="true",
             GOOGLE_API_BEARER_TOKEN="fake-google-token",
             GOOGLE_CALENDAR_ID="calendar-id",
             NOTION_TOKEN="fake-notion-token",
@@ -141,6 +155,19 @@ def test_e2e_status_masks_resource_identifiers() -> None:
         "dirty": False,
         "run_id": None,
     }
+    assert payload["scenarios"]["qa_notification"] == {
+        "present": True,
+        "dirty": False,
+        "run_id": RUN_ID,
+        "outcome": "passed",
+        "stage": None,
+        "cleanup_attempts": 1,
+        "stages": {"job_notify": 200, "message_delete": 204},
+        "resource_fingerprints": {
+            "notion_page_id_sha256": "c" * 64,
+            "discord_message_id_sha256": "d" * 64,
+        },
+    }
     assert payload["worker_version"] == {
         "present": True,
         "id_sha256": sha256(b"sensitive-worker-version-id").hexdigest(),
@@ -164,6 +191,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
     }
     assert payload["sync_lock"] == {"enabled": True, "ok": True, "status": 200}
     assert payload["orchestrated_writes_enabled"] is False
+    assert payload["scenario_routes_enabled"]["qa_notification"] is True
     serialized = json.dumps(payload)
     assert "must-not-be-returned" not in serialized
     assert "sensitive-watch-channel-id" not in serialized

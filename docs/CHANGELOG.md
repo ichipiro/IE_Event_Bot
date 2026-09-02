@@ -31,6 +31,7 @@
 - required reviewer付きの専用workflowでWebhook simulation scenarioを実行し、Google差分取得、所有eventだけのNotion適用、共有状態の分離、両資源cleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 - Webhook simulationを通常Workerと共通のingress handlerへ拡張し、channel tokenの事前拒否、Durable Objectでのmessage重複抑止、run所有重複状態のcleanupを検証できるようにした。
 - E2E deployへrun IDのWorker version tagを付与し、同じtagを`/admin/e2e/status`から読み戻すまで外部書き込みscenarioを開始しないrevision gateを追加した。
+- required reviewer付きの専用workflowでWebhook ingress simulationを再実行し、revision tag、token拒否、message重複抑止、run所有重複状態を含む全資源cleanup、マスク済みartifactを確認した結果を作業履歴と課題へ記録した。
 
 ## 2026-08-29
 

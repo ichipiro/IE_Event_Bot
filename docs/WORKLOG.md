@@ -6,6 +6,44 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-02: Google変更起因Webhook 自己cleanup型 E2E
+
+### 目的
+
+Google Calendarのevent更新で実際に送られる`exists`通知から、通常Workerと共通のWebhook ingressと同期dispatchへ進み、run所有event 1件だけをNotionへ反映・回収できることを確認する。
+
+### 変更
+
+- 専用Calendarにrun marker付きeventを作成し、600秒の短命watchへ届く初回`sync`を確認してからeventを更新する専用probeを追加した。
+- callbackのchannel token、channel ID、resource ID、`exists`、message numberを検証し、Durable Objectで最初の通知だけを原子的にclaimする。watch作成応答より初回通知が先に届く場合も同じmanifestで解決する。
+- 共通Webhook ingressと同期dispatchのGoogle差分取得結果からevent IDとrun markerが一致する1件だけを`apply_google_events`へ渡す。同期cursor、最終時刻、最終結果、Google認証cache、Notion対応表とqueueは実行内へ閉じ込める。
+- cleanupはwatch停止とrun所有dedupe削除をevent削除より先に行う。停止に失敗した場合はGoogle eventとNotion pageを削除せずdirtyを維持し、明示cleanupで再試行する。
+- MCPと手動GitHub Actionsへ`trigger_webhook_change`と`deploy-and-webhook-change-smoke`を追加した。
+
+### ローカル検証
+
+- `ruff check .`と`pyright`が成功した。
+- Python単体テスト175件、MCP / workflow契約テスト40件が成功した。
+- E2E MCP設定、Secret hygiene、workflow policy、Bash構文、PlantUMLモデルが成功した。
+- 固定Wrangler 4.127.1によるE2E Workerのdeploy dry-runが成功した。
+
+### 反映
+
+- 実装を[upstream PR #46](https://github.com/ichipiro/IE_Event_Bot/pull/46)と[fork同期PR #42](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/42)へ反映した。両PRは全チェック成功後にmerge commit方式で手動mergeした。
+- `RELEASE_AUTOMATION_TOKEN`はorg側でPR作成、merge、fork同期、Environment承認に必要な権限が未付与である。このタスクでは付与済みと扱わず、認証済み対話セッションの`gh`で各操作を手動実行した。
+
+### 実環境検証
+
+- fork revision `6863ea9c5713b1dc754181807d166c9074d48885`の[専用E2E workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33623500404)をrequired reviewer承認後に実行し、ローカルvalidation、専用Worker deploy、実通知scenario、run内cleanup、`always()` cleanup、マスク済みevidence収集が成功した。
+- artifact `e2e-evidence-33623500404-1`でrun ID `E2E-20260902T111449Z-e228731f`とWorker version tagの一致、repository clean、初回`sync`、event更新、実`exists`配信、最初の通知のclaim、Google差分取得、所有event 1件のNotion適用、実行内状態の分離を確認した。
+- watch停止、run所有dedupe削除、Notion page archive、Google event削除と2回のcleanupはいずれも成功した。`webhook_change` manifestは`outcome=passed`、`dirty=false`である。
+- 外部識別子は7件のSHA-256 fingerprintだけであり、固定schema検査と認証値・URL・生IDの混入検査も成功した。
+
+### 未確認
+
+- 通常Workerのwatch再登録・更新、共有cursorと全Calendarの全件適用、Discord反映、全体同期、実Cron配信
+- 通常運用データを使うEnd-to-End検証
+
 ## 2026-09-02: Google Webhook初回実配信 自己cleanup型 E2E
 
 ### 目的

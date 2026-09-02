@@ -64,6 +64,7 @@ bash -n tools/configure_github_e2e_environment.sh
 | --- | --- |
 | `preflight` | E2E Worker の health とマスク済み status を読む。既定値であり、deploy と外部 CRUD は行わない |
 | `deploy-and-crud-smoke` | 専用 Worker を deploy し、Google、Discord、Notion の自己 cleanup 型 CRUD probe と所有状態確認を順に行う |
+| `deploy-and-discord-notion-smoke` | 専用 Worker を deploy し、Discord Scheduled Event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 
@@ -77,9 +78,11 @@ Google→Notion モードは、専用 Calendar に一意な event を作成し�
 
 Google→Discord モードは、専用 Calendar に一意な event を作成して読み戻し、現行の `_sync_to_discord` へ1件だけ渡し、専用 Guild に作られた Scheduled Event を確認する。通常設定の `DISCORD_SYNC_ENABLED=false` は維持し、この関数呼び出しだけを一時的に有効化する。Notion、同期対応表、再試行 queue は使用しない。作成応答を失った場合は run marker で一意に再探索し、0件または複数件なら clean と推測せず dirty を維持する。
 
-MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync` または `/admin/e2e/google-discord-sync` を呼ぶ。これらが確認するのは Google の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google 差分取得、同期 cursor / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
+Discord→Notion モードは、専用 Guild に一意な Scheduled Event を作成して読み戻し、現行の `_sync_discord_event_upsert` へ1件だけ渡し、専用 Notion 内部 DB に作られた page を確認する。`DISCORD_TO_GOOGLE_SYNC_ENABLED=false`、外部 Notion DB が空、既定の Notion プロパティ名であることを事前に強制し、通常の Discord snapshot / queue と作成通知は使用しない。作成応答を失った場合は run marker または Discord event ID で一意に再探索し、所有権が未解決なら dirty を維持する。
 
-`trigger_webhook`、`trigger_job` と通常の同期・ジョブ route は、下流資源と状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で該当 route を `404` にし、preflight はこの既定拒否と2つの専用 scenario route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
+MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync` のいずれかを呼ぶ。これらが確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
+
+`trigger_webhook`、`trigger_job` と通常の同期・ジョブ route は、下流資源と状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で該当 route を `404` にし、preflight はこの既定拒否と3つの専用 scenario route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
 
 ## テスト構成
 
@@ -93,7 +96,7 @@ MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` では
 | `tests/test_sync_lock_do.py` | ロック競合・解放、Webhook 重複レコードの期限 |
 | `tests/test_sync_queues.py` | Google / Discord 同期の件数制限、失敗と残件の繰り越し |
 | `tests/test_e2e_entry.py` | E2E route allowlist、run ID、status のマスキング、Cron 無効化 |
-| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD / Google→Notion / Discord 適用、DO manifest、cleanup、応答喪失、rate limit |
+| `tests/test_e2e_*_probe.py` | 外部通信を差し替えた CRUD、Google→Notion / Discord、Discord→Notion 適用、DO manifest、cleanup、応答喪失、rate limit |
 | `tools/e2e_mcp_server.test.mjs` | MCP tool allowlist、接続先 fingerprint、承認、skip 判定、run manifest |
 | `tools/run_e2e_workflow.test.mjs` | workflow 順序、途中失敗時 cleanup、再試行、監査対象、evidence の固定エラー |
 

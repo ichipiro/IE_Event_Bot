@@ -10,6 +10,8 @@
 - ローカル補助文書を追跡対象外で維持する方針と、標準文書を正本とする境界は変更していない。
 - E2E Worker の未所有な同期・Webhook simulation・ジョブ route を専用フラグで既定拒否し、status と preflight で無効状態を確認するようにした。
 - 自己 cleanup 型のサービス間 E2E を `docs/ISSUES.md` と GitHub Issue #17 で追跡するようにした。
+- 所有資源を専用 Google event と Notion page に限定し、既存の適用処理を通して検証・cleanupする Google→Notion E2E mode を追加した。
+- 通常の `/sync/all`、Webhook simulation、ジョブを既定拒否のまま維持し、新しい scenario が保証しない差分取得、KV 状態、実 webhook / Cron の境界を明記した。
 
 ## 2026-08-29
 

@@ -29,7 +29,9 @@
 
 ### 実環境検証
 
-- 未実施。upstream と fork のレビュー経路へ反映後、required reviewer 付きの専用 workflow で確認する。
+- [初回workflow](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/33602595302)は、Notionが日時のUTC表現を正規化したため、HTTP 200の読戻しを文字列完全一致で検証した段階で失敗した。
+- 初回失敗後もrun内cleanupと`always()` cleanupは成功し、artifactで `notion_cleanup` manifestが `failed_clean`、対象revision一致、repository clean、残存するdirty所有権なしであることを確認した。
+- UTC offset と `Z` を同じ時刻として比較する再現テストと修正を追加した。修正版のrequired reviewer付きworkflowは未実施である。
 
 ### 未確認
 

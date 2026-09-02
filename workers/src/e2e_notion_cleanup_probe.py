@@ -140,6 +140,25 @@ def _property_date(page: dict, property_name: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def _timestamp_utc(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _same_timestamp(actual: object, expected: object) -> bool:
+    actual_utc = _timestamp_utc(actual)
+    expected_utc = _timestamp_utc(expected)
+    return actual_utc is not None and actual_utc == expected_utc
+
+
 def _page_matches(
     page: dict,
     *,
@@ -156,8 +175,8 @@ def _page_matches(
         and _property_text(page, "内容", "rich_text") == expected["content"]
         and _property_text(page, _MARKER_PROPERTY, "rich_text")
         == expected["marker"]
-        and str(date_value.get("start") or "") == expected["start"]
-        and str(date_value.get("end") or "") == expected["end"]
+        and _same_timestamp(date_value.get("start"), expected["start"])
+        and _same_timestamp(date_value.get("end"), expected["end"])
         and _page_archived(page) is archived
     )
 

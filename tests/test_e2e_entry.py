@@ -165,7 +165,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
             REMINDER_ROLE_ID="discord-reminder-role",
             CF_VERSION_METADATA=SimpleNamespace(
                 id="sensitive-worker-version-id",
-                tag="e2e",
+                tag=RUN_ID,
                 timestamp="2026-09-01T00:00:00.000Z",
             ),
         )
@@ -264,6 +264,7 @@ def test_e2e_status_masks_resource_identifiers() -> None:
     assert payload["worker_version"] == {
         "present": True,
         "id_sha256": sha256(b"sensitive-worker-version-id").hexdigest(),
+        "tag": RUN_ID,
         "timestamp": "2026-09-01T00:00:00.000Z",
     }
     assert payload["watch"] == {

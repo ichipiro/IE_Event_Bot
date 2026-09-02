@@ -38,12 +38,14 @@ const SERVICE_ROUTES = Object.freeze({
   notion: "/admin/e2e/notion-crud",
 });
 const SCENARIO_ROUTES = Object.freeze({
+  google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
 });
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
   discord: "/admin/e2e/discord-crud/cleanup",
   notion: "/admin/e2e/notion-crud/cleanup",
+  google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
@@ -80,7 +82,14 @@ const runIdField = z
   .regex(RUN_ID_PATTERN)
   .describe("E2E-<UTC timestamp>-<8 lowercase hex>形式のrun ID");
 const serviceField = z.enum(["google", "discord", "notion"]);
-const cleanupTargetField = z.enum(["google", "discord", "notion", "google_notion"]);
+const scenarioField = z.enum(["google_discord", "google_notion"]);
+const cleanupTargetField = z.enum([
+  "google",
+  "discord",
+  "notion",
+  "google_discord",
+  "google_notion",
+]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
 
@@ -729,7 +738,7 @@ function operationRoute(tool, target) {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
-    return SCENARIO_ROUTES.google_notion;
+    return SCENARIO_ROUTES[target] ?? null;
   }
   if (tool === "trigger_webhook") {
     return "/admin/e2e/trigger-webhook";
@@ -980,8 +989,8 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "所有資源限定のGoogle→Notion適用シナリオを実行し、両資源をcleanupする。",
-      inputSchema: { run_id: runIdField },
+      description: "選択した所有資源限定のGoogle適用シナリオを実行し、両資源をcleanupする。",
+      inputSchema: { run_id: runIdField, scenario: scenarioField },
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -989,14 +998,14 @@ export function createE2eMcpServer(options = {}) {
         openWorldHint: true,
       },
     },
-    async ({ run_id: runId }) => {
+    async ({ run_id: runId, scenario }) => {
       const result = await runAudited(
         auditImpl,
-        { run_id: runId, tool: "trigger_sync", target: "google_notion" },
+        { run_id: runId, tool: "trigger_sync", target: scenario },
         async () => {
           const response = await workerRequest(
             config,
-            SCENARIO_ROUTES.google_notion,
+            SCENARIO_ROUTES[scenario],
             "POST",
             runId,
             fetchImpl,

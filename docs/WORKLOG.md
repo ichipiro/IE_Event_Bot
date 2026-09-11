@@ -1,5 +1,20 @@
 # 作業履歴
 
+## 2026-09-11: 同時resumeを実サービスで検証
+
+- commit `526bcb0ce2cea9546237f45c0765ac6a378b1db3` の[実行34594293913](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34594293913)が成功した。run `E2E-20260911T113112Z-ae440f60`、artifact `e2e-evidence-34594293913-1` を独立取得して照合した。
+- 2回のdeployの異なるversion IDと、再deploy後の各要求のversion指定を確認した。resumeの監査順は開始・開始・終了・終了・開始・終了で、並行要求のHTTP 200と409（e2e_lock_unavailable）、完了再送のalready_completedを確認した。期待した拒否以外は成功だった。
+- 全6回の差分・checkpoint、状態分離・永続化、Discord削除204・読戻し404、Notion archive読戻し200、cleanupと全service / scenarioのdirty=falseを確認した。キャンセル後は一覧から消える分岐を観測した。
+- ActionsのPython 296件、Node 76件、Ruff、Pyright、設定検査、Wrangler dry-runが成功した。JUnitを独立取得し、296件・失敗0も照合した。
+- 今回の実サービス競合はHTTP入口の同期ロックによる拒否であり、DO claim自体の競合はローカル検証に限る。応答喪失、DOプロセスの強制再起動、任意位置のクラッシュ復旧は未検証。
+
+## 2026-09-11: Discord差分E2Eの同時続行検証
+
+- PR #60をupstream developへマージし、fork PR #47で同期した。ローカルdevelopとorigin/developの一致、upstream/developの祖先関係を確認した。
+- 同run・同versionのresumeを2要求並行送信し、通常完了1件・HTTP入口ロック拒否1件を判定する。拒否を再送せず監査に保持し、両要求が終了するまでcleanupを開始しない。通常Workerの入口・ロック・DO claimの実装は変更していない。
+- Python 296件、Node 76件、Ruff、Pyrightが成功した。HTTP入口の拒否側に外部API呼出しがないことと、入口を介さないDO claimの競合拒否を別々に確認した。
+- 実サービスの同時要求はこの時点では未検証。DO claim競合の実環境再現、応答喪失、DOプロセスの強制再起動、任意位置のクラッシュ復旧は対象外とする。
+
 ## 2026-09-11: 再デプロイ後のDiscord差分続行を実サービスで検証
 
 - commit `2232f7ab81626d74d803060cd9f490933cd72e3c` の[実行34593390627](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34593390627)が成功した。run `E2E-20260911T111946Z-80bb78e9` で専用Workerを2回deployした。

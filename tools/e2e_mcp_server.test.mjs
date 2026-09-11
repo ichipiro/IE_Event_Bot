@@ -1371,3 +1371,38 @@ test("再deployは同tagの旧versionを待機し新versionの系譜を監査へ
     assert.equal(deploy.previous_version_sha256, "c".repeat(64));
   });
 });
+
+test("同時resumeのロック拒否を再送せず成功要求と別々に監査する", { timeout: 2000 }, async () => {
+  const blocked = Promise.withResolvers();
+  const audit = [];
+  let requests = 0;
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "e".repeat(40), dirty: false }),
+    delayImpl: async () => { assert.fail("ロック拒否は再試行しない"); },
+    fetchImpl: async (url, options) => {
+      if (options.method === "GET") {
+        return jsonResponse({ ok: true });
+      }
+      assert.equal(options.headers["X-E2E-Version-ID-SHA256"], "c".repeat(64));
+      if (++requests === 1) {
+        await blocked.promise;
+        return jsonResponse({ ok: true, run_id: RUN_ID, dirty: false });
+      }
+      blocked.resolve();
+      return jsonResponse({ ok: false, error: "e2e_lock_unavailable", lock_owner: "private_owner" }, 409);
+    },
+  }, async (client) => {
+    const results = await Promise.all([0, 1].map(() => client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "resume", version_sha256: "c".repeat(64) },
+    })));
+    assert.deepEqual(results.map((result) => parseToolResult(result).status).sort(), [200, 409]);
+    assert.equal(requests, 2);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID } }));
+    assert.deepEqual(evidence.manifest.operations.map((op) => op.ok).sort(), [false, true]);
+    assert.equal(evidence.manifest.operations.find((op) => !op.ok).error, "e2e_lock_unavailable");
+    assert.equal(JSON.stringify(evidence).includes("private_owner"), false);
+    assert.deepEqual(audit.slice(0, 2).map((entry) => entry.phase), ["start", "start"]);
+  });
+});

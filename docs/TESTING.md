@@ -97,6 +97,8 @@ Discord差分モードは、専用Guildへrun marker付きeventを1件作成し�
 
 queueの更新・削除失敗後の再試行は、同じメモリstorageを引き継いでStateStore・DO・差分stateのPythonオブジェクトを作り直すローカルテストでも確認する。checkpointはsnapshot / queueの組を1回のstorage書込みで保存し、競合revision・別run・別資源・上限超過を拒否する。fixture側の管理記録更新では保持し、所有資源のcleanup成功時に消去する。dirty時のstatusにもsnapshotやqueue内のraw IDは公開しない。キャンセル後の一覧の両応答形、完了eventの保護もローカル代替APIの回帰テストで確認する。1回の実サービス実行で観測できるキャンセルの一覧応答は1分岐であり、両分岐を実証したとは扱わない。
 
+Discord一覧取得のHTTP 429は、有限・非負・10秒以内の `retry_after` に従い最大4回まで試行する。MCPはDiscord差分の書込み時に期待version tagを送り、Workerは副作用前に不一致を拒否する。この拒否だけは最大20回・3秒間隔で再送する。
+
 手動workflowは `trigger_sync` の `sync_phase=prepare` と `resume` を別HTTPリクエストで実行する。`/admin/e2e/discord-delta-sync/prepare` は作成・読戻し完了後に `status=prepared`、`dirty=true` を返す。`/resume` は同じrun・対象・保存内容・所有pageを再確認し、DOで `delta_prepared` から `delta_resuming` への移行を一度だけ取得して残りを実行する。成功済みの同runへの再送は外部操作なしで `already_completed` を返す。準備完了前または続行中に中断したrunは任意位置から再実行せず、dirtyとしてcleanupする。
 
 実Worker再起動を伴う復元、共有snapshot / queueの永続化、Guild全件への適用、Google反映、実Cronは未確認である。2026-09-11時点では実装とローカル検証までで、新モードの実サービス実行は未実施。Discord statusの定義と変更操作は[公式API仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)を参照する。

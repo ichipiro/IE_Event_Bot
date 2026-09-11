@@ -371,9 +371,14 @@ async function workerRequest(config, route, method, runId, fetchImpl) {
   const headers = {
     Authorization: `Bearer ${config.internalApiToken}`,
     Accept: "application/json",
+    "Cache-Control": "no-cache, no-store",
   };
   if (runId) {
     headers["X-E2E-Run-ID"] = runId;
+  }
+  if (method === "POST" && route.startsWith(SCENARIO_ROUTES.discord_delta) &&
+      !route.endsWith("/cleanup")) {
+    headers["X-E2E-Version-Tag"] = runId;
   }
 
   let response;
@@ -1128,13 +1133,19 @@ export function createE2eMcpServer(options = {}) {
         auditImpl,
         { run_id: runId, tool: "trigger_sync", target: scenario, sync_phase: syncPhase },
         async () => {
-          const response = await workerRequest(
+          let response = await workerRequest(
             config,
             operationRoute("trigger_sync", scenario, syncPhase),
             "POST",
             runId,
             fetchImpl,
           );
+          for (let attempt = 1; scenario === "discord_delta" && attempt < DEPLOY_VERIFY_ATTEMPTS &&
+               response.status === 409 && response.payload.error === "worker_version_mismatch"; attempt += 1) {
+            await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
+            response = await workerRequest(config, operationRoute("trigger_sync", scenario, syncPhase),
+              "POST", runId, fetchImpl);
+          }
           const sanitized = sanitizeOperation(response, runId);
           if (sanitized.ok && syncPhase === "prepare" &&
               (response.payload.status !== "prepared" || response.payload.dirty !== true)) {

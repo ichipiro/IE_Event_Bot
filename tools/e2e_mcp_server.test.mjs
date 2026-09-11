@@ -456,6 +456,28 @@ test("Discord差分のprepareとresumeを固定routeへ送り監査に残す", a
     ["prepare", "resume"]);
 });
 
+test("Discord差分は副作用前のversion不一致だけを待機して再送する", async () => {
+  let calls = 0;
+  const waits = [];
+  await withClient({ env: ENV, auditImpl: async () => {},
+    delayImpl: async (ms) => waits.push(ms),
+    fetchImpl: async (url, options) => {
+      calls += 1;
+      assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+      return calls === 1
+        ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
+        : jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare" },
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+    assert.deepEqual(waits, [3000]);
+  });
+});
+
 test("Discord差分以外の分割実行と不完全なprepare・resume応答を拒否する", async () => {
   const calls = [];
   await withClient({ env: ENV, auditImpl: async () => {},

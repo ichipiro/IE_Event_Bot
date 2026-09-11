@@ -1,4 +1,6 @@
 import json
+import asyncio
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
@@ -7,6 +9,8 @@ from workers import fetch as _runtime_fetch
 
 from google_auth import get_google_access_token
 
+_DISCORD_GET_ATTEMPTS = 4
+_DISCORD_MAX_RETRY_DELAY = 10.0
 _DISCORD_USER_AGENT = "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)"
 
 
@@ -224,37 +228,49 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
         return None, 401
     url = f"https://discord.com/api/v10{path}" # v10
     body = None if payload is None else json.dumps(payload, ensure_ascii=False)
-    # Discord REST API リクエスト
-    try:
-        response = await fetch(
-            url,
-            {
-                "method": method.upper(),
-                "headers": {
-                    "Authorization": f"Bot {token}",
-                    "Content-Type": "application/json",
-                    "User-Agent": _DISCORD_USER_AGENT,
+    for attempt in range(_DISCORD_GET_ATTEMPTS):
+        # Discord REST API リクエスト
+        try:
+            response = await fetch(
+                url,
+                {
+                    "method": method.upper(),
+                    "headers": {
+                        "Authorization": f"Bot {token}",
+                        "Content-Type": "application/json",
+                        "User-Agent": _DISCORD_USER_AGENT,
+                    },
+                    "body": body,
                 },
-                "body": body,
-            },
-        )
-    except Exception as exc:
-        detail = str(exc).lower()
-        if "too many subrequests" in detail:
-            return None, 598
-        return None, 599
+            )
+        except Exception as exc:
+            detail = str(exc).lower()
+            if "too many subrequests" in detail:
+                return None, 598
+            return None, 599
 
-    # レスポンス読み取り
-    status = int(response.status)
-    text = await response.text()
-    if status >= 400:
-        return None, status
-    if status == 204 or not text:
-        return {}, status
-    try:
-        return json.loads(text), status
-    except Exception:
-        return {}, status
+        # レスポンス読み取り
+        status = int(response.status)
+        text = await response.text()
+        if status == 429 and method.upper() == "GET" and attempt + 1 < _DISCORD_GET_ATTEMPTS:
+            try:
+                data = json.loads(text)
+                delay = float(data.get("retry_after"))
+            except (ValueError, TypeError, AttributeError):
+                delay = -1
+            if math.isfinite(delay) and 0 <= delay <= _DISCORD_MAX_RETRY_DELAY:
+                await asyncio.sleep(delay)
+                continue
+        if status >= 400:
+            return None, status
+        if status == 204 or not text:
+            return {}, status
+        try:
+            return json.loads(text), status
+        except Exception:
+            return {}, status
+
+    return None, 429
 
 
 async def _list_discord_scheduled_events(env):

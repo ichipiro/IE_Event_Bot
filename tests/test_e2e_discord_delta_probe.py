@@ -461,6 +461,37 @@ def test_delta_list_request_supplies_discord_user_agent(monkeypatch):
     assert run(probe.run_discord_delta_probe(env, StateStore(env), RUN_ID))["ok"] is True
 
 
+@pytest.mark.parametrize("delay,expected_calls", [(0.1, 4), (11, 1), (-1, 1), (None, 1)])
+def test_discord_list_retries_only_bounded_retry_after(monkeypatch, delay, expected_calls):
+    calls, waits = [], []
+
+    async def limited(url, options=None):
+        calls.append(url)
+        return Response(json.dumps({"retry_after": delay}), status=429)
+
+    async def sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(discord_notion_sync, "fetch", limited)
+    monkeypatch.setattr(discord_notion_sync.asyncio, "sleep", sleep)
+    events, error = run(discord_notion_sync._list_discord_scheduled_events(make_env()))
+    assert events is None and error == "discord_list_failed:429"
+    assert len(calls) == expected_calls
+    assert len(waits) == expected_calls - 1
+
+
+def test_discord_list_succeeds_after_rate_limit(monkeypatch):
+    calls = []
+
+    async def limited(url, options=None):
+        calls.append(url)
+        return Response('{"retry_after":0}', status=429) if len(calls) == 1 else Response('[]', status=200)
+
+    monkeypatch.setattr(discord_notion_sync, "fetch", limited)
+    assert run(discord_notion_sync._list_discord_scheduled_events(make_env())) == ([], None)
+    assert len(calls) == 2
+
+
 def test_list_failure_before_notion_apply_is_failed_clean(monkeypatch):
     events, pages, _, _ = install_api_stub(monkeypatch)
 

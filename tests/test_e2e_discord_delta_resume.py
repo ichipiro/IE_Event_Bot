@@ -162,3 +162,18 @@ def test_failed_prepare_can_be_cleaned_without_resume(monkeypatch):
     assert request(env, "cleanup").status == 200
     assert events == {}
     assert pages[PAGE_ID]["archived"] is True
+
+
+def test_delta_version_gate_rejects_stale_worker_before_io(monkeypatch):
+    _, _, calls, _ = install_api_stub(monkeypatch)
+    worker = e2e_entry.Default()
+    worker.env = make_env()
+    worker.env.INTERNAL_API_TOKEN = "test-token"
+    worker.env.E2E_DISCORD_DELTA_ENABLED = "true"
+    headers = {**ROUTE_HEADERS, "X-E2E-Version-Tag": RUN_ID}
+    response = run(worker.fetch(Request(
+        "https://bot.test/admin/e2e/discord-delta-sync/prepare", method="POST", headers=headers,
+    )))
+    assert response.status == 409
+    assert response_json(response)["error"] == "worker_version_mismatch"
+    assert calls == []

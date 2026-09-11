@@ -6,6 +6,14 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: 旧run回収とDiscord一覧のレート制限対応
+
+- [復旧実行34581033503](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581033503)が成功し、初回runの `recovered`・`dirty=false` とWorker revisionの変更をartifactで確認した。
+- [再実行34581260948](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581260948)はDiscord一覧のHTTP 429で停止した。今回は `failed_clean`・`dirty=false` まで回収できた。初回失敗がUser-Agentだけに起因したとは断定しない。
+- DiscordのGETに限り、応答 `retry_after` が有限・非負・10秒以内の場合に最大4回の試行を行う。副作用のある書込みはこの再試行の対象にしない。
+- 最終artifactが旧version tagを返すケースも観測したため、Discord差分の各書込み入口でMCPが期待tagを送り、Workerが副作用前に検証する。不一致だけを最大20回・3秒間隔で待機する。
+- Python 266件、Node 47件、Ruff、Pyrightでローカル検証した。
+
 ## 2026-09-11: Discord差分E2Eの初回実環境検証と復旧実装
 
 - commit `3210352` をforkの `feature/e2e-discord-delta` へpushし、[実行34580597939](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34580597939)でローカル検査・deploy・version tag一致を確認した。

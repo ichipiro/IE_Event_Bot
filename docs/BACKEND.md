@@ -149,4 +149,4 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 - 機能一覧: `README.md`
 - 追跡対象外のローカル補助: `docs/REFERENCES.md` の分類を参照
 
-通常KVと外部fixtureの接続は専用 `discord_kv` シナリオで段階的に検証する。所有Discord event 1件を通常差分処理へ渡し、snapshot / queueはrun・scope別KVへ、外部資源のIDと所有メタデータはDOへ保存する。別HTTPで読戻し、外部資源・KVの回収後だけcleanとする。固定2件の `discord_batch` は上限1件で適用し、KVの残件を別HTTPで確認・消化する。通常ポーリングは未接続。詳細は [TESTING.md](TESTING.md) を参照。
+通常KVと外部fixtureの接続は専用 `discord_kv` シナリオで段階的に検証する。所有Discord event 1件を通常差分処理へ渡し、snapshot / queueはrun・scope別KVへ、外部資源のIDと所有メタデータはDOへ保存する。別HTTPで読戻し、外部資源・KVの回収後だけcleanとする。固定2件の `discord_batch` は上限1件で適用し、KVの残件を別HTTPで確認・消化する。通常ポーリング入口の一覧取得後、DOで所有する2件のID・run marker・初期内容を検証して差分処理へ渡す。Google同期・通知・通常Guild全件の適用は未接続。詳細は [TESTING.md](TESTING.md) を参照。

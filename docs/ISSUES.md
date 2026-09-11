@@ -51,7 +51,7 @@
 
 ### 通常Discord同期の共有状態と排他
 
-- 実環境で確認済み: 通常StateStoreをrun・scope別の固定2キーへ隔離し、DO所有manifestに基づく保存・別HTTP読戻し・回収を実装した。[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)で各HTTP 200、version一致、回収後のoutcome=passedと全資源dirty=falseを確認した。外部fixture 1組との接続も[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)で通常差分処理・KV読戻し・外部資源とKVの回収まで確認した。固定2件・上限1件・KV残件の別HTTP消化と回収も[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)で成功した。通常ポーリングは残作業である。
+- 実環境で確認済み: 通常StateStoreをrun・scope別の固定2キーへ隔離し、DO所有manifestに基づく保存・別HTTP読戻し・回収を実装した。[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)で各HTTP 200、version一致、回収後のoutcome=passedと全資源dirty=falseを確認した。外部fixture 1組との接続も[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)で通常差分処理・KV読戻し・外部資源とKVの回収まで確認した。固定2件・上限1件・KV残件の別HTTP消化と回収も[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)で成功した。通常ポーリングの一覧取得から所有2件のNotion反映・KV残件処理へ接続し、一覧の欠落・重複・変更・異常応答の拒否をローカル確認した。この経路も[実行34615847619](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34615847619)で初回・残件の一覧取得、Notion反映、KV読戻し、全資源回収まで成功した。Google反映と通知は残作業である。
 - ローカル修正済み: queue保存失敗時にsnapshotだけ進む問題をqueue先行保存へ変更し、手動・Cronの単独同期を全体同期と同じDOロックで保護した。作成・更新・削除の再試行、上限残件、並行HTTP、例外・キャンセル後の解放を代替KV・DO・外部APIで確認した。
 - 未確認: 実KVの伝播遅延、ロックTTL超過、通常Guild全件の適用と実Cron。外部成功後の状態保存失敗では再実行され得る。複数キーの原子的更新と一度限りの適用は保証しない。
 

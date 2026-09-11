@@ -71,6 +71,14 @@ StateStore
 6. 成功時にカーソルと最終同期時刻を更新する。
 7. 実行結果を `result:*` へ保存し、最後にロックを解放する。
 
+### Discord単独同期
+
+`/sync/discord-notion` とDiscord単独Cronは、全体同期と同じ `SYNC_COORDINATOR` のglobalロックを取得し、差分適用と結果保存を終えてから解放する。手動HTTPは競合時に `409 sync_in_progress`、ロック取得エラー時に `503 sync_lock_unavailable` を返す。Cronも同期を開始せずエラー結果を返し、実行中の最終結果を上書きしない。明示的なロック無効化とDO binding欠落時の既存動作は維持する。
+
+通常の差分処理は、失敗・上限超過の操作を `sync:discord_notion_queue` に保存してから `discord:snapshot` を進める。queue保存が失敗した場合は旧snapshotから差分を再検出でき、snapshot保存が失敗した場合は保存済みqueueから再試行できる。外部反映後の保存失敗では成功済み操作が再実行され得る。
+
+これは複数キーの原子的更新や厳密な一度限りの適用を保証しない。[Workers KVの結果整合性](https://developers.cloudflare.com/kv/concepts/how-kv-works/)による古い値の参照、既存のロックTTLを超える処理の競合は残る。
+
 ### Google Webhook
 
 1. `/gcal/webhook` で通知を受け、`X-Goog-Channel-Token` を検証する。

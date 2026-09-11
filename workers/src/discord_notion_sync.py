@@ -995,9 +995,9 @@ async def _apply_discord_event_diff(
     pending_changes = len(retry_ops) + len(remaining_ops)
 
     if state.enabled():
-        # 次回差分計算の基準を更新する。
-        await state.set_discord_snapshot(current_snapshot)
+        # queue保存に失敗したときは旧snapshotから差分を再検出できるようにする。
         await state.put_json_if_changed(queue_key, retry_ops + remaining_ops)
+        await state.set_discord_snapshot(current_snapshot)
 
     return {
         "ok": not had_error,

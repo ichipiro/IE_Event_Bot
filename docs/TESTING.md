@@ -64,6 +64,14 @@ bash -n tools/configure_github_e2e_environment.sh
 
 ## 手動 E2E workflow
 
+通常KVの隔離基盤は `tests/test_e2e_discord_kv_state.py` で検証する。専用Workerの `POST /admin/e2e/discord-state` がDOへ所有run・scope・対象fingerprintを保存してから、通常StateStoreで固定2キーへfixtureを書く。別HTTPの `/verify` で読み直し、`/cleanup` で所有2キーだけを削除する。外部サービスAPIは呼ばない。
+
+MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同scenarioの `sync_phase="resume"`、`cleanup_run(service="discord_state")` を順に使う。保存・検証はrun IDとWorker version tagの一致を必須とし、回収は古いversionでも同run・対象の一致を確認する。全経路で認証・POST・globalロックを要求する。補助シナリオの無効状態は既存シナリオのpreflightを阻害しないが、dirty記録は共通statusと回収対象へ含める。
+
+`E2E_STATE_SCOPE` は専用KVの論理識別子であり、Cloudflare namespaceの実IDを検証するものではない。bindingの実対象はデプロイ設定で別途確認する。KVの値をDOやアダプターへキャッシュせず、古い値・不正値を検証成功にしない。cleanupは固定キーのdelete完了を確認するもので、全拠点への削除伝播完了を保証しない。削除・manifest更新失敗ではdirtyを保持して再試行する。この段階では実KV、通常ポーリング、外部fixture、手動workflowの専用モードは未検証・未接続である。
+
+追加対象外の5件は [E2E-PLAN.md](E2E-PLAN.md#10-追加対象外) に定義する。
+
 `.github/workflows/e2e-staging.yml` は `workflow_dispatch` 専用であり、PR、push、schedule からは起動しない。forkではこのworkflowを登録するため、既定ブランチを`develop`とする。最初の job でローカル検査と Wrangler dry-runを行い、成功後に `e2e` GitHub Environment の承認を待つ。`GITHUB_TOKEN` は `contents: read` だけに限定する。deploy時はrun IDをWorker version tagへ指定し、専用Workerの`CF_VERSION_METADATA.tag`から同じ値を読み戻すまで書き込みscenarioを開始しない。これによりWrangler終了直後に旧revisionへrequestが届いた場合を成功扱いしない。
 
 実行モード:

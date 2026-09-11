@@ -6,6 +6,14 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: Discord差分E2Eの再送を実サービスで検証
+
+- commit `17bf9489fc01b4cb8a1bc832ef4c34dca7e8bbc9` の[実行34589842665](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34589842665)が成功した。run `E2E-20260911T103519Z-dec00a51` でprepare、advance、advance再送、resume、resume再送の5リクエストを実行した。
+- artifact `e2e-evidence-34589842665-1` を独立取得し、全経路のHTTP 200、更新後再送のupdated、完了後再送のalready_completed、全6回の差分・checkpoint、状態分離・永続化を確認した。再送は明示的に追加した要求であり、実際の応答喪失を起こした試験ではない。
+- repository SHAとWorker version tagの一致、cleanup成功、outcome=passed、全サービスdirty=false、資源IDやsnapshot / queueを含めない証跡を確認した。キャンセル後は一覧から消える分岐を観測した。
+- GitHub上のPython 284件、Node 55件、Ruff・Pyright・E2E設定検査・Wrangler dry-runが成功した。JUnitを独立取得し、284件・失敗0件も確認した。
+- 実Worker再起動、同時実行競合、任意位置からの復旧、共有状態・全件適用・実Cronは未検証として保持する。
+
 ## 2026-09-11: Discord差分E2Eの明示再送検証
 
 - 手動workflowを `prepare → advance → advance（再送）→ resume → resume（再送）` に拡張した。更新後の再送はupdated・dirty=true、完了後の再送はalready_completed・dirty=falseを必須にし、不一致時も同runだけを回収する。

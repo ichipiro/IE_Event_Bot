@@ -20,6 +20,7 @@ from e2e_discord_delta_probe import (
     run_discord_delta_probe,
     resume_discord_delta_probe,
 )
+from e2e_discord_kv_state import run_discord_state_probe
 from e2e_discord_notion_probe import (
     DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
     cleanup_discord_notion_sync_probe,
@@ -98,6 +99,11 @@ _DISCORD_DELTA_CLEANUP_PATH = "/admin/e2e/discord-delta-sync/cleanup"
 _DISCORD_DELTA_PREPARE_PATH = "/admin/e2e/discord-delta-sync/prepare"
 _DISCORD_DELTA_RESUME_PATH = "/admin/e2e/discord-delta-sync/resume"
 _DISCORD_DELTA_ADVANCE_PATH = "/admin/e2e/discord-delta-sync/advance"
+_DISCORD_STATE_PHASES = {
+    "/admin/e2e/discord-state": "prepare",
+    "/admin/e2e/discord-state/verify": "verify",
+    "/admin/e2e/discord-state/cleanup": "cleanup",
+}
 _DISCORD_NOTION_SYNC_PATH = "/admin/e2e/discord-notion-sync"
 _DISCORD_NOTION_CLEANUP_PATH = "/admin/e2e/discord-notion-sync/cleanup"
 _DISCORD_CRUD_PATH = "/admin/e2e/discord-crud"
@@ -411,6 +417,7 @@ class Default(ApplicationDefault):
             _DISCORD_DELTA_PREPARE_PATH, _DISCORD_DELTA_RESUME_PATH,
             _DISCORD_DELTA_ADVANCE_PATH,
         )
+        discord_state_route = path in _DISCORD_STATE_PHASES
         discord_notion_route = path in (
             _DISCORD_NOTION_SYNC_PATH,
             _DISCORD_NOTION_CLEANUP_PATH,
@@ -452,6 +459,7 @@ class Default(ApplicationDefault):
                 discord_google_route,
                 discord_notion_route,
                 discord_delta_route,
+                discord_state_route,
                 discord_route,
                 notion_route,
                 qa_notification_route,
@@ -474,6 +482,8 @@ class Default(ApplicationDefault):
         if discord_google_route and not _e2e_discord_google_sync_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_delta_route and not _e2e_discord_delta_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if discord_state_route and not str(getattr(self.env, "E2E_STATE_SCOPE", "") or "").strip():
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_notion_route and not _e2e_discord_notion_sync_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -511,6 +521,7 @@ class Default(ApplicationDefault):
                     "notion": await state.get_e2e_manifest(NOTION_CRUD_MANIFEST_SERVICE),
                 }
                 scenario_manifests = {
+                    "discord_state": await state.get_e2e_manifest("discord_state"),
                     "discord_google": await state.get_e2e_manifest(
                         DISCORD_GOOGLE_SYNC_MANIFEST_SERVICE
                     ),
@@ -585,6 +596,7 @@ class Default(ApplicationDefault):
                         "notion": _e2e_notion_crud_enabled(self.env),
                     },
                     "scenario_routes_enabled": {
+                        "discord_state": bool(str(getattr(self.env, "E2E_STATE_SCOPE", "") or "").strip()),
                         "discord_google": _e2e_discord_google_sync_enabled(self.env),
                         "google_discord": _e2e_google_discord_sync_enabled(self.env),
                         "google_notion": _e2e_google_notion_sync_enabled(self.env),
@@ -610,6 +622,7 @@ class Default(ApplicationDefault):
                     "scenarios": {
                         scenario: _manifest_summary(scenario_manifests.get(scenario))
                         for scenario in (
+                            "discord_state",
                             "discord_google",
                             "discord_notion",
                             "discord_delta",
@@ -633,6 +646,10 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
+        if discord_state_route and _DISCORD_STATE_PHASES[path] != "cleanup" and (
+            expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
+        ):
+            return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
         if discord_delta_route and path != _DISCORD_DELTA_CLEANUP_PATH and expected_version:
             if expected_version != run_id or _worker_version_summary(self.env).get("tag") != expected_version:
                 return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
@@ -714,6 +731,8 @@ class Default(ApplicationDefault):
             lock_source = "e2e-discord-google-sync"
         elif discord_delta_route:
             lock_source = "e2e-discord-delta-sync"
+        elif discord_state_route:
+            lock_source = "e2e-discord-state"
         elif discord_notion_route:
             lock_source = "e2e-discord-notion-sync"
         elif qa_notification_route:
@@ -741,8 +760,13 @@ class Default(ApplicationDefault):
                 status=409 if lock.get("locked") else 503,
             )
         lock_owner = lock.get("owner")
+        if discord_state_route and not lock_owner:
+            return _json_response({"ok": False, "error": "sync_coordinator_required"}, status=503)
         try:
-            if path == _WEBHOOK_DELIVERY_CLEANUP_PATH:
+            if discord_state_route:
+                result = await run_discord_state_probe(self.env, state, run_id, _DISCORD_STATE_PHASES[path])
+                result["run_id"] = run_id
+            elif path == _WEBHOOK_DELIVERY_CLEANUP_PATH:
                 result = await cleanup_google_webhook_delivery_probe(
                     self.env,
                     state,

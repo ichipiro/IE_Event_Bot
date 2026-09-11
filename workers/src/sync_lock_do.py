@@ -6,9 +6,11 @@ from uuid import uuid4
 from workers import DurableObject, Response
 
 from e2e_discord_delta_state import delta_owner_matches, delta_ready_to_resume, valid_delta_checkpoint
+from e2e_discord_kv_state import valid_transition
 
 
 _E2E_MANIFEST_KINDS = {
+    "discord_state": "discord_kv_state",
     "discord_google": "discord_google_sync",
     "discord_notion": "discord_notion_sync",
     "discord_delta": "discord_delta_sync",
@@ -780,6 +782,10 @@ class SyncCoordinator(DurableObject):
             run_id = str(manifest.get(run_id_key) or "")
             if not _E2E_RUN_ID_PATTERN.fullmatch(run_id):
                 return {"ok": False, "error": "invalid_e2e_manifest_run_id"}, 400
+            if service == "discord_state":
+                previous = _decode_json_record(await self.ctx.storage.get(storage_key))
+                if not valid_transition(previous, manifest):
+                    return {"ok": False, "error": "discord_state_owner_mismatch"}, 409
             if service == "discord_delta":
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 checkpoint = previous.get("delta_checkpoint")

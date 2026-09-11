@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-11: 通常StateStoreのE2E隔離基盤
+
+- run・scope別KVアダプターとDO所有権検証を追加した。通常StateStoreの固定2キーを、保存・別HTTP読戻し・回収の3経路で扱う。外部APIは呼ばず、snapshot / queueをDOへ複製しない。
+- MCPの `discord_state` とcleanup対象を追加した。既存シナリオのpreflightを維持しつつ、新シナリオのdirty記録を共通statusへ含める。
+- 項目10の5件をすべて追加対象外として `E2E-PLAN.md` に記録した。KV保存失敗・古い値・ロックTTL超過の検証は継続する。
+- Python 351件、Node 93件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。秘密ファイルを含めない作業用コピーで通常・E2E設定のWrangler dry-runが成功した。既存ユーザー変更2ファイルは保持した。
+- 実KVの伝播・実サービス・通常ポーリングとの接続・手動workflowの専用モードは未検証・未接続である。
+
 ## 2026-09-11: 通常Discord同期の再試行消失と単独入口の競合を修正
 
 - 修正前のローカル再現9件では、queue保存失敗後の作成・更新・削除と上限超過の残件消失、並行HTTPでの二重適用の5件が失敗した。

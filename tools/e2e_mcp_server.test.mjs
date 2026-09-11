@@ -175,7 +175,7 @@ test("公開ツールを12件に固定して任意URLや資源IDを受け取ら�
     const allowedFields = new Set([
       "run_id",
       "service",
-      "scenario", "sync_phase", "version_sha256", "previous_version_sha256",
+      "scenario", "sync_phase", "version_sha256", "previous_version_sha256", "response_mode",
       "job",
       "confirmation",
     ]);
@@ -1404,5 +1404,109 @@ test("同時resumeのロック拒否を再送せず成功要求と別々に監�
     assert.equal(evidence.manifest.operations.find((op) => !op.ok).error, "e2e_lock_unavailable");
     assert.equal(JSON.stringify(evidence).includes("private_owner"), false);
     assert.deepEqual(audit.slice(0, 2).map((entry) => entry.phase), ["start", "start"]);
+  });
+});
+
+test("更新応答は本文を読まず破棄し監査へ固定flagを残す", async () => {
+  const audit = [];
+  let cancellations = 0;
+  let posts = 0;
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "e".repeat(40), dirty: false }),
+    fetchImpl: async (url, options) => {
+      if (options.method === "GET") {
+        return jsonResponse({ ok: true });
+      }
+      posts += 1;
+      return { status: 200, body: { cancel: async () => { cancellations += 1; } },
+        text: async () => { assert.fail("破棄対象の本文を読んではならない"); } };
+    },
+  }, async (client) => {
+    const result = await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "advance", version_sha256: "c".repeat(64),
+      response_mode: "discard_after_headers",
+    } });
+    const payload = parseToolResult(result);
+    assert.equal(result.isError, true);
+    assert.equal(payload.error, "worker_response_discarded");
+    assert.equal(payload.response_discarded, true);
+    assert.equal(payload.dirty, null);
+    assert.equal(payload.execution_status, null);
+    assert.deepEqual(payload.stages, {});
+    assert.equal(posts, 1);
+    assert.equal(cancellations, 1);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID } }));
+    assert.equal(evidence.manifest.operations[0].response_discarded, true);
+    assert.equal(evidence.manifest.operations[0].ok, false);
+  });
+  for (const response_discarded of [true, "private_text", false]) {
+    await appendAuditEntry({ run_id: RUN_ID, tool: "trigger_sync", target: "discord_delta",
+      phase: "finish", ok: false, status: 200, response_discarded });
+  }
+  const saved = await readAuditEntries(RUN_ID);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.response_discarded), [true, false, false]);
+});
+
+for (const failure of ["missing_body", "cancel_failed", "http_error", "network"]) {
+  test(`応答破棄の${failure}を注入成功と偽らない`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => {
+      if (failure === "network") {
+        throw new Error("network");
+      }
+      if (failure === "http_error") {
+        return jsonResponse({ ok: false, error: "delta_resume_resource_mismatch" }, 409);
+      }
+      return { status: 200,
+        body: failure === "missing_body" ? null : { cancel: async () => { throw new Error("cancel"); } },
+        text: async () => { assert.fail("本文は読まない"); } };
+    } }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_delta", sync_phase: "advance", version_sha256: "c".repeat(64),
+        response_mode: "discard_after_headers",
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.response_discarded, false);
+      assert.notEqual(result.error, "worker_response_discarded");
+      if (failure === "http_error") {
+        assert.equal(result.error, "delta_resume_resource_mismatch");
+      }
+    });
+  });
+}
+
+test("応答破棄はversion指定付きのDiscord差分advanceだけに許可する", async () => {
+  await withClient({ env: ENV, auditImpl: async () => { assert.fail("禁止入力は監査前に拒否する"); },
+    fetchImpl: async () => { assert.fail("禁止入力で接続しない"); },
+  }, async (client) => {
+    for (const args of [{ scenario: "google_notion", sync_phase: "advance", version_sha256: "c".repeat(64) },
+      { scenario: "discord_delta", sync_phase: "prepare", version_sha256: "c".repeat(64) },
+      { scenario: "discord_delta", sync_phase: "resume", version_sha256: "c".repeat(64) },
+      { scenario: "discord_delta", sync_phase: "advance" }]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, ...args, response_mode: "discard_after_headers",
+      } }));
+      assert.equal(result.error, "response_mode_forbidden");
+    }
+  });
+});
+
+test("旧versionの拒否後も応答破棄指定を維持する", async () => {
+  let requests = 0;
+  let cancellations = 0;
+  await withClient({ env: ENV, auditImpl: async () => {}, delayImpl: async () => {},
+    fetchImpl: async () => ++requests === 1
+      ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
+      : { status: 200, body: { cancel: async () => { cancellations += 1; } },
+        text: async () => { assert.fail("本文は読まない"); } },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "advance", version_sha256: "c".repeat(64),
+      response_mode: "discard_after_headers",
+    } }));
+    assert.equal(result.response_discarded, true);
+    assert.equal(requests, 2);
+    assert.equal(cancellations, 1);
   });
 });

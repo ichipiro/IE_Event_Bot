@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-12: 通常ポーリング経由を実サービスで検証
+
+- [実行34615847619](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34615847619)で実装commit `9d54ccf3cd758e75c03c09b3e2a9ca2eb0afce6a` を専用Workerへ1回deployした。通常一覧取得から所有2件だけを選別し、上限1件・別HTTP残件消化・最終読戻しまで成功した。
+- artifactの `batch_first_poll` / `batch_remaining_poll`、上限・残件・最終読戻し・KV回収の各200、Discord削除204・Notion archive 200を各2件、監査7操作を独立照合した。prepare / advance各1回、verify各段階1回で成功した。
+- Worker version・run一致、outcome=passed、全資源dirty=false、JUnit 410件・失敗0を確認した。Actionsのローカル検査と専用E2E jobは成功した。
+- KV読戻し再試行は発生していない。外部資源とKVの回収確認はAPI応答・delete完了の範囲である。Google反映・通知・通常の手動/Cron入口・TTL超過は今回の検証に含まない。
+
+
 ## 2026-09-12: 所有2件のE2Eを通常ポーリングへ接続
 
 - upstream PR #66をマージし、fork同期PR #53をマージした。

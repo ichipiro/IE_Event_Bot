@@ -171,6 +171,28 @@ class StateStore:
         if not isinstance(result, dict) or result.get("ok") is not True:
             raise RuntimeError("e2e_manifest_write_failed")
 
+    async def put_e2e_delta_checkpoint(self, owner: dict, checkpoint: dict) -> None:
+        """所有runのsnapshotとqueueを、直前revision一致時だけ一括保存する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns), "put_e2e_delta_checkpoint",
+            {"owner": owner, "checkpoint": checkpoint},
+        )
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("e2e_delta_checkpoint_write_failed")
+
+    async def claim_e2e_delta_resume(self, owner: dict) -> bool:
+        """準備済みrunの続行をDO上で一度だけ取得する。"""
+        do_ns = self._sync_do()
+        if do_ns is None:
+            raise RuntimeError("e2e_manifest_durable_object_required")
+        result = await self._sync_do_rpc(
+            self._sync_do_stub(do_ns), "claim_e2e_delta_resume", {"owner": owner},
+        )
+        return isinstance(result, dict) and result.get("ok") is True
+
     async def attach_e2e_webhook_watch(
         self,
         *,

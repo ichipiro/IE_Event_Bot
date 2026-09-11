@@ -13,6 +13,8 @@ on:
           - deploy-and-crud-smoke
           - deploy-and-discord-google-smoke
           - deploy-and-discord-notion-smoke
+          - deploy-and-discord-delta-smoke
+          - deploy-and-discord-delta-recovery
           - deploy-and-google-discord-smoke
           - deploy-and-google-notion-smoke
           - deploy-and-qa-notification-smoke
@@ -21,6 +23,11 @@ on:
           - deploy-and-webhook-simulation-smoke
           - deploy-and-webhook-delivery-smoke
           - deploy-and-webhook-change-smoke
+
+      recovery_run_id:
+        description: "recoveryモードで回収する既存run ID。それ以外は空欄"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -108,8 +115,11 @@ jobs:
         run: npm ci
       - name: Create run ID
         id: run_id
+        env:
+          E2E_MODE: ${{ inputs.mode }}
+          E2E_RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
         run: |
-          run_id="$(node tools/run_e2e_workflow.mjs run-id)"
+          run_id="$(node --input-type=module -e 'import {selectWorkflowRunId} from "./tools/run_e2e_workflow.mjs"; console.log(selectWorkflowRunId(process.env.E2E_MODE, process.env.E2E_RECOVERY_RUN_ID || ""));')"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
       - name: Read-only preflight
         if: ${{ inputs.mode == 'preflight' }}
@@ -124,6 +134,8 @@ jobs:
           ${{ inputs.mode == 'deploy-and-crud-smoke' ||
           inputs.mode == 'deploy-and-discord-google-smoke' ||
           inputs.mode == 'deploy-and-discord-notion-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-recovery' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||
@@ -149,6 +161,8 @@ jobs:
           (inputs.mode == 'deploy-and-crud-smoke' ||
           inputs.mode == 'deploy-and-discord-google-smoke' ||
           inputs.mode == 'deploy-and-discord-notion-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-recovery' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||

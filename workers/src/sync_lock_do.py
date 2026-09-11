@@ -5,10 +5,13 @@ from uuid import uuid4
 
 from workers import DurableObject, Response
 
+from e2e_discord_delta_state import delta_owner_matches, valid_delta_checkpoint
+
 
 _E2E_MANIFEST_KINDS = {
     "discord_google": "discord_google_sync",
     "discord_notion": "discord_notion_sync",
+    "discord_delta": "discord_delta_sync",
     "google": "google_calendar_event",
     "google_discord": "google_discord_sync",
     "google_notion": "google_notion_sync",
@@ -658,6 +661,54 @@ class SyncCoordinator(DurableObject):
             )
             return {"ok": True}, 200
 
+        if action == "claim_e2e_delta_resume":
+            storage_key = "e2e:manifest:discord_delta"
+            manifest = _decode_json_record(await self.ctx.storage.get(storage_key))
+            owner = payload.get("owner")
+            checkpoint = manifest.get("delta_checkpoint")
+            if (
+                not isinstance(owner, dict) or not delta_owner_matches(manifest, owner)
+                or manifest.get("stage") != "delta_prepared"
+                or not manifest.get("notion_page_id")
+                or manifest.get("notion_page_id") != owner.get("notion_page_id")
+                or not isinstance(checkpoint, dict)
+                or not valid_delta_checkpoint(checkpoint, owner["discord_event_id"])
+                or checkpoint["revision"] != 1 or checkpoint["queue"] != []
+                or set(checkpoint["snapshot"]) != {owner["discord_event_id"]}
+            ):
+                return {"ok": False, "error": "delta_resume_conflict"}, 409
+            manifest["stage"] = "delta_resuming"
+            encoded = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) > _E2E_MANIFEST_MAX_BYTES:
+                return {"ok": False, "error": "e2e_manifest_too_large"}, 413
+            await self.ctx.storage.put(storage_key, encoded)
+            return {"ok": True}, 200
+
+        if action == "put_e2e_delta_checkpoint":
+            storage_key = "e2e:manifest:discord_delta"
+            owner, checkpoint = payload.get("owner"), payload.get("checkpoint")
+            if not isinstance(owner, dict) or not isinstance(checkpoint, dict) or not valid_delta_checkpoint(
+                checkpoint, str(owner.get("discord_event_id") or ""),
+            ):
+                return {"ok": False, "error": "invalid_delta_checkpoint"}, 400
+            manifest = _decode_json_record(await self.ctx.storage.get(storage_key))
+            if not delta_owner_matches(manifest, owner):
+                return {"ok": False, "error": "delta_checkpoint_owner_mismatch"}, 409
+            previous = manifest.get("delta_checkpoint")
+            if previous is not None and not valid_delta_checkpoint(
+                previous, owner["discord_event_id"],
+            ):
+                return {"ok": False, "error": "invalid_delta_checkpoint_record"}, 409
+            revision = previous["revision"] if previous is not None else 0
+            if checkpoint["revision"] != revision + 1:
+                return {"ok": False, "error": "delta_checkpoint_revision_mismatch"}, 409
+            manifest["delta_checkpoint"] = checkpoint
+            encoded = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) > _E2E_MANIFEST_MAX_BYTES:
+                return {"ok": False, "error": "e2e_manifest_too_large"}, 413
+            await self.ctx.storage.put(storage_key, encoded)
+            return {"ok": True}, 200
+
         if action in ("get_e2e_manifest", "put_e2e_manifest"):
             service = str(payload.get("service") or "").strip().lower()
             expected_kind = _E2E_MANIFEST_KINDS.get(service)
@@ -695,6 +746,39 @@ class SyncCoordinator(DurableObject):
             run_id = str(manifest.get(run_id_key) or "")
             if not _E2E_RUN_ID_PATTERN.fullmatch(run_id):
                 return {"ok": False, "error": "invalid_e2e_manifest_run_id"}, 400
+            if service == "discord_delta":
+                previous = _decode_json_record(await self.ctx.storage.get(storage_key))
+                checkpoint = previous.get("delta_checkpoint")
+                if manifest.get("stage") == "delta_prepared" and previous.get("stage") in (
+                    "delta_resuming", "cleanup_failed",
+                ):
+                    return {"ok": False, "error": "delta_resume_conflict"}, 409
+                if "delta_checkpoint" in manifest and manifest["delta_checkpoint"] != checkpoint:
+                    return {"ok": False, "error": "delta_checkpoint_write_forbidden"}, 409
+                if previous.get("dirty") is True:
+                    targets = manifest.get(
+                        "target_fingerprints" if manifest["dirty"] else "resource_fingerprints", {},
+                    )
+                    if (
+                        previous.get("run_id") != run_id
+                        or not isinstance(targets, dict)
+                        or any(targets.get(key) != value for key, value in
+                               previous.get("target_fingerprints", {}).items())
+                        or (manifest["dirty"] and previous.get("discord_event_id")
+                            and manifest.get("discord_event_id") != previous["discord_event_id"])
+                    ):
+                        return {"ok": False, "error": "delta_checkpoint_owner_mismatch"}, 409
+                elif manifest["dirty"] and previous.get("last_run_id") == run_id:
+                    return {"ok": False, "error": "delta_run_already_clean"}, 409
+                elif not manifest["dirty"] and previous and previous.get("last_run_id") != run_id:
+                    return {"ok": False, "error": "delta_checkpoint_owner_mismatch"}, 409
+                # fixture/cleanupが持つ古いmanifestでcheckpointを消さない。
+                manifest.pop("delta_checkpoint", None)
+                if manifest["dirty"] and checkpoint is not None:
+                    manifest["delta_checkpoint"] = checkpoint
+                encoded = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+                if len(encoded.encode("utf-8")) > _E2E_MANIFEST_MAX_BYTES:
+                    return {"ok": False, "error": "e2e_manifest_too_large"}, 413
             await self.ctx.storage.put(
                 storage_key,
                 json.dumps(

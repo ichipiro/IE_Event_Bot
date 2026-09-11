@@ -632,8 +632,16 @@ class Default(ApplicationDefault):
         if not run_id:
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
+        expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
         if discord_delta_route and path != _DISCORD_DELTA_CLEANUP_PATH and expected_version:
             if expected_version != run_id or _worker_version_summary(self.env).get("tag") != expected_version:
+                return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
+        if discord_delta_route and path != _DISCORD_DELTA_CLEANUP_PATH and expected_version_id:
+            if (
+                expected_version != run_id
+                or not re.fullmatch(r"[0-9a-f]{64}", expected_version_id)
+                or _worker_version_summary(self.env).get("id_sha256") != expected_version_id
+            ):
                 return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
         if orchestrated_write_route:
             return await super().fetch(request)

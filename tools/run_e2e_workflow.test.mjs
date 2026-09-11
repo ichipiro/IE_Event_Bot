@@ -326,11 +326,17 @@ test("recoveryは明示run IDだけを使いfixtureを作成しない", async ()
   ], RUN_ID), ["discord_delta"]);
 });
 
+function deltaVersionResult(args) {
+  return { version_sha256: args.previous_version_sha256 ? "b".repeat(64) : "a".repeat(64),
+    previous_version_sha256: args.previous_version_sha256 ?? null };
+}
+
+
 test("deploy後にDiscord差分同期・更新後と完了後の再送・所有状態を確認する", async () => {
   const calls = [];
   const callTool = async (name, args) => {
     calls.push({ name, args });
-    return toolResult({ ok: true, run_id: RUN_ID, execution_status: args.sync_phase === "advance" ? "updated" : "already_completed", dirty: args.sync_phase === "advance" });
+    return toolResult({ ok: true, run_id: RUN_ID, ...deltaVersionResult(args), execution_status: args.sync_phase === "advance" ? "updated" : "already_completed", dirty: args.sync_phase === "advance" });
   };
 
   const result = await runDeployAndDiscordDeltaSmoke(callTool, RUN_ID, {
@@ -345,6 +351,7 @@ test("deploy後にDiscord差分同期・更新後と完了後の再送・所有�
       ["preflight", null],
       ["trigger_sync", null],
       ["trigger_sync", null],
+      ["deploy_e2e", null],
       ["trigger_sync", null],
       ["trigger_sync", null],
       ["trigger_sync", null],
@@ -362,6 +369,10 @@ test("deploy後にDiscord差分同期・更新後と完了後の再送・所有�
   );
   assert.deepEqual(calls.filter((call) => call.name === "trigger_sync").map((call) => call.args.sync_phase),
     ["prepare", "advance", "advance", "resume", "resume"]);
+  assert.deepEqual(calls.filter((call) => call.name === "trigger_sync").map((call) => call.args.version_sha256),
+    ["a", "a", "b", "b", "b"].map((value) => value.repeat(64)));
+  assert.equal(calls.filter((call) => call.name === "deploy_e2e")[1].args.previous_version_sha256,
+    "a".repeat(64));
   assert.equal(CLEANUP_TARGETS.includes("discord_delta"), true);
 });
 
@@ -372,7 +383,7 @@ for (const replayStep of [3, 5]) {
       let syncCount = 0;
       const callTool = async (name, args) => {
         calls.push({ name, args });
-        const result = { ok: true, run_id: RUN_ID,
+        const result = { ok: true, run_id: RUN_ID, ...deltaVersionResult(args),
           execution_status: args.sync_phase === "advance" ? "updated" : "already_completed",
           dirty: args.sync_phase === "advance" };
         if (name === "trigger_sync" && ++syncCount === replayStep) {
@@ -404,7 +415,7 @@ test(`Discord差分同期の${failurePhase}失敗でも同じrunだけをcleanup
   const calls = [];
   const callTool = async (name, args) => {
     calls.push({ name, args });
-    return toolResult({ ok: name !== "trigger_sync" || args.sync_phase !== failurePhase, run_id: RUN_ID, execution_status: "updated", dirty: true });
+    return toolResult({ ok: name !== "trigger_sync" || args.sync_phase !== failurePhase, run_id: RUN_ID, ...deltaVersionResult(args), execution_status: "updated", dirty: true });
   };
   await assert.rejects(
     runDeployAndDiscordDeltaSmoke(callTool, RUN_ID, { preflight: { attempts: 1 } }),
@@ -412,7 +423,8 @@ test(`Discord差分同期の${failurePhase}失敗でも同じrunだけをcleanup
   );
   assert.deepEqual(calls.map(({ name }) => name), [
     "deploy_e2e", "preflight", "trigger_sync",
-    ...Array(["prepare", "advance", "advance", "resume"].indexOf(failurePhase)).fill("trigger_sync"), "cleanup_run",
+    ...(failurePhase === "prepare" ? [] : failurePhase === "advance" ? ["trigger_sync"]
+      : ["trigger_sync", "deploy_e2e", "trigger_sync", "trigger_sync"]), "cleanup_run",
   ]);
   assert.equal(calls.at(-1).args.service, "discord_delta");
   assert.equal(calls.at(-1).args.confirmation, `cleanup:discord_delta:${RUN_ID}`);
@@ -765,4 +777,41 @@ test("evidence失敗時も固定codeだけを含むmanifestを書き出す", asy
     error: "mcp_result_invalid",
   });
   assert.equal(JSON.stringify(written).includes(sensitiveText), false);
+});
+
+for (const failure of ["same", "missing", "wrong_previous", "tool_error"]) {
+  test(`Discord差分の再deploy ${failure}では続行せず回収する`, async () => {
+    const calls = [];
+    const callTool = async (name, args) => {
+      calls.push({ name, args });
+      const result = { ok: true, ...deltaVersionResult(args) };
+      if (name === "deploy_e2e" && args.previous_version_sha256) {
+        if (failure === "same") {
+          result.version_sha256 = args.previous_version_sha256;
+        } else if (failure === "missing") {
+          delete result.version_sha256;
+        } else if (failure === "wrong_previous") {
+          result.previous_version_sha256 = "c".repeat(64);
+        } else {
+          result.ok = false;
+        }
+      }
+      return toolResult(result);
+    };
+    await assert.rejects(runDeployAndDiscordDeltaSmoke(callTool, RUN_ID, {
+      preflight: { attempts: 1 },
+    }), E2eWorkflowError);
+    assert.deepEqual(calls.map((call) => call.name), ["deploy_e2e", "preflight",
+      "trigger_sync", "trigger_sync", "deploy_e2e", "cleanup_run"]);
+    assert.equal(calls.at(-1).args.confirmation, `cleanup:discord_delta:${RUN_ID}`);
+  });
+}
+
+test("初回deployのversionが不明ならfixtureを作成しない", async () => {
+  const calls = [];
+  await assert.rejects(runDeployAndDiscordDeltaSmoke(async (name) => {
+    calls.push(name);
+    return toolResult({ ok: true });
+  }, RUN_ID), (error) => error.code === "delta_deploy_version_missing");
+  assert.deepEqual(calls, ["deploy_e2e"]);
 });

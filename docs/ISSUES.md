@@ -47,6 +47,11 @@
 
 ## 外部状態を伴う課題
 
+### 通常Discord同期の共有状態と排他
+
+- ローカル修正済み: queue保存失敗時にsnapshotだけ進む問題をqueue先行保存へ変更し、手動・Cronの単独同期を全体同期と同じDOロックで保護した。作成・更新・削除の再試行、上限残件、並行HTTP、例外・キャンセル後の解放を代替KV・DO・外部APIで確認した。
+- 未確認: 実KVの伝播遅延、ロックTTL超過、通常Guild全件の適用と実Cron。外部成功後の状態保存失敗では再実行され得る。複数キーの原子的更新と一度限りの適用は保証しない。
+
 Fork、Upstream、GitHub Actions、Release Please、branch protection の確認結果は `docs/fork-upstream-workflow.md` に記録されている。これらは変化し得るため、作業前に GitHub 上の現在状態を再確認する。
 
 ### サービス間同期・Webhook・定期ジョブの自己cleanup型 E2E

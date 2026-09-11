@@ -48,6 +48,7 @@ const SCENARIO_ROUTES = Object.freeze({
   discord_state: "/admin/e2e/discord-state",
   discord_kv: "/admin/e2e/discord-kv",
   discord_batch: "/admin/e2e/discord-batch",
+  discord_batch_google: "/admin/e2e/discord-batch-google",
   google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
   qa_notification: "/admin/e2e/qa-notification",
@@ -67,6 +68,7 @@ const CLEANUP_ROUTES = Object.freeze({
   discord_state: "/admin/e2e/discord-state/cleanup",
   discord_kv: "/admin/e2e/discord-kv/cleanup",
   discord_batch: "/admin/e2e/discord-batch/cleanup",
+  discord_batch_google: "/admin/e2e/discord-batch-google/cleanup",
   google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
   qa_notification: "/admin/e2e/qa-notification/cleanup",
@@ -119,6 +121,7 @@ const scenarioField = z.enum([
   "discord_state",
   "discord_kv",
   "discord_batch",
+  "discord_batch_google",
   "google_discord",
   "google_notion",
 ]);
@@ -132,6 +135,7 @@ const cleanupTargetField = z.enum([
   "discord_state",
   "discord_kv",
   "discord_batch",
+  "discord_batch_google",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -408,7 +412,7 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
   if (runId) {
     headers["X-E2E-Run-ID"] = runId;
   }
-  if (method === "POST" && [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv, SCENARIO_ROUTES.discord_batch].some((prefix) => route.startsWith(prefix)) &&
+  if (method === "POST" && [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv, SCENARIO_ROUTES.discord_batch, SCENARIO_ROUTES.discord_batch_google].some((prefix) => route.startsWith(prefix)) &&
       !route.endsWith("/cleanup")) {
     headers["X-E2E-Version-Tag"] = runId;
     if (versionSha256) {
@@ -875,11 +879,11 @@ function operationRoute(tool, target, syncPhase = "run") {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
-    if (["discord_state", "discord_kv", "discord_batch"].includes(target) && syncPhase === "resume") {
+    if (["discord_state", "discord_kv", "discord_batch", "discord_batch_google"].includes(target) && syncPhase === "resume") {
       return `${SCENARIO_ROUTES[target]}/verify`;
     }
-    if (target === "discord_batch" && syncPhase === "advance") {
-      return `${SCENARIO_ROUTES.discord_batch}/advance`;
+    if (["discord_batch", "discord_batch_google"].includes(target) && syncPhase === "advance") {
+      return `${SCENARIO_ROUTES[target]}/advance`;
     }
     if (target === "discord_delta" && ["prepare", "advance", "resume"].includes(syncPhase)) {
       return `${SCENARIO_ROUTES.discord_delta}/${syncPhase}`;
@@ -1044,7 +1048,7 @@ export function createE2eMcpServer(options = {}) {
         unowned_writes_blocked: status.orchestrated_writes_enabled === false,
         routes: Object.values(status.routes_enabled).every((enabled) => enabled === true),
         scenario_routes: Object.entries(status.scenario_routes_enabled).every(
-          ([name, enabled]) => ["discord_state", "discord_kv", "discord_batch"].includes(name) || enabled === true,
+          ([name, enabled]) => ["discord_state", "discord_kv", "discord_batch", "discord_batch_google"].includes(name) || enabled === true,
         ),
         required_envs: REQUIRED_ENV_KEYS.every((key) => status.required_envs[key] === true),
         google_auth:
@@ -1212,8 +1216,8 @@ export function createE2eMcpServer(options = {}) {
         return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
       }
       if ((["discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
-          (scenario === "discord_batch" && versionSha256) ||
-          (!["discord_delta", "discord_state", "discord_kv", "discord_batch"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
+          (["discord_batch", "discord_batch_google"].includes(scenario) && versionSha256) ||
+          (!["discord_delta", "discord_state", "discord_kv", "discord_batch", "discord_batch_google"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
         return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
       }
       const result = await runAudited(
@@ -1236,11 +1240,11 @@ export function createE2eMcpServer(options = {}) {
               "POST", runId, fetchImpl, versionSha256, responseMode);
           }
           const sanitized = sanitizeOperation(response, runId);
-          if (sanitized.ok && scenario === "discord_batch" &&
+          if (sanitized.ok && ["discord_batch", "discord_batch_google"].includes(scenario) &&
               (response.payload.dirty !== true || (syncPhase === "resume"
                 ? !["batch_pending_verified", "batch_verified"].includes(response.payload.stage)
                 : response.payload.status !== (syncPhase === "advance" ? "drained" : "prepared")))) {
-            return { ...sanitized, ok: false, error: "discord_batch_not_ready" };
+            return { ...sanitized, ok: false, error: `${scenario}_not_ready` };
           }
           if (sanitized.ok && scenario === "discord_kv" &&
               (response.payload.dirty !== true || (syncPhase === "resume"

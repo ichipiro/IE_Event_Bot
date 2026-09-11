@@ -15,6 +15,7 @@ _E2E_MANIFEST_KINDS = {
     "discord_state": "discord_kv_state",
     "discord_kv": "discord_kv_sync",
     "discord_batch": "discord_batch_sync",
+    "discord_batch_google": "discord_batch_google_sync",
     "discord_google": "discord_google_sync",
     "discord_notion": "discord_notion_sync",
     "discord_delta": "discord_delta_sync",
@@ -786,7 +787,7 @@ class SyncCoordinator(DurableObject):
             run_id = str(manifest.get(run_id_key) or "")
             if not _E2E_RUN_ID_PATTERN.fullmatch(run_id):
                 return {"ok": False, "error": "invalid_e2e_manifest_run_id"}, 400
-            if service == "discord_batch":
+            if service in ("discord_batch", "discord_batch_google"):
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 if not valid_batch_transition(previous, manifest):
                     return {"ok": False, "error": "discord_batch_owner_mismatch"}, 409

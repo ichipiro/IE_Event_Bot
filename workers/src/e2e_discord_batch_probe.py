@@ -5,7 +5,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from discord_notion_sync import (
-    _apply_discord_event_diff,
+    run_discord_notion_poll_sync,
     _fingerprint,
     _sync_discord_event_upsert,
 )
@@ -188,9 +188,41 @@ async def _read_state(env, store, manifest, pending: bool):
     return events
 
 
-async def _apply_batch(env, store, manifest, events, index):
+async def _apply_batch(env, store, manifest, index):
     slot = manifest["fixtures"][index]
     event_id = slot["discord_event_id"]
+
+    async def select_owned(events):
+        await check_batch_owner(store, manifest)
+        owned = {item["discord_event_id"]: item for item in manifest["fixtures"]}
+        selected = {}
+        guild = _env_text(env, "DISCORD_GUILD_ID")
+        for event in events:
+            if not isinstance(event, dict):
+                raise BatchError("discord_batch_poll_invalid")
+            listed_id = str(event.get("id") or "")
+            if listed_id not in owned:
+                continue
+            item = owned[listed_id]
+            if (
+                listed_id in selected
+                or not _discord_event_is_owned(
+                    event,
+                    event_id=listed_id,
+                    guild_id=guild,
+                    run_id=item["run_id"],
+                )
+                or _source_digest(event) != item["source_sha256"]
+            ):
+                raise BatchError("discord_batch_poll_mismatch")
+            selected[listed_id] = event
+        if set(selected) != set(owned):
+            raise BatchError("discord_batch_poll_missing")
+        # Discordの一覧順にかかわらず、初回と残件の順序を固定する。
+        manifest["stages"][
+            "batch_first_poll" if index == 0 else "batch_remaining_poll"
+        ] = 200
+        return [selected[item["discord_event_id"]] for item in manifest["fixtures"]]
 
     async def create_owned(scoped_env, event, token):
         # KVの再読込が古くても、今回許可した1件以外の外部書込みは拒否する。
@@ -224,10 +256,10 @@ async def _apply_batch(env, store, manifest, events, index):
         return False
 
     state = BatchDiscordKV(store, manifest).state()
-    result = await _apply_discord_event_diff(
+    result = await run_discord_notion_poll_sync(
         _DeltaEnv(env),
         state,
-        events,
+        event_selector=select_owned,
         upsert_runner=create_owned,
         delete_runner=reject_delete,
     )
@@ -377,22 +409,19 @@ async def run_discord_batch_probe(env, store, run_id: str, phase: str) -> dict:
             raise BatchError(error)
         if phase == "prepare":
             await _create_sources(env, store, manifest)
-            events = [
-                await _read_source(env, slot, {}, {}) for slot in manifest["fixtures"]
-            ]
             manifest["stage"] = "batch_first_applying"
             await _save(store, manifest)
-            await _apply_batch(env, store, manifest, events, 0)
+            await _apply_batch(env, store, manifest, 0)
             manifest["stage"] = "batch_pending"
             await _save(store, manifest)
             return {"ok": True, "dirty": True, "status": "prepared"}
         if phase == "advance":
             if manifest["stage"] != "batch_pending_verified":
                 raise BatchError("discord_batch_advance_forbidden")
-            events = await _read_state(env, store, manifest, True)
+            await _read_state(env, store, manifest, True)
             manifest["stage"] = "batch_applying"
             await _save(store, manifest)
-            await _apply_batch(env, store, manifest, events, 1)
+            await _apply_batch(env, store, manifest, 1)
             manifest["stage"] = "batch_drained"
             await _save(store, manifest)
             return {"ok": True, "dirty": True, "status": "drained"}

@@ -4,6 +4,8 @@
 
 ## 2026-09-11
 
+- 再デプロイ後のDiscord差分続行の実サービス成功（実行34593390627）と、2つのversion ID・checkpoint・cleanupの独立照合を記録した。
+
 - Discord差分E2Eに更新完了後の再deploy、異なるversion IDへの続行、version fingerprintの監査と検証境界を追加した。
 
 - Discord差分E2Eの明示再送を含む実サービス成功（実行34589842665）と独立したartifact照合を記録した。

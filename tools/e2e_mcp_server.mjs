@@ -46,6 +46,7 @@ const SCENARIO_ROUTES = Object.freeze({
   discord_notion: "/admin/e2e/discord-notion-sync",
   discord_delta: "/admin/e2e/discord-delta-sync",
   discord_state: "/admin/e2e/discord-state",
+  discord_kv: "/admin/e2e/discord-kv",
   google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
   qa_notification: "/admin/e2e/qa-notification",
@@ -63,6 +64,7 @@ const CLEANUP_ROUTES = Object.freeze({
   discord_notion: "/admin/e2e/discord-notion-sync/cleanup",
   discord_delta: "/admin/e2e/discord-delta-sync/cleanup",
   discord_state: "/admin/e2e/discord-state/cleanup",
+  discord_kv: "/admin/e2e/discord-kv/cleanup",
   google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
   qa_notification: "/admin/e2e/qa-notification/cleanup",
@@ -113,6 +115,7 @@ const scenarioField = z.enum([
   "discord_notion",
   "discord_delta",
   "discord_state",
+  "discord_kv",
   "google_discord",
   "google_notion",
 ]);
@@ -124,6 +127,7 @@ const cleanupTargetField = z.enum([
   "discord_notion",
   "discord_delta",
   "discord_state",
+  "discord_kv",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -400,7 +404,7 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
   if (runId) {
     headers["X-E2E-Run-ID"] = runId;
   }
-  if (method === "POST" && [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state].some((prefix) => route.startsWith(prefix)) &&
+  if (method === "POST" && [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv].some((prefix) => route.startsWith(prefix)) &&
       !route.endsWith("/cleanup")) {
     headers["X-E2E-Version-Tag"] = runId;
     if (versionSha256) {
@@ -867,8 +871,8 @@ function operationRoute(tool, target, syncPhase = "run") {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
-    if (target === "discord_state" && syncPhase === "resume") {
-      return `${SCENARIO_ROUTES.discord_state}/verify`;
+    if (["discord_state", "discord_kv"].includes(target) && syncPhase === "resume") {
+      return `${SCENARIO_ROUTES[target]}/verify`;
     }
     if (target === "discord_delta" && ["prepare", "advance", "resume"].includes(syncPhase)) {
       return `${SCENARIO_ROUTES.discord_delta}/${syncPhase}`;
@@ -1033,7 +1037,7 @@ export function createE2eMcpServer(options = {}) {
         unowned_writes_blocked: status.orchestrated_writes_enabled === false,
         routes: Object.values(status.routes_enabled).every((enabled) => enabled === true),
         scenario_routes: Object.entries(status.scenario_routes_enabled).every(
-          ([name, enabled]) => name === "discord_state" || enabled === true,
+          ([name, enabled]) => ["discord_state", "discord_kv"].includes(name) || enabled === true,
         ),
         required_envs: REQUIRED_ENV_KEYS.every((key) => status.required_envs[key] === true),
         google_auth:
@@ -1200,8 +1204,8 @@ export function createE2eMcpServer(options = {}) {
       if (responseMode !== "read" && (scenario !== "discord_delta" || syncPhase !== "advance" || !versionSha256)) {
         return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
       }
-      if ((scenario === "discord_state" && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
-          (!["discord_delta", "discord_state"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
+      if ((["discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
+          (!["discord_delta", "discord_state", "discord_kv"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
         return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
       }
       const result = await runAudited(
@@ -1224,6 +1228,11 @@ export function createE2eMcpServer(options = {}) {
               "POST", runId, fetchImpl, versionSha256, responseMode);
           }
           const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && scenario === "discord_kv" &&
+              (response.payload.dirty !== true || (syncPhase === "resume"
+                ? response.payload.stage !== "kv_verified" : response.payload.status !== "prepared"))) {
+            return { ...sanitized, ok: false, error: "discord_kv_not_ready" };
+          }
           if (sanitized.ok && scenario === "discord_state" &&
               (response.payload.dirty !== true || response.payload.stage !==
                 (syncPhase === "resume" ? "state_verified" : "state_prepared"))) {

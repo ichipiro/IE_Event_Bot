@@ -22,7 +22,7 @@ from e2e_discord_notion_probe import (
     cleanup_discord_notion_sync_probe,
     run_discord_notion_sync_probe,
 )
-from e2e_discord_delta_state import delta_owner_matches, valid_delta_checkpoint
+from e2e_discord_delta_state import delta_owner_matches, delta_ready_to_resume, valid_delta_checkpoint
 from e2e_discord_probe import _request_stage as _discord_request_stage
 from e2e_notion_probe import (
     _canonical_id,
@@ -357,21 +357,21 @@ async def _cancel_and_remove(
     )
 
 
-async def _verify_delta_changes(
+async def _verify_delta_update(
     env, scoped_state: _DeltaState, event: dict, page_id: str, run_id: str,
-    stages: dict, retries: dict, *, expected_writes: int,
-) -> bool:
+    stages: dict, retries: dict,
+) -> dict | None:
     scoped_env = _DeltaEnv(env)
     if not await _poll_owned_event(
         scoped_env, scoped_state, event, run_id, stages, "delta_unchanged",
         created=0, updated=0, page_id=page_id,
     ):
-        return False
+        return None
     # 更新前にも同一pageの所有権を読み戻し、未知の宛先を作成しない。
     if not await _verify_owned_page(
         env, event, page_id, run_id, stages, retries, "delta_before_update",
     ):
-        return False
+        return None
     event_path = (
         f"/guilds/{quote(_env_text(env, 'DISCORD_GUILD_ID'), safe='')}/"
         f"scheduled-events/{quote(str(event['id']), safe='')}"
@@ -382,23 +382,38 @@ async def _verify_delta_changes(
         {"description": description},
     )
     if not 200 <= status < 300:
-        return False
+        return None
     status, updated_event = await _discord_request_stage(
         env, stages, retries, "delta_source_read", "GET", event_path,
     )
     if not (200 <= status < 300 and isinstance(updated_event, dict)):
-        return False
+        return None
     if updated_event.get("description") != description:
-        return False
+        return None
     if not await _poll_owned_event(
         scoped_env, scoped_state, updated_event, run_id, stages, "delta_update",
         created=0, updated=1, page_id=page_id,
     ):
-        return False
+        return None
     if not await _verify_owned_page(
         env, updated_event, page_id, run_id, stages, retries, "delta_after_update",
     ):
-        return False
+        return None
+    return updated_event
+
+
+async def _verify_delta_changes(
+    env, scoped_state: _DeltaState, event: dict, page_id: str, run_id: str,
+    stages: dict, retries: dict, *, expected_writes: int, start_stage: str = "delta_prepared",
+) -> bool:
+    updated_event = event
+    if start_stage == "delta_prepared":
+        updated_event = await _verify_delta_update(
+            env, scoped_state, event, page_id, run_id, stages, retries,
+        )
+        if updated_event is None:
+            return False
+    scoped_env = _DeltaEnv(env)
     if not await _cancel_and_remove(
         env, scoped_env, scoped_state, updated_event, page_id, run_id, stages, retries,
     ):
@@ -449,8 +464,10 @@ async def run_discord_delta_probe(
     )
 
 
-async def resume_discord_delta_probe(env, state, run_id: str) -> dict:
-    """準備完了境界から一度だけ続行し、同じrunの所有資源を回収する。"""
+async def resume_discord_delta_probe(
+    env, state, run_id: str, *, pause_after_update: bool = False,
+) -> dict:
+    """準備・更新完了境界から続行し、更新後の保存または資源回収を行う。"""
     failure = {"ok": False, "dirty": True, "cleanup_required": True}
     configuration_error = _configuration_error(env)
     if configuration_error:
@@ -481,14 +498,12 @@ async def resume_discord_delta_probe(env, state, run_id: str) -> dict:
     if not delta_owner_matches(manifest, owner):
         return {**failure, "error": "delta_resume_owner_mismatch"}
     checkpoint = manifest.get("delta_checkpoint")
-    if (
-        manifest.get("stage") != "delta_prepared" or not page_id
-        or not isinstance(checkpoint, dict) or not valid_delta_checkpoint(checkpoint, event_id)
-        or checkpoint["revision"] != 1 or checkpoint["queue"] != []
-        or set(checkpoint["snapshot"]) != {event_id}
-    ):
+    if not isinstance(checkpoint, dict) or not delta_ready_to_resume(manifest):
         return {**failure, "error": "delta_resume_not_prepared"}
 
+    start_stage = manifest["stage"]
+    owner["stage"] = start_stage
+    owner["revision"] = checkpoint["revision"]
     stages = dict(manifest.get("stages") or {})
     retries = dict(manifest.get("rate_limit_retries") or {})
     event_path = (
@@ -506,18 +521,40 @@ async def resume_discord_delta_probe(env, state, run_id: str) -> dict:
         and await _verify_owned_page(env, event, page_id, run_id, stages, retries, "delta_resume_page")
     ):
         return {**failure, "error": "delta_resume_resource_mismatch", "stages": stages}
+    if pause_after_update and start_stage == "delta_updated":
+        return {"ok": True, "dirty": True, "run_id": run_id, "status": "updated", "stages": stages}
     if not await state.claim_e2e_delta_resume(owner):
         return {**failure, "error": "delta_resume_conflict"}
     manifest["stage"] = "delta_resuming"
+    manifest.pop("delta_checkpoint", None)
+    manifest.pop("delta_claim_revision", None)
     scoped_state = _DeltaState(event_id, store=state, owner=owner)
     try:
-        verified = await _verify_delta_changes(
-            env, scoped_state, event, page_id, run_id, stages, retries, expected_writes=5,
-        )
+        if pause_after_update:
+            updated_event = await _verify_delta_update(
+                env, scoped_state, event, page_id, run_id, stages, retries,
+            )
+            verified = updated_event is not None and scoped_state.revision == 3
+            isolated = scoped_state.snapshot_writes == 2 and scoped_state.queue_writes == 2
+            stages["delta_update_state_isolated"] = 200 if isolated else 500
+            if verified and isolated:
+                stages["delta_http_advance"] = 200
+                await state.pause_e2e_delta_resume(owner, stages, retries)
+                return {
+                    "ok": True, "dirty": True, "run_id": run_id,
+                    "status": "updated", "stages": stages,
+                }
+            verified = False
+        else:
+            verified = await _verify_delta_changes(
+                env, scoped_state, event, page_id, run_id, stages, retries,
+                expected_writes=5 if start_stage == "delta_prepared" else 3,
+                start_stage=start_stage,
+            )
     except Exception:
         verified = False
     stages["scenario_verification"] = 200 if verified else 500
-    stages["delta_http_resume"] = 200 if verified else 500
+    stages["delta_http_advance" if pause_after_update else "delta_http_resume"] = 200 if verified else 500
     return await _finish_sync_probe(
         env, state, manifest, stages, retries,
         "" if verified else "discord_scenario_verification_failed",

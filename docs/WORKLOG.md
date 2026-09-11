@@ -6,6 +6,14 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: Discord差分E2Eの更新完了境界からの続行
+
+- `advance` を追加し、無変更・説明更新・Notion読戻し後に `delta_updated` とrevision 3を保存する。手動workflowは `prepare → advance → resume` で実行し、従来の2リクエスト経路と一括実行も維持する。
+- 続行時は段階・revision・所有資源を再確認する。取得したrevisionをDOへ記録し、遅延した前段階の保存要求が次段階のclaimを解除することを防ぐ。保存完了後の再送は更新を繰り返さず、保存前中断はdirtyのままcleanupする。
+- ローカル代替APIでPython 284件、Node 48件が成功した。新規経路の認証、version不一致の拒否、オブジェクト再作成、更新後の再送、古いclaim・資源変更の拒否、失敗後のcleanupを含む。
+- Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、Wrangler 4.127.1のE2E dry-runを確認した。dry-runには追跡対象のソースと設定だけを隔離コピーし、認証情報を渡していない。
+- 今回は実サービスへの3リクエスト実行と実Worker再起動を検証していない。従来の2リクエスト実行の成功証拠は以下に保持する。共有状態、全件適用、実Cronは引き続き未確認。
+
 ## 2026-09-11: Discord差分E2Eの実サービス検証完了
 
 - commit `7c1005958c003592f040332da6f905ee4509c0c4` を対象に[専用workflow実行34581609741](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)が成功した。`e2e` Environment承認後、専用Workerへdeployして実行した。

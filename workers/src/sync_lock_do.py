@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from workers import DurableObject, Response
 
-from e2e_discord_delta_state import delta_owner_matches, valid_delta_checkpoint
+from e2e_discord_delta_state import delta_owner_matches, delta_ready_to_resume, valid_delta_checkpoint
 
 
 _E2E_MANIFEST_KINDS = {
@@ -668,16 +668,45 @@ class SyncCoordinator(DurableObject):
             checkpoint = manifest.get("delta_checkpoint")
             if (
                 not isinstance(owner, dict) or not delta_owner_matches(manifest, owner)
-                or manifest.get("stage") != "delta_prepared"
-                or not manifest.get("notion_page_id")
-                or manifest.get("notion_page_id") != owner.get("notion_page_id")
                 or not isinstance(checkpoint, dict)
-                or not valid_delta_checkpoint(checkpoint, owner["discord_event_id"])
-                or checkpoint["revision"] != 1 or checkpoint["queue"] != []
-                or set(checkpoint["snapshot"]) != {owner["discord_event_id"]}
+                or not delta_ready_to_resume(manifest)
+                or manifest.get("stage") != owner.get("stage", "delta_prepared")
+                or manifest.get("notion_page_id") != owner.get("notion_page_id")
+                or type(owner.get("revision", 1)) is not int
+                or checkpoint["revision"] != owner.get("revision", 1)
             ):
                 return {"ok": False, "error": "delta_resume_conflict"}, 409
             manifest["stage"] = "delta_resuming"
+            manifest["delta_claim_revision"] = checkpoint["revision"]
+            encoded = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
+            if len(encoded.encode("utf-8")) > _E2E_MANIFEST_MAX_BYTES:
+                return {"ok": False, "error": "e2e_manifest_too_large"}, 413
+            await self.ctx.storage.put(storage_key, encoded)
+            return {"ok": True}, 200
+
+        if action == "pause_e2e_delta_resume":
+            storage_key = "e2e:manifest:discord_delta"
+            manifest = _decode_json_record(await self.ctx.storage.get(storage_key))
+            owner = payload.get("owner")
+            stages, retries = payload.get("stages"), payload.get("retries")
+            if (
+                not isinstance(owner, dict) or not delta_owner_matches(manifest, owner)
+                or manifest.get("stage") != "delta_resuming"
+                or owner.get("stage") != "delta_prepared"
+                or type(owner.get("revision")) is not int or owner["revision"] != 1
+                or manifest.get("delta_claim_revision") != owner["revision"]
+                or manifest.get("notion_page_id") != owner.get("notion_page_id")
+                or not delta_ready_to_resume({**manifest, "stage": "delta_updated"})
+                or not isinstance(stages, dict) or not isinstance(retries, dict)
+                or any(stages.get(key) != 200 for key in (
+                    "delta_unchanged_diff", "delta_update_diff", "delta_after_update_read",
+                    "delta_update_checkpoint_write", "delta_update_state_isolated", "delta_http_advance",
+                ))
+                or any(not isinstance(key, str) or type(value) is not int
+                       for values in (stages, retries) for key, value in values.items())
+            ):
+                return {"ok": False, "error": "delta_pause_conflict"}, 409
+            manifest.update(stage="delta_updated", stages=stages, rate_limit_retries=retries)
             encoded = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
             if len(encoded.encode("utf-8")) > _E2E_MANIFEST_MAX_BYTES:
                 return {"ok": False, "error": "e2e_manifest_too_large"}, 413
@@ -694,6 +723,11 @@ class SyncCoordinator(DurableObject):
             manifest = _decode_json_record(await self.ctx.storage.get(storage_key))
             if not delta_owner_matches(manifest, owner):
                 return {"ok": False, "error": "delta_checkpoint_owner_mismatch"}, 409
+            if "revision" in owner and (
+                manifest.get("stage") != "delta_resuming"
+                or manifest.get("delta_claim_revision") != owner["revision"]
+            ):
+                return {"ok": False, "error": "delta_checkpoint_claim_mismatch"}, 409
             previous = manifest.get("delta_checkpoint")
             if previous is not None and not valid_delta_checkpoint(
                 previous, owner["discord_event_id"],
@@ -749,12 +783,15 @@ class SyncCoordinator(DurableObject):
             if service == "discord_delta":
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 checkpoint = previous.get("delta_checkpoint")
-                if manifest.get("stage") == "delta_prepared" and previous.get("stage") in (
-                    "delta_resuming", "cleanup_failed",
-                ):
+                claim_revision = previous.get("delta_claim_revision")
+                if (manifest.get("stage") == "delta_prepared" and previous.get("stage") in (
+                    "delta_updated", "delta_resuming", "cleanup_failed",
+                )) or (manifest.get("stage") == "delta_updated" and previous.get("stage") != "delta_updated"):
                     return {"ok": False, "error": "delta_resume_conflict"}, 409
                 if "delta_checkpoint" in manifest and manifest["delta_checkpoint"] != checkpoint:
                     return {"ok": False, "error": "delta_checkpoint_write_forbidden"}, 409
+                if "delta_claim_revision" in manifest and manifest["delta_claim_revision"] != claim_revision:
+                    return {"ok": False, "error": "delta_claim_write_forbidden"}, 409
                 if previous.get("dirty") is True:
                     targets = manifest.get(
                         "target_fingerprints" if manifest["dirty"] else "resource_fingerprints", {},
@@ -774,8 +811,11 @@ class SyncCoordinator(DurableObject):
                     return {"ok": False, "error": "delta_checkpoint_owner_mismatch"}, 409
                 # fixture/cleanupが持つ古いmanifestでcheckpointを消さない。
                 manifest.pop("delta_checkpoint", None)
+                manifest.pop("delta_claim_revision", None)
                 if manifest["dirty"] and checkpoint is not None:
                     manifest["delta_checkpoint"] = checkpoint
+                if manifest["dirty"] and claim_revision is not None:
+                    manifest["delta_claim_revision"] = claim_revision
                 encoded = json.dumps(manifest, ensure_ascii=False, separators=(",", ":"))
                 if len(encoded.encode("utf-8")) > _E2E_MANIFEST_MAX_BYTES:
                     return {"ok": False, "error": "e2e_manifest_too_large"}, 413

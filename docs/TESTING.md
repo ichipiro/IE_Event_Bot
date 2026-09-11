@@ -99,7 +99,11 @@ queueの更新・削除失敗後の再試行は、同じメモリstorageを引�
 
 Discord一覧取得のHTTP 429は、有限・非負・10秒以内の `retry_after` に従い最大4回まで試行する。MCPはDiscord差分の書込み時に期待version tagを送り、Workerは副作用前に不一致を拒否する。この拒否だけは最大20回・3秒間隔で再送する。
 
-手動workflowは `trigger_sync` の `sync_phase=prepare` と `resume` を別HTTPリクエストで実行する。`/admin/e2e/discord-delta-sync/prepare` は作成・読戻し完了後に `status=prepared`、`dirty=true` を返す。`/resume` は同じrun・対象・保存内容・所有pageを再確認し、DOで `delta_prepared` から `delta_resuming` への移行を一度だけ取得して残りを実行する。成功済みの同runへの再送は外部操作なしで `already_completed` を返す。準備完了前または続行中に中断したrunは任意位置から再実行せず、dirtyとしてcleanupする。
+手動workflowは `trigger_sync` の `sync_phase=prepare`、`advance`、`resume` を別HTTPリクエストで実行する。`/admin/e2e/discord-delta-sync/prepare` は作成・読戻し完了後に `status=prepared`、`dirty=true` を返す。`/advance` は無変更・説明更新・Notion読戻しを確認してrevision 3と `delta_updated` を保存し、`status=updated`、`dirty=true` を返す。`/resume` は残りのキャンセル・削除・cleanupを実行する。従来の `prepare → resume` と一括実行も維持する。
+
+各続行は同じrun・対象・保存内容・所有pageを再確認し、DOで保存段階とrevisionが一致する場合だけ `delta_resuming` を取得する。更新完了の保存は取得したclaimとrevision 3を確認し、検証結果と段階を一括で保存する。遅延した前段階の保存要求では次段階のclaimを解除できない。更新完了後の `advance` 再送は所有資源の読戻しだけを行い、説明更新を繰り返さない。成功済みの同runへの `advance` / `resume` HTTP再送は外部操作なしで `already_completed` を返す。準備・更新完了として保存できた境界だけが続行対象であり、外部書込み中や段階保存前の中断はdirtyとしてcleanupする。
+
+更新完了境界の追加はローカル代替APIで検証した。Worker・StateStore・DOのPythonオブジェクト再作成、応答喪失後の再送、古いclaim・revisionの拒否、読戻し・保存失敗後のcleanupを確認した。3リクエスト構成での実サービス検証は未実施で、以下の成功証跡は従来の2リクエスト構成を対象とする。
 
 実Worker再起動を伴う復元、共有snapshot / queueの永続化、Guild全件への適用、Google反映、実Cronは未確認である。2026-09-11の[実行34581609741](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)で別HTTPのprepare / resume、全6回の差分・checkpoint処理、自己cleanup、dirty=false、version tag一致を実環境で確認した。実際に観測したのはキャンセル後に一覧から消える分岐であり、一覧に残る分岐はローカル検証のみである。Discord statusの定義と変更操作は[公式API仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)を参照する。
 
@@ -118,7 +122,7 @@ Google Webhook実配信モードは、専用Calendarにrun所有channel ID、固
 
 Google変更起因Webhookモードは、専用Calendarにrun marker付きeventを作成後、600秒のwatchを登録し、初回`sync`を確認してからeventを更新する。Googleが実際に送る`exists` callbackは共通Webhook ingressと同期dispatchを通るが、Durable Objectで最初の1通知だけをclaimし、Google差分結果からevent IDとrun markerが一致する1件だけを`apply_google_events`へ渡す。Notion pageの内容と所有権を確認後、watchをevent削除より先に停止し、run所有dedupe、page、eventを回収する。同期cursor、最終時刻、最終結果、Google認証cacheとNotion対応表はrequest内へ閉じ込め、共有KVと`gcal_watch_state`は更新しない。このモードは通常watchのrenew、共有cursor、全Calendarの全件適用、Discord反映、実Cronを保証しない。
 
-MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync`、`/admin/e2e/discord-delta-sync` のいずれかを呼ぶ。Discord差分だけは `sync_phase` に `prepare` / `resume` を指定すると同path配下の固定経路を使い、省略時は従来の一括実行を維持する。差分モード以外が確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
+MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync`、`/admin/e2e/discord-delta-sync` のいずれかを呼ぶ。Discord差分だけは `sync_phase` に `prepare` / `advance` / `resume` を指定すると同path配下の固定経路を使い、省略時は従来の一括実行を維持する。差分モード以外が確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
 
 `trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook` は内部simulation用route、`trigger_webhook_delivery`は初回実配信用route、`trigger_webhook_change`は実`exists`通知と所有event限定dispatch用routeをそれぞれ呼ぶ。Googleからのcallbackだけが`/gcal/webhook`へ到達し、初回配信モードは`sync`の所有確認だけ、変更起因モードは最初の`exists`だけを共通dispatchへ渡す。run-all、共有状態と全件適用を伴う通常の同期・Webhook同期・ジョブ route は、下流資源と共有状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と11個の所有資源限定 scenario route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
 

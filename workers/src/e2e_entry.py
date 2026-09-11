@@ -97,6 +97,7 @@ _DISCORD_DELTA_PATH = "/admin/e2e/discord-delta-sync"
 _DISCORD_DELTA_CLEANUP_PATH = "/admin/e2e/discord-delta-sync/cleanup"
 _DISCORD_DELTA_PREPARE_PATH = "/admin/e2e/discord-delta-sync/prepare"
 _DISCORD_DELTA_RESUME_PATH = "/admin/e2e/discord-delta-sync/resume"
+_DISCORD_DELTA_ADVANCE_PATH = "/admin/e2e/discord-delta-sync/advance"
 _DISCORD_NOTION_SYNC_PATH = "/admin/e2e/discord-notion-sync"
 _DISCORD_NOTION_CLEANUP_PATH = "/admin/e2e/discord-notion-sync/cleanup"
 _DISCORD_CRUD_PATH = "/admin/e2e/discord-crud"
@@ -408,6 +409,7 @@ class Default(ApplicationDefault):
         discord_delta_route = path in (
             _DISCORD_DELTA_PATH, _DISCORD_DELTA_CLEANUP_PATH,
             _DISCORD_DELTA_PREPARE_PATH, _DISCORD_DELTA_RESUME_PATH,
+            _DISCORD_DELTA_ADVANCE_PATH,
         )
         discord_notion_route = path in (
             _DISCORD_NOTION_SYNC_PATH,
@@ -802,6 +804,10 @@ class Default(ApplicationDefault):
                 result = await run_discord_delta_probe(self.env, state, run_id=run_id, prepare_only=True)
             elif path == _DISCORD_DELTA_RESUME_PATH:
                 result = await resume_discord_delta_probe(self.env, state, run_id=run_id)
+            elif path == _DISCORD_DELTA_ADVANCE_PATH:
+                result = await resume_discord_delta_probe(
+                    self.env, state, run_id=run_id, pause_after_update=True,
+                )
             elif path == _DISCORD_NOTION_CLEANUP_PATH:
                 result = await cleanup_discord_notion_sync_probe(
                     self.env,

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/ichipiro/IE_Event_Bot/compare/v0.5.0...v0.5.1) (2026-09-11)
+
+
+### Documentation
+
+* **e2e:** record verified Discord replay run ([f83020b](https://github.com/ichipiro/IE_Event_Bot/commit/f83020bf0f33b6c56146629498b9c7220b3d6ec2))
+
 ## [0.5.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.4.0...v0.5.0) (2026-09-11)
 
 

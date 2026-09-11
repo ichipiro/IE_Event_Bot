@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-11: 通常KV・DOの保存と別HTTP読戻しを実環境で検証
+
+- commit `1e073cdc9e818fb7089417be96da3c0ba9a12599` の[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)が成功した。run `E2E-20260911T132729Z-11bd50f1`、artifact `e2e-evidence-34604249166-1` を独立取得した。
+- 専用Workerのdeploy 1回、通常StateStoreによる固定2キーの保存1回、別HTTP読戻し1回とHTTP 200を照合した。通常cleanupとworkflow末尾の再cleanupが成功し、`discord_state.outcome=passed`、全service / scenarioのdirty=falseを確認した。監査とmanifestの操作順・成功応答・deploy時と最終Workerのversion fingerprint・run tagが一致した。
+- ActionsのPython 352件、Node 108件、Ruff、Pyright、設定検査、Wrangler E2E dry-runが成功した。JUnitも独立取得し352件・失敗0を照合した。
+- 古いKV値による待機は発生しておらず、伝播遅延・全拠点の削除反映・ロックTTL超過はこの実行では検証していない。外部fixture・通常ポーリングは未接続であり、次に所有権の接続へ進む。
+
 ## 2026-09-11: 通常KV検証の手動workflow
 
 - PR #64をupstream developへマージし、fork PR #51で同期した。

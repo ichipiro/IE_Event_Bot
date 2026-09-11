@@ -88,6 +88,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-discord-state-smoke") == 3, "discord_state_mode_contract_changed")
     _expect(errors, text.count("deploy-and-discord-kv-smoke") == 3, "discord_kv_mode_contract_changed")
     _expect(errors, text.count("deploy-and-discord-batch-smoke") == 3, "discord_batch_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-discord-batch-google-smoke") == 3, "discord_batch_google_mode_contract_changed")
     _expect(
         errors,
         text.count("deploy-and-discord-google-smoke") == 3,
@@ -174,6 +175,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "inputs.mode == 'deploy-and-discord-state-smoke'" in cleanup_block, "cleanup_discord_state_mode_guard_missing")
     _expect(errors, "inputs.mode == 'deploy-and-discord-kv-smoke'" in cleanup_block, "cleanup_discord_kv_mode_guard_missing")
     _expect(errors, "inputs.mode == 'deploy-and-discord-batch-smoke'" in cleanup_block, "cleanup_discord_batch_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-batch-google-smoke'" in cleanup_block, "cleanup_discord_batch_google_mode_guard_missing")
     evidence_block = _step_block(text, "Collect redacted evidence")
     _expect(errors, bool(deploy_block), "deploy_step_missing")
     _expect(errors, bool(cleanup_block), "cleanup_step_missing")

@@ -161,6 +161,7 @@ def _notion_page_matches(
     database_id: str,
     discord_event: dict,
     run_id: str,
+    google_event_id: str | None = None,
 ) -> bool:
     metadata = discord_event.get("entity_metadata")
     if not isinstance(metadata, dict):
@@ -182,7 +183,7 @@ def _notion_page_matches(
         == _canonical_id(page_id)
         and _property_text(page, "作成者ID", "rich_text")
         == str(discord_event.get("creator_id") or "不明")
-        and not _property_text(page, "GoogleイベントID", "rich_text")
+        and _property_text(page, "GoogleイベントID", "rich_text") == (google_event_id or "")
     )
 
 

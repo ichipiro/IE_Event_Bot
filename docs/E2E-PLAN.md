@@ -19,7 +19,8 @@
 
 - [x] 通常ポーリングの一覧取得から所有2件のNotion反映・KV残件処理へ接続し、ローカル検証する。
 - [x] 上記の通常ポーリング経由を実サービスで検証する（[実行34615847619](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34615847619)）。
-- [ ] 通常ポーリングからGoogle反映まで接続する。
+- [x] 所有2件の通常ポーリングからGoogle・Notion反映へ接続し、固定ID・対応ID・部分失敗回収をローカル検証する。
+- [ ] 上記のGoogle反映を専用環境で実サービス検証する。
 - [x] 固定2件のsnapshot / queue、件数上限、残件を実サービスで検証する（[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)）。
 - [ ] 通常ポーリングでの複数イベント、再試行、作成通知を検証する。
 - [ ] 手動・単独Cron・全体同期の競合を検証する。

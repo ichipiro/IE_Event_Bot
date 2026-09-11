@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-12: 通常ポーリングのGoogle反映を追加
+
+- upstream PR #67とfork同期PR #54をマージした。
+- `discord_batch_google` を追加し、所有2件の通常ポーリング・上限1件・別HTTP残件処理をGoogleとNotionへ接続した。Google固定ID・Calendar・作成着手・回収完了をDOに記録し、対応IDを別HTTPで検証する。
+- Google/Notion作成応答の喪失、ID衝突、KV保存失敗、Google削除失敗、所有権不一致、認証失敗後の成功取消しを代替APIで確認した。Google認証の通常KVキャッシュは使わない。
+- Python 430件、Node 133件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、秘密ファイルを含めないコピーでの通常・E2E設定のWrangler dry-runが成功した。実サービスは未検証である。作成通知・実Cron・TTL超過は後続作業とする。
+
+
 ## 2026-09-12: 通常ポーリング経由を実サービスで検証
 
 - [実行34615847619](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34615847619)で実装commit `9d54ccf3cd758e75c03c09b3e2a9ca2eb0afce6a` を専用Workerへ1回deployした。通常一覧取得から所有2件だけを選別し、上限1件・別HTTP残件消化・最終読戻しまで成功した。

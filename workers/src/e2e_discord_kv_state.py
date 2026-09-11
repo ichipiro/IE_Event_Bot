@@ -151,6 +151,9 @@ async def run_discord_state_probe(env, store: StateStore, run_id: str, phase: st
         return {"ok": False, "dirty": True, "error": "discord_state_owner_mismatch"}
     adapter = OwnedDiscordKV(store, manifest)
     if phase == "verify":
+        # 再検証が失敗しても、前回の成功をcleanupの成功結果に流用しない。
+        manifest["stage"] = "state_verifying"
+        await store.put_e2e_manifest(SERVICE, manifest)
         state = adapter.state()
         snapshot, queue = _fixture(manifest)
         if await state.get_discord_snapshot() != snapshot or await state.get_json(KEYS[1]) != queue:

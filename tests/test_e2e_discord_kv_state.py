@@ -162,7 +162,18 @@ def test_stale_kv_read_is_not_reported_as_verified():
     owned = adapter(env)
     env.STATE_KV.data[owned.prefix + KEYS[0]] = "{}"
     assert run(request(env, "/verify")) == (409, {"ok": False, "dirty": True, "error": "discord_state_not_ready", "run_id": RUN})
-    assert saved_manifest(env)["stage"] == "state_prepared"
+    assert saved_manifest(env)["stage"] == "state_verifying"
+
+
+def test_failed_reverification_does_not_reuse_previous_success():
+    env = environment()
+    run(request(env))
+    assert run(request(env, "/verify"))[0] == 200
+    owned = adapter(env)
+    env.STATE_KV.data[owned.prefix + KEYS[0]] = "invalid json"
+    assert run(request(env, "/verify"))[0] == 409
+    assert run(request(env, "/cleanup"))[0] == 200
+    assert saved_manifest(env)["outcome"] == "failed_clean"
 
 
 @pytest.mark.parametrize("field", ["run_id", "scope_id", "event_ids", "target_fingerprints"])

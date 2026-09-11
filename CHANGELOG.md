@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.4.0...v0.5.0) (2026-09-11)
+
+
+### Features
+
+* **e2e:** resume Discord delta after verified update ([22f26ba](https://github.com/ichipiro/IE_Event_Bot/commit/22f26bacbda7a32ba2d9fc75346dbc3d649963b3))
+* **e2e:** resume Discord delta after verified update ([2d8b73c](https://github.com/ichipiro/IE_Event_Bot/commit/2d8b73cc35ac41243a867108d01bc77c5a48821c))
+
+
+### Documentation
+
+* **e2e:** record verified Discord update checkpoint run ([fec9cd3](https://github.com/ichipiro/IE_Event_Bot/commit/fec9cd30fa315546b2ee48ca2973938e6090c047))
+
 ## [0.4.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.3.1...v0.4.0) (2026-09-11)
 
 

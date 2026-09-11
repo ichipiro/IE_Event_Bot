@@ -16,6 +16,8 @@ import {
   runDeployAndDiscordGoogleSmoke,
   runDeployAndDiscordNotionSmoke,
   runDeployAndDiscordDeltaSmoke,
+  runDeployAndDiscordStateSmoke,
+  runDeployAndDiscordKvSmoke,
   runDiscordDeltaRecovery,
   selectWorkflowRunId,
   runDeployAndGoogleDiscordSmoke,
@@ -32,6 +34,140 @@ import {
 
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
+
+
+function stateWorkflowFixture(overrides = {}, scenario = "discord_state") {
+  const calls = [];
+  const callTool = async (name, args) => {
+    calls.push({ name, args });
+    if (overrides[name]) {
+      return toolResult(await overrides[name](args));
+    }
+    if (name === "deploy_e2e") {
+      return toolResult({ ok: true, version_sha256: "a".repeat(64) });
+    }
+    if (name === "trigger_sync") {
+      return toolResult({ ok: true, run_id: RUN_ID, status: 200, dirty: true });
+    }
+    if (name === "read_status") {
+      return toolResult({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { [scenario]: { present: true, dirty: true, run_id: RUN_ID, stage: scenario === "discord_state" ? "state_verified" : "kv_verified" } } });
+    }
+    return toolResult({ ok: true, run_id: RUN_ID, manifest: { outcome: "passed" } });
+  };
+  return { calls, callTool };
+}
+
+
+test("通常KV workflowは保存・別HTTP検証・回収・clean確認を順に実行する", async () => {
+  const { calls, callTool } = stateWorkflowFixture();
+  assert.deepEqual(await runDeployAndDiscordStateSmoke(callTool, RUN_ID), { ok: true, scenarios: ["discord_state"] });
+  assert.deepEqual(calls.map((call) => [call.name, call.args.sync_phase ?? call.args.service ?? null]), [
+    ["deploy_e2e", null], ["preflight", null], ["trigger_sync", "prepare"],
+    ["trigger_sync", "resume"], ["read_status", null], ["cleanup_run", "discord_state"],
+    ["assert_external_state", "discord_state"],
+  ]);
+  assert.equal(COMMANDS.includes("deploy-and-discord-state-smoke"), true);
+});
+
+
+test("通常KVの保存開始後に中断しても監査から同runの回収対象を復元する", () => {
+  assert.deepEqual(touchedServicesFromAudit([
+    { run_id: "other", phase: "start", tool: "trigger_sync", target: "discord_notion" },
+    { run_id: RUN_ID, phase: "end", tool: "trigger_sync", target: "discord_google" },
+    { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "discord_state", sync_phase: "prepare" },
+  ], RUN_ID), ["discord_state"]);
+});
+
+
+test("KVが見えない間だけ読戻しを待ち、保存要求を再送しない", async () => {
+  let resumes = 0;
+  const sleeps = [];
+  const { calls, callTool } = stateWorkflowFixture({ trigger_sync: async (args) => {
+    if (args.sync_phase === "resume" && ++resumes < 3) {
+      return { ok: false, run_id: RUN_ID, status: 409, dirty: true, error: "discord_state_not_ready" };
+    }
+    return { ok: true, run_id: RUN_ID, status: 200, dirty: true };
+  } });
+  await runDeployAndDiscordStateSmoke(callTool, RUN_ID, { verify: { sleepImpl: async (ms) => sleeps.push(ms) } });
+  assert.deepEqual(sleeps, [3000, 3000]);
+  assert.equal(calls.filter((call) => call.args.sync_phase === "prepare").length, 1);
+  assert.equal(resumes, 3);
+});
+
+
+for (const failure of ["limit", "owner", "http", "run"]) {
+  test(`読戻しの${failure}失敗を維持し所有KVだけを回収する`, async () => {
+    let resumes = 0;
+    const { calls, callTool } = stateWorkflowFixture({ trigger_sync: async (args) => {
+      if (args.sync_phase === "prepare") {
+        return { ok: true, run_id: RUN_ID, status: 200, dirty: true };
+      }
+      resumes += 1;
+      return { ok: false, run_id: failure === "run" ? "other" : RUN_ID,
+        status: failure === "http" ? 500 : 409, dirty: true,
+        error: failure === "owner" ? "discord_state_owner_mismatch" : "discord_state_not_ready" };
+    } });
+    await assert.rejects(runDeployAndDiscordStateSmoke(callTool, RUN_ID, {
+      verify: { attempts: 3, sleepImpl: async () => {} },
+    }), /discord_state_/);
+    assert.equal(resumes, failure === "limit" ? 3 : 1);
+    assert.deepEqual(calls.filter((call) => call.name === "cleanup_run").map((call) => call.args.service), ["discord_state"]);
+    assert.equal(calls.some((call) => call.name === "assert_external_state"), false);
+  });
+}
+
+
+for (const failure of ["deploy_e2e", "trigger_sync", "read_status", "cleanup_run", "assert_external_state"]) {
+  test(`通常KV workflowの${failure}失敗を成功扱いしない`, async () => {
+    const { calls, callTool } = stateWorkflowFixture({ [failure]: async () => ({ ok: false, error: "injected_failure" }) });
+    await assert.rejects(runDeployAndDiscordStateSmoke(callTool, RUN_ID, { cleanup: { attempts: 1 } }));
+    assert.equal(calls.some((call) => call.name === "cleanup_run"), failure !== "deploy_e2e");
+  });
+}
+
+
+for (const mismatch of ["version", "stage", "outcome"]) {
+  test(`通常KV workflowは${mismatch}の不一致を回収後も失敗とする`, async () => {
+    const overrides = mismatch === "outcome"
+      ? { assert_external_state: async () => ({ ok: true, manifest: { outcome: "failed_clean" } }) }
+      : { read_status: async () => ({
+        ok: true,
+        worker_version: { tag: RUN_ID, id_sha256: (mismatch === "version" ? "b" : "a").repeat(64) },
+        scenarios: { discord_state: { present: true, dirty: true, run_id: RUN_ID,
+          stage: mismatch === "stage" ? "state_verifying" : "state_verified" } },
+      }) };
+    const { calls, callTool } = stateWorkflowFixture(overrides);
+    await assert.rejects(runDeployAndDiscordStateSmoke(callTool, RUN_ID),
+      mismatch === "outcome" ? /discord_state_outcome_failed/ : /discord_state_verification_mismatch/);
+    assert.equal(calls.filter((call) => call.name === "cleanup_run").length, 1);
+  });
+}
+
+
+for (const failure of [null, "discord_kv_not_ready", "discord_kv_owner_mismatch"]) {
+  test(`外部fixture付きKVは保存を再送せず所有資源を回収する: ${failure}`, async () => {
+    let resumes = 0;
+    const { calls, callTool } = stateWorkflowFixture({ trigger_sync: async (args) => {
+      if (args.sync_phase === "resume" && ++resumes === 1 && failure) {
+        return { ok: false, run_id: RUN_ID, status: 409, dirty: true, error: failure };
+      }
+      return { ok: true, run_id: RUN_ID, status: 200, dirty: true };
+    } }, "discord_kv");
+    const result = runDeployAndDiscordKvSmoke(callTool, RUN_ID, { verify: { sleepImpl: async () => {} } });
+    if (failure === "discord_kv_owner_mismatch") {
+      await assert.rejects(result, /discord_kv_owner_mismatch/);
+    } else {
+      assert.deepEqual(await result, { ok: true, scenarios: ["discord_kv"] });
+    }
+    assert.equal(resumes, failure === "discord_kv_not_ready" ? 2 : 1);
+    assert.equal(calls.filter((call) => call.args.sync_phase === "prepare").length, 1);
+    assert.deepEqual(calls.filter((call) => call.name === "cleanup_run").map((call) => call.args.service), ["discord_kv"]);
+    assert.deepEqual(touchedServicesFromAudit([
+      { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "discord_kv" },
+    ], RUN_ID), ["discord_kv"]);
+  });
+}
 
 
 function toolResult(payload) {

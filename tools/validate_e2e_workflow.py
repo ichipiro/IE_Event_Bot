@@ -85,6 +85,8 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "cancel-in-progress: false" in text, "concurrency_cancel_changed")
     _expect(errors, "environment: e2e" in text, "e2e_environment_missing")
     _expect(errors, "default: preflight" in text, "write_mode_became_default")
+    _expect(errors, text.count("deploy-and-discord-state-smoke") == 3, "discord_state_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-discord-kv-smoke") == 3, "discord_kv_mode_contract_changed")
     _expect(
         errors,
         text.count("deploy-and-discord-google-smoke") == 3,
@@ -168,6 +170,8 @@ def _check_workflow(text: str) -> list[str]:
 
     deploy_block = _step_block(text, "Deploy and run selected write smoke")
     cleanup_block = _step_block(text, "Always cleanup resources created by this run")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-state-smoke'" in cleanup_block, "cleanup_discord_state_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-kv-smoke'" in cleanup_block, "cleanup_discord_kv_mode_guard_missing")
     evidence_block = _step_block(text, "Collect redacted evidence")
     _expect(errors, bool(deploy_block), "deploy_step_missing")
     _expect(errors, bool(cleanup_block), "cleanup_step_missing")

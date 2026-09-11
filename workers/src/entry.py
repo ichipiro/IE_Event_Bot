@@ -101,10 +101,8 @@ class Default(WorkerEntrypoint):
         if path == "/sync/discord-notion":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
-            result = _detail_dict(await run_discord_notion_poll_sync(self.env, state))
-            if state.enabled():
-                await state.set_last_result("sync_discord_notion", result)
-            return _json_response(result, status=200 if result.get("ok") else 500)
+            result, status = await self._run_discord_sync(state, source="manual-discord-notion")
+            return _json_response(result, status=status)
 
         # 管理API経由で Google access token を手動登録する入口
         if path == "/admin/google-token":
@@ -285,13 +283,9 @@ class Default(WorkerEntrypoint):
                 }
             )
         if run_discord_notion_sync:
-            result = _detail_dict(
-                await run_discord_notion_poll_sync(self.env, StateStore(self.env))
-            )
+            result, _ = await self._run_discord_sync(StateStore(self.env), source="cron-discord-notion")
             result["path"] = "/sync/discord-notion"
             results.append(result)
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result("sync_discord_notion", result)
         if run_watch_ensure:
             watch_result = _detail_dict(await ensure_watch_active(self.env, StateStore(self.env)))
             watch_result["path"] = "/admin/gcal/watch/ensure"
@@ -513,6 +507,27 @@ class Default(WorkerEntrypoint):
         finally:
             if lock_owner:
                 await self._release_sync_lock(lock_owner)
+
+    async def _run_discord_sync(self, state, *, source: str) -> tuple[dict, int]:
+        """Discord単独同期を全体同期と同じロックで保護し、結果保存まで待つ。"""
+        owner = None
+        if self._durable_lock_enabled():
+            acquired = await self._acquire_sync_lock(source=source)
+            if not acquired.get("ok"):
+                if acquired.get("locked"):
+                    return {"ok": False, "error": "sync_in_progress"}, 409
+                return {"ok": False, "error": "sync_lock_unavailable"}, 503
+            owner = acquired.get("owner")
+        try:
+            result = _detail_dict(await run_discord_notion_poll_sync(self.env, state))
+            if source == "cron-discord-notion":
+                result["path"] = "/sync/discord-notion"
+            if state.enabled():
+                await state.set_last_result("sync_discord_notion", result)
+            return result, 200 if result.get("ok") else 500
+        finally:
+            if owner:
+                await self._release_sync_lock(owner)
 
     def _sync_interval_seconds(self) -> float:
         """同期クールダウン秒数を返す。"""

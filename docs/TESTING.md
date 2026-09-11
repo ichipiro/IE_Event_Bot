@@ -54,6 +54,14 @@ bash -n tools/configure_github_e2e_environment.sh
 
 これらも通信先をテスト代替へ差し替えるか、設定ファイルだけを読む。実 Worker や外部サービスへは接続しない。
 
+## 通常Discord同期の状態保存と排他
+
+`tests/test_discord_state_recovery.py` は通常の `StateStore` と差分処理を使い、KV・外部APIを代替する。作成・更新・削除の再試行、queue / snapshotの保存失敗、件数上限による残件を、新しいStateStoreで読み直して確認する。保存失敗後の成功済み操作の再実行は許容し、未処理操作が消えないことを確認する。
+
+`tests/test_discord_sync_lock.py` は手動・Cronと全体同期の共通ロック、競合時の最終結果保護、適用・結果保存の例外とキャンセル後の解放、取得エラー時の停止、明示無効時の互換性を確認する。並行HTTPの検証では、1件が適用中の間にもう1件が409で拒否されることを確認する。
+
+これらはローカル検証であり、実KVの伝播遅延、ロックTTL超過、実Cron、通常Guild全件への実サービス適用は未検証である。run所有checkpointを使う専用Discord差分E2Eの成功も、通常の共有KVの実動作を証明しない。
+
 ## 手動 E2E workflow
 
 `.github/workflows/e2e-staging.yml` は `workflow_dispatch` 専用であり、PR、push、schedule からは起動しない。forkではこのworkflowを登録するため、既定ブランチを`develop`とする。最初の job でローカル検査と Wrangler dry-runを行い、成功後に `e2e` GitHub Environment の承認を待つ。`GITHUB_TOKEN` は `contents: read` だけに限定する。deploy時はrun IDをWorker version tagへ指定し、専用Workerの`CF_VERSION_METADATA.tag`から同じ値を読み戻すまで書き込みscenarioを開始しない。これによりWrangler終了直後に旧revisionへrequestが届いた場合を成功扱いしない。

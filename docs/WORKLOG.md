@@ -1,5 +1,22 @@
 # 作業履歴
 
+## 2026-09-12: 固定2件の上限・残件処理を実サービスで検証
+
+- [実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)で実装commit `87460d282d399503636f42722164f5a0645b76f3` を専用Workerへ1回deployした。Discord event 2件を上限1件で適用し、別HTTPで残件1件を確認後、advanceで残りを適用・再読戻しした。
+- prepare / advanceは各1回、verifyは各段階1回で成功した。2組のDiscord削除204・Notion archive 200と固定2キーの回収、outcome=passed、全資源dirty=falseをartifactで独立照合した。
+- 監査とmanifestの7操作、run・Worker versionの一致、JUnit 399件・失敗0を照合した。Actionsのローカル検査と専用E2E jobは成功した。
+- KV遅延の待機は発生していない。削除確認は外部API応答とKV delete完了の範囲で、全拠点の反映は保証しない。通常ポーリング・Google同期・通知・TTL超過・実保存失敗注入は後続作業である。
+
+
+## 2026-09-12: 固定2件のKV残件処理を実装
+
+- upstream PR #65とfork同期PR #52をマージした。
+- `discord_batch` を追加し、固定2件を上限1件で通常差分処理へ渡す。別HTTPで残件1件を確認した後だけadvanceし、再度のHTTPでpage 2件・queue空を確認する。
+- DOに2組の所有情報と回収完了を記録し、外部回収・KV固定2キー削除後だけcleanにする。古いKV再読込で処理済みの1件目を再適用しない。
+- Python 399件、Node 124件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、秘密ファイルを含めないコピーでの通常・E2E設定のWrangler dry-runが成功した。実サービスは未検証である。
+- 通常ポーリング・Google同期・通知・TTL超過は後続作業とする。追加対象外の項目10は変更しない。
+
+
 ## 2026-09-11: 外部fixtureと通常KVの接続を実サービスで検証
 
 - commit `727a7008a2adfd0842c82eb1f9124acb3e0cf188` の[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)が成功した。run `E2E-20260911T134041Z-a42a095d`、artifact `e2e-evidence-34605517604-1` を独立取得した。

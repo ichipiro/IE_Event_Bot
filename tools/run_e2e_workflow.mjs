@@ -23,6 +23,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_delta",
   "discord_state",
   "discord_kv",
+  "discord_batch",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -41,6 +42,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-discord-delta-smoke",
   "deploy-and-discord-state-smoke",
   "deploy-and-discord-kv-smoke",
+  "deploy-and-discord-batch-smoke",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -75,6 +77,7 @@ const NON_RETRYABLE_CLEANUP_ERRORS = new Set([
   "webhook_dedupe_target_mismatch",
   "discord_state_owner_mismatch",
   "discord_kv_owner_mismatch",
+  "discord_batch_owner_mismatch",
 ]);
 
 
@@ -477,35 +480,47 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
     if (prepared.status !== 200 || prepared.dirty !== true || prepared.run_id !== runId) {
       throw new E2eWorkflowError(`${scenario}_prepare_failed`);
     }
-    const attempts = options.verify?.attempts ?? STATE_VERIFY_ATTEMPTS;
-    if (!Number.isInteger(attempts) || attempts < 1 || attempts > STATE_VERIFY_ATTEMPTS) {
-      throw new E2eWorkflowError(`${scenario}_attempts_invalid`);
-    }
-    const sleepImpl = options.verify?.sleepImpl ?? sleep;
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      const result = await toolOutcome(callTool, "trigger_sync", {
-        run_id: runId, scenario, sync_phase: "resume",
-      });
-      if (result.ok) {
-        if (result.payload.status !== 200 || result.payload.dirty !== true || result.payload.run_id !== runId) {
-          throw new E2eWorkflowError(`${scenario}_resume_failed`);
+    async function verify(expectedStage) {
+      const attempts = options.verify?.attempts ?? STATE_VERIFY_ATTEMPTS;
+      if (!Number.isInteger(attempts) || attempts < 1 || attempts > STATE_VERIFY_ATTEMPTS) {
+        throw new E2eWorkflowError(`${scenario}_attempts_invalid`);
+      }
+      const sleepImpl = options.verify?.sleepImpl ?? sleep;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const result = await toolOutcome(callTool, "trigger_sync", {
+          run_id: runId, scenario, sync_phase: "resume",
+        });
+        if (result.ok) {
+          if (result.payload.status !== 200 || result.payload.dirty !== true || result.payload.run_id !== runId) {
+            throw new E2eWorkflowError(`${scenario}_resume_failed`);
+          }
+          break;
         }
-        break;
+        // 保存は再送せず、KVがまだ見えないという固定応答だけを有限回待つ。
+        if (result.error !== `${scenario}_not_ready` || result.payload.status !== 409 ||
+            result.payload.run_id !== runId || result.payload.dirty !== true || attempt === attempts) {
+          throw new E2eWorkflowError(result.error);
+        }
+        await sleepImpl(STATE_VERIFY_DELAY_MS);
       }
-      // 保存は再送せず、KVがまだ見えないという固定応答だけを有限回待つ。
-      if (result.error !== `${scenario}_not_ready` || result.payload.status !== 409 ||
-          result.payload.run_id !== runId || result.payload.dirty !== true || attempt === attempts) {
-        throw new E2eWorkflowError(result.error);
+      const status = await requireTool(callTool, "read_status", { run_id: runId });
+      const manifest = status.scenarios?.[scenario];
+      if (!manifest?.present || manifest.dirty !== true || manifest.run_id !== runId ||
+          manifest.stage !== expectedStage || status.worker_version?.tag !== runId ||
+          status.worker_version?.id_sha256 !== deployed.version_sha256) {
+        throw new E2eWorkflowError(`${scenario}_verification_mismatch`);
       }
-      await sleepImpl(STATE_VERIFY_DELAY_MS);
     }
-    const status = await requireTool(callTool, "read_status", { run_id: runId });
-    const manifest = status.scenarios?.[scenario];
-    if (!manifest?.present || manifest.dirty !== true || manifest.run_id !== runId ||
-        manifest.stage !== verifiedStage || status.worker_version?.tag !== runId ||
-        status.worker_version?.id_sha256 !== deployed.version_sha256) {
-      throw new E2eWorkflowError(`${scenario}_verification_mismatch`);
+    if (scenario === "discord_batch") {
+      await verify("batch_pending_verified");
+      const advanced = await requireTool(callTool, "trigger_sync", {
+        run_id: runId, scenario, sync_phase: "advance",
+      });
+      if (advanced.status !== 200 || advanced.dirty !== true || advanced.run_id !== runId || advanced.execution_status !== "drained") {
+        throw new E2eWorkflowError("discord_batch_advance_failed");
+      }
     }
+    await verify(verifiedStage);
   } catch (error) {
     primaryError = error;
   }
@@ -532,6 +547,11 @@ export async function runDeployAndDiscordStateSmoke(callTool, runId, options = {
 
 export async function runDeployAndDiscordKvSmoke(callTool, runId, options = {}) {
   return runDiscordKvSmoke(callTool, runId, "discord_kv", "kv_verified", options);
+}
+
+
+export async function runDeployAndDiscordBatchSmoke(callTool, runId, options = {}) {
+  return runDiscordKvSmoke(callTool, runId, "discord_batch", "batch_verified", options);
 }
 
 
@@ -854,6 +874,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "discord_delta",
             "discord_state",
             "discord_kv",
+            "discord_batch",
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
@@ -1010,6 +1031,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-delta-smoke") {
       await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-batch-smoke") {
+      await runDeployAndDiscordBatchSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-discord-kv-smoke") {

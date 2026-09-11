@@ -2,6 +2,10 @@
 
 この文書は、標準文書構成の変更を記録する。アプリケーションの公開リリース履歴は、Release Please が管理するリポジトリルートの `CHANGELOG.md` を正本とする。
 
+## 2026-09-12
+
+- 固定2件の所有・上限1件・通常KV残件の別HTTP消化・回収を行う `discord_batch` と専用手動workflowを追加した。ローカル検証に加え、[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)の上限・残件処理・全資源回収・version一致を記録した。
+
 ## 2026-09-11
 
 - 外部fixtureと通常KVの接続の実サービス成功（実行34605517604）、削除・archive応答、KV回収、artifactの独立照合を記録した。

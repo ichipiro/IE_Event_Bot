@@ -76,7 +76,7 @@ MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同sc
 
 `POST /admin/e2e/discord-kv` で準備し、別HTTPの `/verify` で外部資源の所有権・内容とKVのsnapshot / queueを読み直す。`/cleanup` は外部資源を回収した後に所有KVを削除し、両方が完了してからcleanにする。KV削除失敗時もrun・scope・対象をDOに残す。DOにはsnapshot / queueを複製しない。各経路は認証・POST・globalロックを必須とし、準備・検証はWorker version tagとrunの一致を要求する。実行フラグは `E2E_DISCORD_KV_ENABLED` で、未設定なら無効である。
 
-MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` と `cleanup_run(service="discord_kv")` を使う。手動モードはfixture作成を1回に限定し、同run・dirty=true・HTTP 409の `discord_kv_not_ready` だけを3秒間隔・最大25回まで待つ。検証失敗は回収成功で上書きしない。ローカル代替APIでは部分保存・削除失敗・所有権不一致・古いsnapshot・再回収を確認した。2026-09-11の[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)で準備・別HTTP検証が各1回で成功し、通常差分処理の適用・KV読戻し・Discord削除204・Notion archive 200・KV削除完了を確認した。監査とmanifestを独立取得し、version・runの一致、outcome=passed、全資源dirty=falseを照合した。読戻し待機は発生していない。cleanupは外部APIの削除・archive応答とKVのdelete完了を確認するもので、全拠点の削除反映を保証しない。複数イベント、通常ポーリング、残件処理、通知、TTL超過は未接続・未検証である。
+MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` と `cleanup_run(service="discord_kv")` を使う。手動モードはfixture作成を1回に限定し、同run・dirty=true・HTTP 409の `discord_kv_not_ready` だけを3秒間隔・最大25回まで待つ。検証失敗は回収成功で上書きしない。ローカル代替APIでは部分保存・削除失敗・所有権不一致・古いsnapshot・再回収を確認した。2026-09-11の[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)で準備・別HTTP検証が各1回で成功し、通常差分処理の適用・KV読戻し・Discord削除204・Notion archive 200・KV削除完了を確認した。監査とmanifestを独立取得し、version・runの一致、outcome=passed、全資源dirty=falseを照合した。読戻し待機は発生していない。cleanupは外部APIの削除・archive応答とKVのdelete完了を確認するもので、全拠点の削除反映を保証しない。この1件モードでは複数イベントと残件を扱わない。通常ポーリング、通知、TTL超過は未接続・未検証である。
 
 
 追加対象外の5件は [E2E-PLAN.md](E2E-PLAN.md#10-追加対象外) に定義する。
@@ -95,6 +95,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-discord-delta-smoke` | 専用 Worker を deploy し、Discord一覧のrun所有1件で新規作成・変更なし・更新・キャンセル・削除を共通差分処理へ通し、Notion pageの反映とarchiveを検証後に両資源をcleanupする |
 | `deploy-and-discord-state-smoke` | 専用Workerの通常StateStoreで固定2キーを保存し、別HTTPで読戻しとversionを照合後、所有キーを回収する |
 | `deploy-and-discord-kv-smoke` | 所有Discord event 1件を通常差分処理でNotionとKVへ反映し、別HTTPで読み直して外部資源と固定2キーを回収する |
+| `deploy-and-discord-batch-smoke` | 所有Discord event 2件を上限1件ずつNotionへ反映し、KVの残件を別HTTPで読み直して消化・回収する |
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
@@ -166,6 +167,13 @@ Google変更起因Webhookモードは、専用Calendarにrun marker付きevent�
 MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` ではなく `/admin/e2e/google-notion-sync`、`/admin/e2e/google-discord-sync`、`/admin/e2e/discord-notion-sync`、`/admin/e2e/discord-google-sync`、`/admin/e2e/discord-delta-sync` のいずれかを呼ぶ。Discord差分は `sync_phase` に `prepare` / `advance` / `resume` を指定すると同path配下の固定経路を使い、省略時は従来の一括実行を維持する。通常KV補助シナリオは `/admin/e2e/discord-state` を使い、`prepare` で保存し、`resume` で `/verify` を呼ぶ。外部サービスを使う差分モード以外が確認するのは source event の作成・読取からアプリケーション適用処理を経た下流資源作成までであり、Google / Discord の差分取得、同期 cursor / snapshot / queue、全体同期、実 webhook / Cron 配信、Playwright によるブラウザ表示は保証しない。
 
 `trigger_job` の `qa_check`、`reminder`、`cleanup` は、それぞれ所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼び、通常の `/jobs/qa-check`、`/jobs/reminder`、`/jobs/cleanup` は呼ばない。`trigger_webhook` は内部simulation用route、`trigger_webhook_delivery`は初回実配信用route、`trigger_webhook_change`は実`exists`通知と所有event限定dispatch用routeをそれぞれ呼ぶ。Googleからのcallbackだけが`/gcal/webhook`へ到達し、初回配信モードは`sync`の所有確認だけ、変更起因モードは最初の`exists`だけを共通dispatchへ渡す。run-all、共有状態と全件適用を伴う通常の同期・Webhook同期・ジョブ route は、下流資源と共有状態を run ID で所有・回収できるまで実行しない。E2E Worker は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で通常 route を `404` にし、preflight はこの既定拒否と11個の所有資源限定 scenario route の有効状態を別々に確認する。残作業は [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17) で追跡する。
+
+
+固定2件の `discord_batch` は、作成前から2組の外部資源を同じDO manifestで所有し、通常StateStoreのrun・scope別KVへsnapshot / queueを保存する。`POST /admin/e2e/discord-batch` でDiscord event 2件を作り、通常差分処理へ上限1件で渡す。Notion page 1件とqueue残件1件を別HTTPの `/verify` で確認し、`/advance` で残り1件だけを適用する。再度の `/verify` でpage 2件とqueue空を確認してから `/cleanup` する。認証・POST・globalロックは全経路で必須で、cleanup以外はrunとWorker version tagも照合する。`E2E_DISCORD_BATCH_ENABLED=true` と `E2E_STATE_SCOPE` が必要である。
+
+MCPは `trigger_sync(scenario="discord_batch", sync_phase="prepare" / "resume" / "advance")` と `cleanup_run(service="discord_batch")` を使う。手動モード `deploy-and-discord-batch-smoke` はprepare / advanceを各1回に限定し、各読戻しで同run・dirty=true・HTTP 409の `discord_batch_not_ready` だけを3秒間隔・最大25回まで待つ。初回残件の確認前にadvanceせず、advanceを再送しない。cleanupは外部資源ごとの完了をDOに記録し、未完了だけを再試行する。外部資源の回収と固定2キーの削除が完了するまでdirtyを維持し、最後はIDを除いたfingerprintだけを残す。
+
+`tests/test_e2e_discord_batch_probe.py` は固定2件の上限・残件処理、別HTTPの状態復元、古いKVの2回目読込による処理済みイベントへの再適用拒否、保存・削除・部分回収の失敗、所有権変更、再検証失敗後の成功判定取消しを代替APIで確認する。通常ポーリング、Google同期、作成通知、TTL超過、実サービスでの保存失敗注入は含まない。2026-09-12（JST）の[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)でprepare→残件確認→advance→最終確認→cleanupが成功した。各verifyは1回、prepare / advanceも各1回である。監査とmanifestの7操作、初回上限・残件読戻し・残件適用・最終読戻し・KV回収の各200、Discord削除204とNotion archive 200を各2件、version・run一致、outcome=passed、全資源dirty=falseを独立照合した。KV遅延による待機は発生していない。cleanupは外部API応答とKV deleteの完了を確認し、全拠点の削除反映は保証しない。
 
 ## テスト構成
 

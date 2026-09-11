@@ -104,3 +104,5 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 5. 静的検査に加え、許可された検証環境で作成・更新・削除・再試行を確認する。
 
 `discord_kv` manifestは外部Discord event・Notion pageのIDとrun・scope・対象fingerprintを保持する。ID確定後の差し替えとscope変更はDOで拒否する。通常StateStoreは `e2e:discord_kv:<run_id>:<scope_id>:` の固定2キーへ書き込み、DOへsnapshot / queueを複製しない。外部回収後のKV削除が失敗した場合もdirtyと所有情報を保持する。
+
+`discord_batch` manifestは固定2組のrun marker・外部ID・初期内容fingerprint・回収完了フラグを所有する。確定済みID・scopeの変更と回収完了の巻戻しをDOで拒否する。snapshot / queueは `e2e:discord_batch:<run_id>:<scope_id>:` の固定2キーだけに保存し、DOには複製しない。外部資源ごとに回収完了を記録し、全外部資源とKVの回収後にIDを除いた集約fingerprintへ置き換える。

@@ -860,7 +860,9 @@ async def _sync_discord_event_delete(
     return True
 
 
-async def run_discord_notion_poll_sync(env, state):
+async def run_discord_notion_poll_sync(
+    env, state, *, event_selector=None, upsert_runner=None, delete_runner=None,
+):
     """
     定期ポーリングのメイン処理。
     手順:
@@ -884,7 +886,12 @@ async def run_discord_notion_poll_sync(env, state):
             "errors": [error],
         }
 
-    return await _apply_discord_event_diff(env, state, events)
+    # E2Eでは一覧取得後・状態読込み前に所有範囲を検証する。
+    if event_selector is not None:
+        events = await event_selector(events)
+    return await _apply_discord_event_diff(
+        env, state, events, upsert_runner=upsert_runner, delete_runner=delete_runner,
+    )
 
 
 async def _apply_discord_event_diff(

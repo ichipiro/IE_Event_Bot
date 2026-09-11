@@ -281,3 +281,85 @@ def test_missing_enable_flag_or_binding_stops_before_external_calls(
     setattr(env, missing, None)
     assert request(env)[0] in (404, 503)
     assert calls == []
+
+
+def test_poll_reads_listing_and_filters_valid_foreign_event_in_reverse_order(
+    monkeypatch,
+):
+    import discord_notion_sync
+
+    events, pages, calls, _ = install_api_stub(monkeypatch, multiple=True)
+    original_fetch = discord_notion_sync.fetch
+    poll_reads = []
+
+    async def reordered_listing(url, options=None):
+        response = await original_fetch(url, options)
+        if str(url).endswith("/scheduled-events?with_user_count=false"):
+            listed = json.loads(await response.text())
+            foreign = {**deepcopy(listed[0]), "id": "valid-foreign-event"}
+            poll_reads.append(len(listed))
+            from workers import Response
+
+            return Response(json.dumps([foreign, *reversed(listed)]), status=200)
+        return response
+
+    monkeypatch.setattr(discord_notion_sync, "fetch", reordered_listing)
+    env = env_for_batch()
+    for phase in ("", "/verify", "/advance", "/verify", "/cleanup"):
+        assert request(env, phase)[0] == 200
+    assert poll_reads == [2, 2]
+    assert len(pages) == 2 and not events
+    owner = manifest(env)
+    assert owner["stages"]["batch_first_poll"] == 200
+    assert owner["stages"]["batch_remaining_poll"] == 200
+    assert all("valid-foreign-event" not in json.dumps(page) for page in pages.values())
+    assert not any("valid-foreign-event" in path for _, path in calls)
+
+
+@pytest.mark.parametrize("phase", ["", "/advance"])
+@pytest.mark.parametrize(
+    "fault", ["missing", "duplicate", "changed", "invalid", "unavailable"]
+)
+def test_invalid_poll_listing_stops_before_state_or_page_writes(
+    monkeypatch, phase, fault
+):
+    import discord_notion_sync
+    from workers import Response
+
+    _, pages, calls, _ = install_api_stub(monkeypatch, multiple=True)
+    env = env_for_batch()
+    if phase:
+        assert request(env)[0] == 200
+        assert request(env, "/verify")[0] == 200
+    original_fetch = discord_notion_sync.fetch
+
+    async def bad_listing(url, options=None):
+        response = await original_fetch(url, options)
+        if not str(url).endswith("/scheduled-events?with_user_count=false"):
+            return response
+        listed = json.loads(await response.text())
+        if fault == "missing":
+            listed.pop()
+        elif fault == "duplicate":
+            listed.append(deepcopy(listed[0]))
+        elif fault == "changed":
+            listed[0]["description"] += " changed"
+        elif fault == "invalid":
+            listed.append(None)
+        else:
+            return Response("{}", status=403)
+        return Response(json.dumps(listed), status=200)
+
+    monkeypatch.setattr(discord_notion_sync, "fetch", bad_listing)
+    original_kv = dict(env.STATE_KV.data)
+    before = len(calls)
+    assert request(env, phase)[0] == 409
+    assert env.STATE_KV.data == original_kv
+    assert len(pages) == (1 if phase else 0)
+    assert not any(
+        method in ("POST", "PATCH") and "/pages" in path
+        for method, path in calls[before:]
+    )
+    assert manifest(env)["dirty"] is True
+    assert request(env, "/cleanup")[0] == 200
+    assert manifest(env)["outcome"] == "failed_clean"

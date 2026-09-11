@@ -332,11 +332,25 @@ function deltaVersionResult(args) {
 }
 
 
+function deltaSyncResult(args, resumeCount) {
+  if (args.sync_phase === "resume") {
+    if (resumeCount === 2) {
+      return { ok: false, status: 409, error: "e2e_lock_unavailable" };
+    }
+    return { status: 200, dirty: false,
+      execution_status: resumeCount === 1 ? null : "already_completed" };
+  }
+  return { status: 200, dirty: args.sync_phase === "advance",
+    execution_status: args.sync_phase === "advance" ? "updated" : "prepared" };
+}
+
+
 test("deploy後にDiscord差分同期・更新後と完了後の再送・所有状態を確認する", async () => {
   const calls = [];
+  let resumes = 0;
   const callTool = async (name, args) => {
     calls.push({ name, args });
-    return toolResult({ ok: true, run_id: RUN_ID, ...deltaVersionResult(args), execution_status: args.sync_phase === "advance" ? "updated" : "already_completed", dirty: args.sync_phase === "advance" });
+    return toolResult({ ok: true, run_id: RUN_ID, ...deltaVersionResult(args), ...deltaSyncResult(args, args.sync_phase === "resume" ? ++resumes : 0) });
   };
 
   const result = await runDeployAndDiscordDeltaSmoke(callTool, RUN_ID, {
@@ -355,6 +369,7 @@ test("deploy後にDiscord差分同期・更新後と完了後の再送・所有�
       ["trigger_sync", null],
       ["trigger_sync", null],
       ["trigger_sync", null],
+      ["trigger_sync", null],
       ["assert_external_state", "discord_delta"],
       ["cleanup_run", "discord_delta"],
     ],
@@ -368,24 +383,24 @@ test("deploy後にDiscord差分同期・更新後と完了後の再送・所有�
     `cleanup:discord_delta:${RUN_ID}`,
   );
   assert.deepEqual(calls.filter((call) => call.name === "trigger_sync").map((call) => call.args.sync_phase),
-    ["prepare", "advance", "advance", "resume", "resume"]);
+    ["prepare", "advance", "advance", "resume", "resume", "resume"]);
   assert.deepEqual(calls.filter((call) => call.name === "trigger_sync").map((call) => call.args.version_sha256),
-    ["a", "a", "b", "b", "b"].map((value) => value.repeat(64)));
+    ["a", "a", "b", "b", "b", "b"].map((value) => value.repeat(64)));
   assert.equal(calls.filter((call) => call.name === "deploy_e2e")[1].args.previous_version_sha256,
     "a".repeat(64));
   assert.equal(CLEANUP_TARGETS.includes("discord_delta"), true);
 });
 
-for (const replayStep of [3, 5]) {
+for (const replayStep of [3, 6]) {
   for (const failure of ["status", "dirty", "tool_error"]) {
     test(`Discord差分の再送${replayStep}の${failure}異常を成功にせず回収する`, async () => {
       const calls = [];
       let syncCount = 0;
+      let resumes = 0;
       const callTool = async (name, args) => {
         calls.push({ name, args });
         const result = { ok: true, run_id: RUN_ID, ...deltaVersionResult(args),
-          execution_status: args.sync_phase === "advance" ? "updated" : "already_completed",
-          dirty: args.sync_phase === "advance" };
+          ...deltaSyncResult(args, args.sync_phase === "resume" ? ++resumes : 0) };
         if (name === "trigger_sync" && ++syncCount === replayStep) {
           if (failure === "status") {
             result.execution_status = "completed";
@@ -424,7 +439,7 @@ test(`Discord差分同期の${failurePhase}失敗でも同じrunだけをcleanup
   assert.deepEqual(calls.map(({ name }) => name), [
     "deploy_e2e", "preflight", "trigger_sync",
     ...(failurePhase === "prepare" ? [] : failurePhase === "advance" ? ["trigger_sync"]
-      : ["trigger_sync", "deploy_e2e", "trigger_sync", "trigger_sync"]), "cleanup_run",
+      : ["trigger_sync", "deploy_e2e", "trigger_sync", "trigger_sync", "trigger_sync"]), "cleanup_run",
   ]);
   assert.equal(calls.at(-1).args.service, "discord_delta");
   assert.equal(calls.at(-1).args.confirmation, `cleanup:discord_delta:${RUN_ID}`);
@@ -815,3 +830,61 @@ test("初回deployのversionが不明ならfixtureを作成しない", async () 
   }, RUN_ID), (error) => error.code === "delta_deploy_version_missing");
   assert.deepEqual(calls, ["deploy_e2e"]);
 });
+
+for (const failure of [null, "both_success", "both_rejected", "wrong_error", "wrong_status", "wrong_run", "completed_replay", "transport"]) {
+  test(`同時resume ${failure ?? "success"}では両要求を待ってから後続処理する`, { timeout: 2000 }, async () => {
+    const started = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const calls = [];
+    let resumes = 0;
+    let winnerFinished = false;
+    const callTool = async (name, args) => {
+      calls.push({ name, args });
+      const result = { ok: true, run_id: RUN_ID, ...deltaVersionResult(args), ...deltaSyncResult(args, 0) };
+      if (name === "trigger_sync" && args.sync_phase === "resume") {
+        const number = ++resumes;
+        Object.assign(result, deltaSyncResult(args, number));
+        if (number === 1) {
+          await release.promise;
+          winnerFinished = true;
+          if (failure === "both_rejected") {
+            Object.assign(result, { ok: false, status: 409, error: "e2e_lock_unavailable" });
+          } else if (failure === "completed_replay") {
+            result.execution_status = "already_completed";
+          }
+        } else if (number === 2) {
+          started.resolve();
+          if (failure === "both_success") {
+            Object.assign(result, { ok: true, status: 200, dirty: false, execution_status: null });
+          } else if (failure === "wrong_error") {
+            result.error = "delta_resume_owner_mismatch";
+          } else if (failure === "wrong_status") {
+            result.status = 503;
+          } else if (failure === "wrong_run") {
+            result.run_id = "another-run";
+          } else if (failure === "transport") {
+            throw new Error("transport");
+          }
+        }
+      }
+      if (["cleanup_run", "assert_external_state"].includes(name)) {
+        assert.equal(winnerFinished, true);
+      }
+      return toolResult(result);
+    };
+    const workflow = runDeployAndDiscordDeltaSmoke(callTool, RUN_ID, { preflight: { attempts: 1 } });
+    await started.promise;
+    assert.equal(winnerFinished, false);
+    assert.equal(calls.some((call) => call.name === "cleanup_run"), false);
+    release.resolve();
+    if (failure) {
+      await assert.rejects(workflow, (error) => error.code === "delta_concurrent_resume_failed");
+      assert.equal(resumes, 2);
+      assert.equal(calls.some((call) => call.name === "assert_external_state"), false);
+    } else {
+      assert.equal((await workflow).ok, true);
+      assert.equal(resumes, 3);
+    }
+    assert.equal(calls.at(-1).name, "cleanup_run");
+  });
+}

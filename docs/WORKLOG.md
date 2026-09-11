@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-11: Discord差分E2Eの同時続行検証
+
+- PR #60をupstream developへマージし、fork PR #47で同期した。ローカルdevelopとorigin/developの一致、upstream/developの祖先関係を確認した。
+- 同run・同versionのresumeを2要求並行送信し、通常完了1件・HTTP入口ロック拒否1件を判定する。拒否を再送せず監査に保持し、両要求が終了するまでcleanupを開始しない。通常Workerの入口・ロック・DO claimの実装は変更していない。
+- Python 296件、Node 76件、Ruff、Pyrightが成功した。HTTP入口の拒否側に外部API呼出しがないことと、入口を介さないDO claimの競合拒否を別々に確認した。
+- 実サービスの同時要求はこの時点では未検証。DO claim競合の実環境再現、応答喪失、DOプロセスの強制再起動、任意位置のクラッシュ復旧は対象外とする。
+
 ## 2026-09-11: 再デプロイ後のDiscord差分続行を実サービスで検証
 
 - commit `2232f7ab81626d74d803060cd9f490933cd72e3c` の[実行34593390627](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34593390627)が成功した。run `E2E-20260911T111946Z-80bb78e9` で専用Workerを2回deployした。

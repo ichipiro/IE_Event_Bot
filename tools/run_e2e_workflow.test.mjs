@@ -345,6 +345,7 @@ test("deploy後にDiscord差分同期と所有状態を確認する", async () =
       ["preflight", null],
       ["trigger_sync", null],
       ["trigger_sync", null],
+      ["trigger_sync", null],
       ["assert_external_state", "discord_delta"],
       ["cleanup_run", "discord_delta"],
     ],
@@ -358,12 +359,12 @@ test("deploy後にDiscord差分同期と所有状態を確認する", async () =
     `cleanup:discord_delta:${RUN_ID}`,
   );
   assert.deepEqual(calls.filter((call) => call.name === "trigger_sync").map((call) => call.args.sync_phase),
-    ["prepare", "resume"]);
+    ["prepare", "advance", "resume"]);
   assert.equal(CLEANUP_TARGETS.includes("discord_delta"), true);
 });
 
 
-for (const failurePhase of ["prepare", "resume"]) {
+for (const failurePhase of ["prepare", "advance", "resume"]) {
 test(`Discord差分同期の${failurePhase}失敗でも同じrunだけをcleanupする`, async () => {
   const calls = [];
   const callTool = async (name, args) => {
@@ -376,7 +377,7 @@ test(`Discord差分同期の${failurePhase}失敗でも同じrunだけをcleanup
   );
   assert.deepEqual(calls.map(({ name }) => name), [
     "deploy_e2e", "preflight", "trigger_sync",
-    ...(failurePhase === "resume" ? ["trigger_sync"] : []), "cleanup_run",
+    ...Array(["prepare", "advance", "resume"].indexOf(failurePhase)).fill("trigger_sync"), "cleanup_run",
   ]);
   assert.equal(calls.at(-1).args.service, "discord_delta");
   assert.equal(calls.at(-1).args.confirmation, `cleanup:discord_delta:${RUN_ID}`);

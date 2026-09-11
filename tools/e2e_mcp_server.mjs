@@ -270,7 +270,7 @@ export async function appendAuditEntry(entry) {
     run_id: entry.run_id,
     tool: entry.tool,
     target: entry.target,
-    sync_phase: ["run", "prepare", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+    sync_phase: ["run", "prepare", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
@@ -323,7 +323,7 @@ export async function readAuditEntries(runId) {
           run_id: runId,
           tool: entry.tool,
           target: entry.target,
-          sync_phase: ["run", "prepare", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+          sync_phase: ["run", "prepare", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
@@ -825,7 +825,7 @@ function operationRoute(tool, target, syncPhase = "run") {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
-    if (target === "discord_delta" && ["prepare", "resume"].includes(syncPhase)) {
+    if (target === "discord_delta" && ["prepare", "advance", "resume"].includes(syncPhase)) {
       return `${SCENARIO_ROUTES.discord_delta}/${syncPhase}`;
     }
     return SCENARIO_ROUTES[target] ?? null;
@@ -1113,10 +1113,10 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しresumeで続行できる。",
+      description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しadvanceで更新後に保存しresumeで完了する。",
       inputSchema: {
         run_id: runIdField, scenario: scenarioField,
-        sync_phase: z.enum(["run", "prepare", "resume"]).default("run"),
+        sync_phase: z.enum(["run", "prepare", "advance", "resume"]).default("run"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1150,6 +1150,10 @@ export function createE2eMcpServer(options = {}) {
           if (sanitized.ok && syncPhase === "prepare" &&
               (response.payload.status !== "prepared" || response.payload.dirty !== true)) {
             return { ...sanitized, ok: false, error: "delta_prepare_not_ready" };
+          }
+          if (sanitized.ok && syncPhase === "advance" &&
+              (response.payload.status !== "updated" || response.payload.dirty !== true)) {
+            return { ...sanitized, ok: false, error: "delta_advance_not_ready" };
           }
           if (sanitized.ok && syncPhase === "resume" &&
               (response.payload.ok !== true || response.payload.dirty !== false)) {

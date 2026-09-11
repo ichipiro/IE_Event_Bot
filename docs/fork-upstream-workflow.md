@@ -9,6 +9,8 @@
 | `origin` | `lycanthr0pes/IE_Event_Bot_fork` | 自分が管理するfork。作業ブランチのpush先とupstream同期先 |
 | `upstream` | `ichipiro/IE_Event_Bot` | 正式な統合・リリース元 |
 
+GitHubの既定ブランチは、originでは`develop`、upstreamでは`main`とする。originの手動E2E workflowは`develop`にあり、`workflow_dispatch`へ登録するためにもoriginの既定ブランチを`develop`に維持する。
+
 upstreamを正式な`develop`、`main`、タグ、GitHub Releaseの権威とします。originで独立したリリースを同時に進めると、同じ変更に対して別のタグ、Release Please PR、merge履歴が作られるため、両方のリポジトリをリリース元として扱いません。
 
 ## 2. 操作場所の表記

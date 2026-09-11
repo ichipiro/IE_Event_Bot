@@ -45,6 +45,7 @@
 - Cloudflare Durable Objects: <https://developers.cloudflare.com/durable-objects/>
 - Google Calendar API: <https://developers.google.com/calendar/api/guides/overview>
 - Google Calendar push notifications: <https://developers.google.com/calendar/api/guides/push>
+- Google Calendar Events watch: <https://developers.google.com/workspace/calendar/api/v3/reference/events/watch>
 - Notion API: <https://developers.notion.com/reference/intro>
 - Discord Guild Scheduled Event: <https://discord.com/developers/docs/resources/guild-scheduled-event>
 - PlantUML download: <https://plantuml.com/download>

@@ -4,13 +4,30 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "実行範囲。deploy と外部 CRUD は明示選択時だけ実行する"
+        description: "実行範囲。deploy と外部書き込みは明示選択時だけ実行する"
         required: true
         default: preflight
         type: choice
         options:
           - preflight
           - deploy-and-crud-smoke
+          - deploy-and-discord-google-smoke
+          - deploy-and-discord-notion-smoke
+          - deploy-and-discord-delta-smoke
+          - deploy-and-discord-delta-recovery
+          - deploy-and-google-discord-smoke
+          - deploy-and-google-notion-smoke
+          - deploy-and-qa-notification-smoke
+          - deploy-and-reminder-smoke
+          - deploy-and-notion-cleanup-smoke
+          - deploy-and-webhook-simulation-smoke
+          - deploy-and-webhook-delivery-smoke
+          - deploy-and-webhook-change-smoke
+
+      recovery_run_id:
+        description: "recoveryモードで回収する既存run ID。それ以外は空欄"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -98,45 +115,75 @@ jobs:
         run: npm ci
       - name: Create run ID
         id: run_id
+        env:
+          E2E_MODE: ${{ inputs.mode }}
+          E2E_RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
         run: |
-          run_id="$(node tools/run_e2e_workflow.mjs run-id)"
+          run_id="$(node --input-type=module -e 'import {selectWorkflowRunId} from "./tools/run_e2e_workflow.mjs"; console.log(selectWorkflowRunId(process.env.E2E_MODE, process.env.E2E_RECOVERY_RUN_ID || ""));')"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
       - name: Read-only preflight
         if: ${{ inputs.mode == 'preflight' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
-          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
-          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          E2E_WORKER_URL: ${{ secrets.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: node tools/run_e2e_workflow.mjs preflight --run-id "$E2E_RUN_ID"
-      - name: Deploy and run service CRUD smoke
-        if: ${{ inputs.mode == 'deploy-and-crud-smoke' }}
+      - name: Deploy and run selected write smoke
+        if: >-
+          ${{ inputs.mode == 'deploy-and-crud-smoke' ||
+          inputs.mode == 'deploy-and-discord-google-smoke' ||
+          inputs.mode == 'deploy-and-discord-notion-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-recovery' ||
+          inputs.mode == 'deploy-and-google-discord-smoke' ||
+          inputs.mode == 'deploy-and-google-notion-smoke' ||
+          inputs.mode == 'deploy-and-qa-notification-smoke' ||
+          inputs.mode == 'deploy-and-reminder-smoke' ||
+          inputs.mode == 'deploy-and-notion-cleanup-smoke' ||
+          inputs.mode == 'deploy-and-webhook-simulation-smoke' ||
+          inputs.mode == 'deploy-and-webhook-delivery-smoke' ||
+          inputs.mode == 'deploy-and-webhook-change-smoke' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
-          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
-          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          E2E_MODE: ${{ inputs.mode }}
+          E2E_WORKER_URL: ${{ secrets.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: >-
-          node tools/run_e2e_workflow.mjs deploy-and-crud-smoke
+          node tools/run_e2e_workflow.mjs "$E2E_MODE"
           --run-id "$E2E_RUN_ID"
       - name: Always cleanup resources created by this run
         if: >-
-          ${{ always() && inputs.mode == 'deploy-and-crud-smoke' &&
+          ${{ always() &&
+          (inputs.mode == 'deploy-and-crud-smoke' ||
+          inputs.mode == 'deploy-and-discord-google-smoke' ||
+          inputs.mode == 'deploy-and-discord-notion-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-recovery' ||
+          inputs.mode == 'deploy-and-google-discord-smoke' ||
+          inputs.mode == 'deploy-and-google-notion-smoke' ||
+          inputs.mode == 'deploy-and-qa-notification-smoke' ||
+          inputs.mode == 'deploy-and-reminder-smoke' ||
+          inputs.mode == 'deploy-and-notion-cleanup-smoke' ||
+          inputs.mode == 'deploy-and-webhook-simulation-smoke' ||
+          inputs.mode == 'deploy-and-webhook-delivery-smoke' ||
+          inputs.mode == 'deploy-and-webhook-change-smoke') &&
           steps.run_id.outcome == 'success' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
-          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
-          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          E2E_WORKER_URL: ${{ secrets.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: node tools/run_e2e_workflow.mjs cleanup --run-id "$E2E_RUN_ID"
       - name: Collect redacted evidence
         if: ${{ always() && steps.run_id.outcome == 'success' }}
         env:
           E2E_RUN_ID: ${{ steps.run_id.outputs.run_id }}
-          E2E_WORKER_URL: ${{ vars.E2E_WORKER_URL }}
-          E2E_WORKER_URL_SHA256: ${{ vars.E2E_WORKER_URL_SHA256 }}
+          E2E_WORKER_URL: ${{ secrets.E2E_WORKER_URL }}
+          E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: node tools/run_e2e_workflow.mjs evidence --run-id "$E2E_RUN_ID"
       - name: Upload redacted evidence

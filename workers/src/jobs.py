@@ -269,6 +269,61 @@ async def ensure_qa_question_numbers(env):
             next_num += 1
 
 
+async def _run_qa_notification_pages(
+    env,
+    state,
+    pages: list[dict],
+    return_detail: bool = False,
+):
+    """取得済みQ&Aページへ初回抑止と更新通知を適用する。"""
+    channel_id = str(getattr(env, "QA_CHANNEL_ID", "") or "").strip()
+    cache = await state.get_json("qa_cache", {}) if state.enabled() else {}
+    if not isinstance(cache, dict):
+        cache = {}
+    first_run = bool(cache.get("_first_qa_run", True))
+    new_cache: dict[str, str | bool] = {"_first_qa_run": False}
+    had_error = False
+    failed_page_ids = []
+
+    for page in pages:
+        page_id_raw = (page or {}).get("id")
+        if not page_id_raw:
+            continue
+        page_id = str(page_id_raw)
+        last = str((page or {}).get("last_edited_time") or "")
+        new_cache[page_id] = last
+        if first_run:
+            continue
+        if str(cache.get(page_id) or "") == last:
+            continue
+        question = _extract_title(page, "質問") or "(質問なし)"
+        answer = _extract_rich_text(page, "回答") or "(回答なし)"
+        if answer != "(回答なし)":
+            continue
+        q_number = _extract_number(page, "質問番号")
+        display = q_number if q_number is not None else "?"
+        msg = (
+            f"❓ 質問番号 #{display} に更新があります\n"
+            f"質問: {question}\n"
+            f"回答: {answer}"
+        )
+        sent = await _discord_send_message(env, channel_id, msg)
+        if not sent:
+            had_error = True
+            failed_page_ids.append(page_id)
+
+    if state.enabled():
+        await state.put_json_if_changed("qa_cache", new_cache)
+    if return_detail:
+        return {
+            "ok": not had_error,
+            "first_run": first_run,
+            "failed_count": len(failed_page_ids),
+            "failed_page_ids": failed_page_ids[:20],
+        }
+    return not had_error
+
+
 async def run_qa_notification_job(env, state, return_detail: bool = False):
     """
     QA通知ジョブ本体。
@@ -290,56 +345,12 @@ async def run_qa_notification_job(env, state, return_detail: bool = False):
     await ensure_qa_question_numbers(env)
     # Q&A DB の全ページを取得
     pages = await _notion_query_all_pages(env, db_id)
-    # キャッシュを取得
-    cache = await state.get_json("qa_cache", {}) if state.enabled() else {}
-    if not isinstance(cache, dict):
-        cache = {}
-    # 初回実行判定(キャッシュに _first_qa_run が無ければ True)
-    first_run = bool(cache.get("_first_qa_run", True))
-    new_cache: dict[str, str | bool] = {"_first_qa_run": False}
-    had_error = False
-    failed_page_ids = []
-
-    for page in pages:
-        page_id_raw = (page or {}).get("id")
-        if not page_id_raw:
-            continue
-        page_id = str(page_id_raw)
-        last = str((page or {}).get("last_edited_time") or "")
-        new_cache[page_id] = last
-        if first_run:
-            continue
-        if str(cache.get(page_id) or "") == last:
-            continue
-        question = _extract_title(page, "質問") or "(質問なし)"
-        answer = _extract_rich_text(page, "回答") or "(回答なし)"
-        # 回答済みなら通知しない
-        if answer != "(回答なし)":
-            continue
-        q_number = _extract_number(page, "質問番号")
-        display = q_number if q_number is not None else "?"
-        msg = (
-            f"❓ 質問番号 #{display} に更新があります\n"
-            f"質問: {question}\n"
-            f"回答: {answer}"
-        )
-        # Discordへ送信
-        sent = await _discord_send_message(env, channel_id, msg)
-        if not sent:
-            had_error = True
-            failed_page_ids.append(str(page_id))
-
-    # キャッシュ保存
-    if state.enabled():
-        await state.put_json_if_changed("qa_cache", new_cache)
-    if return_detail:
-        return {
-            "ok": not had_error,
-            "first_run": first_run,
-            "failed_count": len(failed_page_ids),
-            "failed_page_ids": failed_page_ids[:20],
-        }
-    return not had_error
+    return await _run_qa_notification_pages(
+        env,
+        state,
+        pages,
+        return_detail=return_detail,
+    )
 
 
 async def _list_discord_events(env):
@@ -366,12 +377,25 @@ def _discord_event_url(env, event_id: str):
     return f"https://discord.com/events/{guild_id}/{event_id}"
 
 
-async def run_day_before_reminder_job(env, state, return_detail: bool = False):
-    """
-    前日リマインド。
-    今から24時間後から window_minutes の範囲に入るイベントのみ通知し、
-    通知済みIDを reminder_cache に保存して重複送信を防ぐ。
-    """
+def _reminder_window_minutes(env) -> int:
+    """前日リマインドの通知ウィンドウ幅を返す。"""
+    raw = str(getattr(env, "REMINDER_WINDOW_MINUTES", "15") or "15")
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return 15
+
+
+async def _run_reminder_events(
+    env,
+    state,
+    events: list[dict],
+    *,
+    now_utc: datetime | None = None,
+    return_detail: bool = False,
+    send_message: Any | None = None,
+):
+    """取得済みDiscordイベントへ前日判定と重複抑止を適用する。"""
     channel_id = str(getattr(env, "REMINDER_CHANNEL_ID", "") or "").strip()
     role_id = str(getattr(env, "REMINDER_ROLE_ID", "") or "").strip()
     if not channel_id or not role_id:
@@ -383,19 +407,17 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
             }
         return True
 
-    # 通知ウィンドウ幅を取得
-    window_minutes_raw = str(getattr(env, "REMINDER_WINDOW_MINUTES", "15") or "15")
-    try:
-        window_minutes = max(1, int(window_minutes_raw))
-    except Exception:
-        window_minutes = 15 # 24時間後から15分間
-
-    now_utc = datetime.now(timezone.utc)
+    window_minutes = _reminder_window_minutes(env)
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    elif now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
     window_start = now_utc + timedelta(hours=24) # 今から24時間後
     # そこからさらに window_minutes 分後
     window_end = window_start + timedelta(minutes=window_minutes)
 
-    events = await _list_discord_events(env)
     # 通知済みイベントIDのキャッシュ
     cache = await state.get_json("reminder_cache", {}) if state.enabled() else {}
     if not isinstance(cache, dict):
@@ -411,6 +433,10 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
         start_dt = _parse_rfc3339((event or {}).get("scheduled_start_time"))
         if not start_dt:
             continue
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        else:
+            start_dt = start_dt.astimezone(timezone.utc)
         # 今からちょうど24時間後から、さらに window_minutes 分の範囲に始まるイベントのみ
         if not (window_start <= start_dt < window_end):
             continue
@@ -431,7 +457,8 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
             f"{event_url}"
         )
         # Discord REST API メッセージ送信リクエスト
-        sent = await _discord_send_message(
+        sender = send_message or _discord_send_message
+        sent = await sender(
             env,
             channel_id,
             msg,
@@ -458,6 +485,33 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
             "failed_event_ids": failed_event_ids[:20],
         }
     return not had_error
+
+
+async def run_day_before_reminder_job(env, state, return_detail: bool = False):
+    """
+    前日リマインド。
+    今から24時間後から window_minutes の範囲に入るイベントのみ通知し、
+    通知済みIDを reminder_cache に保存して重複送信を防ぐ。
+    """
+    channel_id = str(getattr(env, "REMINDER_CHANNEL_ID", "") or "").strip()
+    role_id = str(getattr(env, "REMINDER_ROLE_ID", "") or "").strip()
+    if not channel_id or not role_id:
+        if return_detail:
+            return {
+                "ok": True,
+                "skipped": True,
+                "reason": "missing_reminder_channel_id_or_role_id",
+            }
+        return True
+
+    events = await _list_discord_events(env)
+    return await _run_reminder_events(
+        env,
+        state,
+        events,
+        now_utc=datetime.now(timezone.utc),
+        return_detail=return_detail,
+    )
 
 
 def _utc_now():
@@ -506,16 +560,23 @@ def _cleanup_interval_seconds(env) -> int:
         return 86400
 
 
-async def run_auto_clean_job(env, state, return_detail: bool = False):
-    """
-    Notion cleanup ジョブ本体。
-    - interval guard を満たさない場合は skip
-    - 内部DBの条件に従って対象ページをアーカイブ
-    - 最終実行時刻を KV に保存
-    """
-    internal_db = _env_text(env, "NOTION_EVENT_INTERNAL_ID", "")
+async def _run_auto_clean_pages(
+    env,
+    state,
+    pages: list[dict] | None,
+    *,
+    now_utc: datetime | None = None,
+    return_detail: bool = False,
+    archive_page: Any | None = None,
+):
+    """取得済みページへ期限判定とinterval guardを適用する。"""
     date_prop = _env_text(env, "NOTION_PROP_DATE", "日時")
-    now_utc = _utc_now()
+    if now_utc is None:
+        now_utc = _utc_now()
+    elif now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
 
     # 前回実行時刻 cleanup:last_epoch を読んで、まだ十分時間が経っていなければ処理をスキップ
     if state.enabled():
@@ -528,22 +589,28 @@ async def run_auto_clean_job(env, state, return_detail: bool = False):
             detail = {"ok": True, "skipped": True, "reason": "interval_guard"}
             return detail if return_detail else True
 
+    if pages is None:
+        internal_db = _env_text(env, "NOTION_EVENT_INTERNAL_ID", "")
+        pages = (
+            await _notion_query_all_pages(env, internal_db)
+            if internal_db
+            else []
+        )
+
     scanned = 0
     archived = 0
     had_error = False
 
-    # 内部DBを掃除
-    if internal_db:
-        pages = await _notion_query_all_pages(env, internal_db)
-        for page in pages:
-            scanned += 1
-            if not _archive_internal_due(_extract_date(page, date_prop), now_utc):
-                continue
-            ok = await _notion_archive_page(env, str((page or {}).get("id") or ""))
-            if ok:
-                archived += 1
-            else:
-                had_error = True
+    archiver = archive_page or _notion_archive_page
+    for page in pages:
+        scanned += 1
+        if not _archive_internal_due(_extract_date(page, date_prop), now_utc):
+            continue
+        ok = await archiver(env, str((page or {}).get("id") or ""))
+        if ok:
+            archived += 1
+        else:
+            had_error = True
 
     # 最終実行時刻を保存
     if state.enabled():
@@ -556,3 +623,18 @@ async def run_auto_clean_job(env, state, return_detail: bool = False):
             "archived": archived,
         }
     return not had_error
+
+
+async def run_auto_clean_job(env, state, return_detail: bool = False):
+    """
+    Notion cleanup ジョブ本体。
+    - interval guard を満たさない場合は skip
+    - 内部DBの条件に従って対象ページをアーカイブ
+    - 最終実行時刻を KV に保存
+    """
+    return await _run_auto_clean_pages(
+        env,
+        state,
+        None,
+        return_detail=return_detail,
+    )

@@ -87,6 +87,61 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "default: preflight" in text, "write_mode_became_default")
     _expect(
         errors,
+        text.count("deploy-and-discord-google-smoke") == 3,
+        "discord_google_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-discord-notion-smoke") == 3,
+        "discord_notion_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-discord-delta-smoke") == 3,
+        "discord_delta_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-google-notion-smoke") == 3,
+        "google_notion_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-google-discord-smoke") == 3,
+        "google_discord_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-qa-notification-smoke") == 3,
+        "qa_notification_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-reminder-smoke") == 3,
+        "reminder_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-notion-cleanup-smoke") == 3,
+        "notion_cleanup_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-webhook-simulation-smoke") == 3,
+        "webhook_simulation_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-webhook-delivery-smoke") == 3,
+        "webhook_delivery_mode_contract_changed",
+    )
+    _expect(
+        errors,
+        text.count("deploy-and-webhook-change-smoke") == 3,
+        "webhook_change_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("timeout-minutes:") == 2,
         "job_timeout_count_changed",
     )
@@ -103,8 +158,15 @@ def _check_workflow(text: str) -> list[str]:
     )
     for secret in FORBIDDEN_RUNTIME_SECRETS:
         _expect(errors, secret not in text, f"runtime_secret_copied_to_github:{secret}")
+    _expect(errors, "vars.E2E_WORKER_URL" not in text, "worker_url_not_masked")
+    for name in ("E2E_WORKER_URL", "E2E_WORKER_URL_SHA256"):
+        _expect(
+            errors,
+            text.count(f"${{{{ secrets.{name} }}}}") == 4,
+            f"worker_origin_secret_scope_changed:{name}",
+        )
 
-    deploy_block = _step_block(text, "Deploy and run service CRUD smoke")
+    deploy_block = _step_block(text, "Deploy and run selected write smoke")
     cleanup_block = _step_block(text, "Always cleanup resources created by this run")
     evidence_block = _step_block(text, "Collect redacted evidence")
     _expect(errors, bool(deploy_block), "deploy_step_missing")
@@ -124,7 +186,62 @@ def _check_workflow(text: str) -> list[str]:
     _expect(
         errors,
         "inputs.mode == 'deploy-and-crud-smoke'" in cleanup_block,
-        "cleanup_write_mode_guard_missing",
+        "cleanup_crud_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-discord-google-smoke'" in cleanup_block,
+        "cleanup_discord_google_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-discord-notion-smoke'" in cleanup_block,
+        "cleanup_discord_notion_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-discord-delta-smoke'" in cleanup_block,
+        "cleanup_discord_delta_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-google-notion-smoke'" in cleanup_block,
+        "cleanup_google_notion_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-google-discord-smoke'" in cleanup_block,
+        "cleanup_google_discord_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-qa-notification-smoke'" in cleanup_block,
+        "cleanup_qa_notification_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-reminder-smoke'" in cleanup_block,
+        "cleanup_reminder_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-notion-cleanup-smoke'" in cleanup_block,
+        "cleanup_notion_cleanup_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-webhook-simulation-smoke'" in cleanup_block,
+        "cleanup_webhook_simulation_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-webhook-delivery-smoke'" in cleanup_block,
+        "cleanup_webhook_delivery_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-webhook-change-smoke'" in cleanup_block,
+        "cleanup_webhook_change_mode_guard_missing",
     )
     _check_action_pins(errors, text)
     return errors

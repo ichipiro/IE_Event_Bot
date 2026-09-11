@@ -157,13 +157,13 @@ pytest -q
   - Linux 仮想環境に導入する Python パッケージ。
 - [`docs/TESTING.md`](docs/TESTING.md)
   - 外部通信を遮断したローカル単体テストの構成、実行方法、検証境界。
-- [`docs/Event_Bot仕様書.md`](docs/Event_Bot仕様書.md)
+- `docs/Event_Bot仕様書.md`
   - 追跡対象外で維持するローカル機能仕様書。
-- [`docs/KV.md`](docs/KV.md)
+- `docs/KV.md`
   - 追跡対象外で維持する Workers KV のローカル補助。
-- [`docs/Operations.md`](docs/Operations.md)
+- `docs/Operations.md`
   - 追跡対象外で維持する運用上のローカル補助。
-- [`docs/do-kv-design.md`](docs/do-kv-design.md)
+- `docs/do-kv-design.md`
   - 追跡対象外で維持する状態設計のローカル補助。
 - [`docs/fork-upstream-workflow.md`](docs/fork-upstream-workflow.md)
   - Fork、Upstream、Pull Request、Release、同期の運用。

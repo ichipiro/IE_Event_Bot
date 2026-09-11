@@ -48,6 +48,20 @@ def _detail_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"ok": bool(value)}
 
 
+def _gcal_webhook_token_status(env, request) -> int:
+    """Google webhook channel tokenを検証し、成功時は0を返す。"""
+    required_token = str(getattr(env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
+    if not required_token:
+        return 503
+    channel_token = _header(request, "X-Goog-Channel-Token")
+    if not channel_token or not compare_digest(
+        channel_token.encode("utf-8"),
+        required_token.encode("utf-8"),
+    ):
+        return 401
+    return 0
+
+
 class Default(WorkerEntrypoint):
     """
     Worker のエントリポイント。
@@ -127,31 +141,7 @@ class Default(WorkerEntrypoint):
 
         # Google Calendar webhook 通知の受信口
         if path == "/gcal/webhook":
-            if method != "POST":
-                return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
-            required_token = str(getattr(self.env, "GCAL_WEBHOOK_TOKEN", "") or "").strip()
-            if not required_token:
-                return Response("webhook unavailable", status=503)
-            channel_token = _header(request, "X-Goog-Channel-Token")
-            if not channel_token or not compare_digest(
-                channel_token.encode("utf-8"),
-                required_token.encode("utf-8"),
-            ):
-                return Response("unauthorized", status=401)
-            if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
-                goog_channel = _header(request, "X-Goog-Channel-ID")
-                goog_msg = _header(request, "X-Goog-Message-Number")
-                # 重複チェック
-                duplicated = await state.mark_google_message_seen(
-                    goog_channel or "",
-                    goog_msg or "",
-                )
-                if duplicated:
-                    return Response("", status=204)
-            sync_resp = await self._run_sync_dispatch(request, state, source="webhook")
-            if int(sync_resp.status) >= 500:
-                return Response("sync failed", status=500)
-            return Response("", status=204)
+            return await self._handle_gcal_webhook(request, state)
 
         # Q&A 未回答更新通知ジョブを実行
         if path == "/jobs/qa-check":
@@ -355,6 +345,44 @@ class Default(WorkerEntrypoint):
                 )
         return results
 
+    async def _handle_gcal_webhook(
+        self,
+        request,
+        state: StateStore,
+        *,
+        google_applier=None,
+    ):
+        """Google webhook の認証、重複抑止、同期起動を処理する。"""
+        method = str(request.method or "GET").upper()
+        if method != "POST":
+            return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
+
+        token_status = _gcal_webhook_token_status(self.env, request)
+        if token_status == 503:
+            return Response("webhook unavailable", status=503)
+        if token_status:
+            return Response("unauthorized", status=401)
+
+        if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
+            goog_channel = _header(request, "X-Goog-Channel-ID")
+            goog_msg = _header(request, "X-Goog-Message-Number")
+            duplicated = await state.mark_google_message_seen(
+                goog_channel or "",
+                goog_msg or "",
+            )
+            if duplicated:
+                return Response("", status=204)
+
+        sync_resp = await self._run_sync_dispatch(
+            request,
+            state,
+            source="webhook",
+            google_applier=google_applier,
+        )
+        if int(sync_resp.status) >= 500:
+            return Response("sync failed", status=500)
+        return Response("", status=204)
+
     def _authorized(self, request) -> bool:
         """
         Bearer 認可判定。
@@ -373,7 +401,14 @@ class Default(WorkerEntrypoint):
         token = auth_header[7:].strip()
         return compare_digest(token.encode("utf-8"), required_token.encode("utf-8"))
 
-    async def _run_sync_dispatch(self, request, state: StateStore, source: str):
+    async def _run_sync_dispatch(
+        self,
+        request,
+        state: StateStore,
+        source: str,
+        *,
+        google_applier=None,
+    ):
         """
         同期処理の中核ディスパッチ。
         手順:
@@ -382,6 +417,9 @@ class Default(WorkerEntrypoint):
         3) mode に応じて Google fetch/apply + Discord poll sync 実行
         4) 成功時はカーソル/最終時刻/last_result を更新
         5) finally でロック解放
+
+        google_applier は所有資源限定 E2E だけが差し替える。通常経路では
+        production の apply_google_events を使用する。
         """
         # 同期間隔を取得
         sync_interval = self._sync_interval_seconds()
@@ -421,7 +459,8 @@ class Default(WorkerEntrypoint):
             google_result = await run_google_delta_fetch(self.env, state, commit_cursor=False)
             apply_result = {"ok": True, "skipped": True}
             if google_result.get("ok"):
-                apply_result = await apply_google_events(
+                selected_applier = google_applier or apply_google_events
+                apply_result = await selected_applier(
                     self.env,
                     state,
                     google_result.get("items") or [],

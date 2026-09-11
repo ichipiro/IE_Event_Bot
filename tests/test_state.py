@@ -55,6 +55,47 @@ def test_google_message_dedupe_uses_kv_without_durable_object() -> None:
     assert second is True
 
 
+def test_e2e_google_message_dedupe_uses_owned_durable_object_state() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    namespace = CamelCaseDurableObjectNamespace(coordinator)
+    store = StateStore(
+        SimpleNamespace(
+            STATE_KV=MemoryKV(),
+            SYNC_COORDINATOR=namespace,
+            GCAL_DEDUPE_TTL_SECONDS="60",
+        )
+    )
+    run_id = "E2E-20260902T100000Z-1234abcd"
+
+    first = run(
+        store.mark_e2e_google_message_seen(
+            "e2e-webhook-channel",
+            "100",
+            run_id,
+        )
+    )
+    duplicate = run(
+        store.mark_e2e_google_message_seen(
+            "e2e-webhook-channel",
+            "100",
+            run_id,
+        )
+    )
+    cleared = run(
+        store.clear_e2e_google_message_seen(
+            "e2e-webhook-channel",
+            "100",
+            run_id,
+        )
+    )
+
+    assert first is False
+    assert duplicate is True
+    assert cleared is True
+    assert not any(key.startswith("gcal_msg:") for key in coordinator.ctx.storage.data)
+    assert store.env.STATE_KV.put_calls == []
+
+
 def test_sync_epoch_uses_durable_object_when_available(monkeypatch) -> None:
     coordinator = make_durable_object(SyncCoordinator())
     namespace = DurableObjectNamespace(coordinator)
@@ -126,6 +167,56 @@ def test_e2e_manifest_round_trip_uses_durable_object_not_kv() -> None:
     assert run(store.get_e2e_manifest("discord")) == manifest
     assert kv.put_calls == []
     assert "e2e:manifest:discord" in coordinator.ctx.storage.data
+
+
+def test_e2e_webhook_delivery_state_resolves_watch_notification_race() -> None:
+    coordinator = make_durable_object(SyncCoordinator())
+    namespace = CamelCaseDurableObjectNamespace(coordinator)
+    store = StateStore(SimpleNamespace(SYNC_COORDINATOR=namespace))
+    run_id = "E2E-20260902T110000Z-1234abcd"
+    channel_id = "e2e-webhook-owned-channel"
+    run(
+        store.put_e2e_manifest(
+            "webhook_delivery",
+            {
+                "version": 1,
+                "kind": "google_webhook_delivery",
+                "dirty": True,
+                "run_id": run_id,
+                "channel_id": channel_id,
+            },
+        )
+    )
+
+    accepted = run(
+        store.record_e2e_webhook_delivery(
+            channel_id=channel_id,
+            resource_id="google-resource-id",
+            resource_state="sync",
+            message_number="1",
+        )
+    )
+    already_received = run(
+        store.attach_e2e_webhook_watch(
+            run_id=run_id,
+            channel_id=channel_id,
+            resource_id="google-resource-id",
+            expiration="1790000000000",
+            watch_status=200,
+        )
+    )
+    rejected = run(
+        store.record_e2e_webhook_delivery(
+            channel_id="not-owned",
+            resource_id="google-resource-id",
+            resource_state="sync",
+            message_number="1",
+        )
+    )
+
+    assert accepted is True
+    assert already_received is True
+    assert rejected is False
 
 
 def test_e2e_manifest_fails_closed_without_durable_object() -> None:

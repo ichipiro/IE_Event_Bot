@@ -14,10 +14,38 @@ import {
 
 
 export const SERVICES = Object.freeze(["google", "discord", "notion"]);
+export const CLEANUP_TARGETS = Object.freeze([
+  "google",
+  "discord",
+  "notion",
+  "discord_google",
+  "discord_notion",
+  "discord_delta",
+  "google_discord",
+  "google_notion",
+  "qa_notification",
+  "reminder",
+  "notion_cleanup",
+  "webhook_dispatch",
+  "webhook_delivery",
+  "webhook_change",
+]);
 export const COMMANDS = Object.freeze([
   "run-id",
   "preflight",
   "deploy-and-crud-smoke",
+  "deploy-and-discord-google-smoke",
+  "deploy-and-discord-notion-smoke",
+  "deploy-and-discord-delta-smoke",
+  "deploy-and-discord-delta-recovery",
+  "deploy-and-google-discord-smoke",
+  "deploy-and-google-notion-smoke",
+  "deploy-and-qa-notification-smoke",
+  "deploy-and-reminder-smoke",
+  "deploy-and-notion-cleanup-smoke",
+  "deploy-and-webhook-simulation-smoke",
+  "deploy-and-webhook-delivery-smoke",
+  "deploy-and-webhook-change-smoke",
   "cleanup",
   "evidence",
 ]);
@@ -33,10 +61,12 @@ const CLEANUP_DELAY_MS = 1_000;
 const NON_RETRYABLE_CLEANUP_ERRORS = new Set([
   "cleanup_confirmation_mismatch",
   "cleanup_run_id_mismatch",
+  "cleanup_target_mismatch",
   "dirty_manifest_target_mismatch",
   "e2e_mcp_configuration_invalid",
   "invalid_dirty_manifest",
   "legacy_e2e_manifest_review_required",
+  "webhook_dedupe_target_mismatch",
 ]);
 
 
@@ -60,6 +90,19 @@ function sleep(delayMs) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs));
 }
 
+
+export function selectWorkflowRunId(mode, recoveryRunId = "") {
+  if (mode === "deploy-and-discord-delta-recovery") {
+    if (!RUN_ID_PATTERN.test(recoveryRunId)) {
+      throw new E2eWorkflowError("recovery_run_id_invalid");
+    }
+    return recoveryRunId;
+  }
+  if (recoveryRunId) {
+    throw new E2eWorkflowError("recovery_run_id_forbidden");
+  }
+  return createRunId();
+}
 
 export function createRunId(now = new Date(), randomBytesImpl = randomBytes) {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
@@ -178,7 +221,7 @@ export async function cleanupServices(callTool, runId, services, options = {}) {
   const attempts = options.attempts ?? CLEANUP_ATTEMPTS;
   const delayMs = options.delayMs ?? CLEANUP_DELAY_MS;
   const sleepImpl = options.sleepImpl ?? sleep;
-  const selected = SERVICES.filter((service) => new Set(services).has(service));
+  const selected = CLEANUP_TARGETS.filter((service) => new Set(services).has(service));
   const results = {};
 
   for (const service of selected) {
@@ -259,19 +302,440 @@ export async function runDeployAndCrudSmoke(callTool, runId, options = {}) {
 }
 
 
+export async function runDeployAndGoogleNotionSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "google_notion",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "google_notion",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["google_notion"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["google_notion"] };
+}
+
+
+export async function runDeployAndGoogleDiscordSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "google_discord",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "google_discord",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["google_discord"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["google_discord"] };
+}
+
+
+export async function runDeployAndDiscordGoogleSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_google",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "discord_google",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["discord_google"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["discord_google"] };
+}
+
+
+export async function runDeployAndDiscordNotionSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_notion",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "discord_notion",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["discord_notion"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["discord_notion"] };
+}
+
+
+export async function runDiscordDeltaRecovery(callTool, runId) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await requireTool(callTool, "cleanup_run", {
+    run_id: runId, service: "discord_delta", confirmation: `cleanup:discord_delta:${runId}`,
+  });
+  await runPreflight(callTool, runId);
+  return { ok: true, recovered: "discord_delta" };
+}
+
+export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
+      sync_phase: "prepare",
+    });
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
+      sync_phase: "resume",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "discord_delta",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["discord_delta"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["discord_delta"] };
+}
+
+
+export async function runDeployAndQaNotificationSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_job", {
+      run_id: runId,
+      job: "qa_check",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "qa_notification",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["qa_notification"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["qa_notification"] };
+}
+
+
+export async function runDeployAndReminderSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_job", {
+      run_id: runId,
+      job: "reminder",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "reminder",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["reminder"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["reminder"] };
+}
+
+
+export async function runDeployAndNotionCleanupSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_job", {
+      run_id: runId,
+      job: "cleanup",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "notion_cleanup",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["notion_cleanup"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["notion_cleanup"] };
+}
+
+
+export async function runDeployAndWebhookSimulationSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_webhook", {
+      run_id: runId,
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "webhook_dispatch",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["webhook_dispatch"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["webhook_dispatch"] };
+}
+
+
+export async function runDeployAndWebhookDeliverySmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_webhook_delivery", {
+      run_id: runId,
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "webhook_delivery",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["webhook_delivery"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["webhook_delivery"] };
+}
+
+
+export async function runDeployAndWebhookChangeSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_webhook_change", {
+      run_id: runId,
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "webhook_change",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["webhook_change"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["webhook_change"] };
+}
+
+
 export function touchedServicesFromAudit(entries, runId) {
   const touched = new Set();
   for (const entry of Array.isArray(entries) ? entries : []) {
     if (
       entry?.run_id === runId &&
-      entry.tool === "seed_fixture" &&
       entry.phase === "start" &&
-      SERVICES.includes(entry.target)
+      (
+        (entry.tool === "cleanup_run" && entry.target === "discord_delta") ||
+        (entry.tool === "seed_fixture" && SERVICES.includes(entry.target)) ||
+        (entry.tool === "trigger_sync" &&
+          [
+            "discord_google",
+            "discord_notion",
+            "discord_delta",
+            "google_discord",
+            "google_notion",
+          ].includes(entry.target)) ||
+        (entry.tool === "trigger_job" &&
+          ["qa_check", "reminder", "cleanup"].includes(entry.target)) ||
+        (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch") ||
+        (entry.tool === "trigger_webhook_delivery" &&
+          entry.target === "webhook_delivery") ||
+        (entry.tool === "trigger_webhook_change" &&
+          entry.target === "webhook_change")
+      )
     ) {
-      touched.add(entry.target);
+      const jobService = {
+        qa_check: "qa_notification",
+        reminder: "reminder",
+        cleanup: "notion_cleanup",
+      }[entry.target];
+      touched.add(jobService ?? entry.target);
     }
   }
-  return SERVICES.filter((service) => touched.has(service));
+  return CLEANUP_TARGETS.filter((service) => touched.has(service));
 }
 
 
@@ -344,6 +808,7 @@ function unavailableManifest(runId, error) {
     operations: [],
     cleanup: {},
     services: {},
+    scenarios: {},
     watch: { present: false },
     evidence: { ok: false, error },
   };
@@ -398,6 +863,54 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-crud-smoke") {
       await runDeployAndCrudSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-google-smoke") {
+      await runDeployAndDiscordGoogleSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-delta-smoke") {
+      await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-delta-recovery") {
+      await runDiscordDeltaRecovery(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-notion-smoke") {
+      await runDeployAndDiscordNotionSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-google-notion-smoke") {
+      await runDeployAndGoogleNotionSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-google-discord-smoke") {
+      await runDeployAndGoogleDiscordSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-qa-notification-smoke") {
+      await runDeployAndQaNotificationSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-reminder-smoke") {
+      await runDeployAndReminderSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-notion-cleanup-smoke") {
+      await runDeployAndNotionCleanupSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-webhook-simulation-smoke") {
+      await runDeployAndWebhookSimulationSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-webhook-delivery-smoke") {
+      await runDeployAndWebhookDeliverySmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-webhook-change-smoke") {
+      await runDeployAndWebhookChangeSmoke(callTool, runId);
       return;
     }
     if (command === "cleanup") {

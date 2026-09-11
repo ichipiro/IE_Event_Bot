@@ -70,7 +70,7 @@ def test_webhook_rejects_when_channel_token_secret_is_missing() -> None:
     worker = make_worker(SimpleNamespace())
     dispatch_sources: list[str] = []
 
-    async def fake_dispatch(request, state, source):
+    async def fake_dispatch(request, state, source, *, google_applier=None):
         dispatch_sources.append(source)
         return Response("", status=200)
 
@@ -111,7 +111,7 @@ def test_webhook_rejects_missing_or_wrong_channel_token() -> None:
     worker = make_worker(SimpleNamespace(GCAL_WEBHOOK_TOKEN="channel-token"))
     dispatch_sources: list[str] = []
 
-    async def fake_dispatch(request, state, source):
+    async def fake_dispatch(request, state, source, *, google_applier=None):
         dispatch_sources.append(source)
         return Response("", status=200)
 
@@ -204,7 +204,7 @@ def test_webhook_duplicate_dispatches_only_once() -> None:
     worker = make_worker(env)
     dispatch_sources: list[str] = []
 
-    async def fake_dispatch(request, state, source):
+    async def fake_dispatch(request, state, source, *, google_applier=None):
         dispatch_sources.append(source)
         return Response("", status=200)
 

@@ -17,6 +17,8 @@ export const TOOL_NAMES = [
   "seed_fixture",
   "trigger_sync",
   "trigger_webhook",
+  "trigger_webhook_delivery",
+  "trigger_webhook_change",
   "trigger_job",
   "read_status",
   "assert_external_state",
@@ -31,21 +33,47 @@ const AUDIT_DIR = resolve(AUDIT_ROOT, "e2e-mcp");
 const MAX_RESPONSE_BYTES = 65_536;
 const WORKER_TIMEOUT_MS = 60_000;
 const DEPLOY_TIMEOUT_MS = 300_000;
+const DEPLOY_VERIFY_ATTEMPTS = 20;
+const DEPLOY_VERIFY_INTERVAL_MS = 3_000;
 
 const SERVICE_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud",
   discord: "/admin/e2e/discord-crud",
   notion: "/admin/e2e/notion-crud",
 });
+const SCENARIO_ROUTES = Object.freeze({
+  discord_google: "/admin/e2e/discord-google-sync",
+  discord_notion: "/admin/e2e/discord-notion-sync",
+  discord_delta: "/admin/e2e/discord-delta-sync",
+  google_discord: "/admin/e2e/google-discord-sync",
+  google_notion: "/admin/e2e/google-notion-sync",
+  qa_notification: "/admin/e2e/qa-notification",
+  reminder: "/admin/e2e/reminder",
+  notion_cleanup: "/admin/e2e/notion-cleanup",
+  webhook_dispatch: "/admin/e2e/trigger-webhook",
+  webhook_delivery: "/admin/e2e/google-webhook-delivery",
+  webhook_change: "/admin/e2e/google-webhook-change",
+});
 const CLEANUP_ROUTES = Object.freeze({
   google: "/admin/e2e/google-crud/cleanup",
   discord: "/admin/e2e/discord-crud/cleanup",
   notion: "/admin/e2e/notion-crud/cleanup",
+  discord_google: "/admin/e2e/discord-google-sync/cleanup",
+  discord_notion: "/admin/e2e/discord-notion-sync/cleanup",
+  discord_delta: "/admin/e2e/discord-delta-sync/cleanup",
+  google_discord: "/admin/e2e/google-discord-sync/cleanup",
+  google_notion: "/admin/e2e/google-notion-sync/cleanup",
+  qa_notification: "/admin/e2e/qa-notification/cleanup",
+  reminder: "/admin/e2e/reminder/cleanup",
+  notion_cleanup: "/admin/e2e/notion-cleanup/cleanup",
+  webhook_dispatch: "/admin/e2e/trigger-webhook/cleanup",
+  webhook_delivery: "/admin/e2e/google-webhook-delivery/cleanup",
+  webhook_change: "/admin/e2e/google-webhook-change/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
-  qa_check: "/jobs/qa-check",
-  reminder: "/jobs/reminder",
-  cleanup: "/jobs/cleanup",
+  qa_check: "/admin/e2e/qa-notification",
+  reminder: "/admin/e2e/reminder",
+  cleanup: "/admin/e2e/notion-cleanup",
   run_all: "/jobs/run-all",
 });
 const REQUIRED_ENV_KEYS = [
@@ -53,6 +81,8 @@ const REQUIRED_ENV_KEYS = [
   "notion_internal_db",
   "notion_qa_db",
   "google_calendar_id",
+  "gcal_webhook_url",
+  "gcal_webhook_token",
   "discord_token",
   "discord_guild_id",
   "discord_event_channel",
@@ -76,6 +106,29 @@ const runIdField = z
   .regex(RUN_ID_PATTERN)
   .describe("E2E-<UTC timestamp>-<8 lowercase hex>形式のrun ID");
 const serviceField = z.enum(["google", "discord", "notion"]);
+const scenarioField = z.enum([
+  "discord_google",
+  "discord_notion",
+  "discord_delta",
+  "google_discord",
+  "google_notion",
+]);
+const cleanupTargetField = z.enum([
+  "google",
+  "discord",
+  "notion",
+  "discord_google",
+  "discord_notion",
+  "discord_delta",
+  "google_discord",
+  "google_notion",
+  "qa_notification",
+  "reminder",
+  "notion_cleanup",
+  "webhook_dispatch",
+  "webhook_delivery",
+  "webhook_change",
+]);
 const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
 
 
@@ -217,6 +270,7 @@ export async function appendAuditEntry(entry) {
     run_id: entry.run_id,
     tool: entry.tool,
     target: entry.target,
+    sync_phase: ["run", "prepare", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
@@ -269,6 +323,7 @@ export async function readAuditEntries(runId) {
           run_id: runId,
           tool: entry.tool,
           target: entry.target,
+          sync_phase: ["run", "prepare", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
@@ -316,9 +371,14 @@ async function workerRequest(config, route, method, runId, fetchImpl) {
   const headers = {
     Authorization: `Bearer ${config.internalApiToken}`,
     Accept: "application/json",
+    "Cache-Control": "no-cache, no-store",
   };
   if (runId) {
     headers["X-E2E-Run-ID"] = runId;
+  }
+  if (method === "POST" && route.startsWith(SCENARIO_ROUTES.discord_delta) &&
+      !route.endsWith("/cleanup")) {
+    headers["X-E2E-Version-Tag"] = runId;
   }
 
   let response;
@@ -494,6 +554,12 @@ function sanitizeStatus(response) {
   for (const service of Object.keys(SERVICE_ROUTES)) {
     services[service] = sanitizeManifest(rawServices[service]);
   }
+  const rawScenarios =
+    payload.scenarios && typeof payload.scenarios === "object" ? payload.scenarios : {};
+  const scenarios = {};
+  for (const scenario of Object.keys(SCENARIO_ROUTES)) {
+    scenarios[scenario] = sanitizeManifest(rawScenarios[scenario]);
+  }
 
   const googleAuth =
     payload.google_auth && typeof payload.google_auth === "object" ? payload.google_auth : {};
@@ -504,6 +570,10 @@ function sanitizeStatus(response) {
   const rawRoutes =
     payload.routes_enabled && typeof payload.routes_enabled === "object"
       ? payload.routes_enabled
+      : {};
+  const rawScenarioRoutes =
+    payload.scenario_routes_enabled && typeof payload.scenario_routes_enabled === "object"
+      ? payload.scenario_routes_enabled
       : {};
   const rawWorkerVersion =
     payload.worker_version && typeof payload.worker_version === "object"
@@ -523,6 +593,10 @@ function sanitizeStatus(response) {
       : null,
     kv_enabled: Boolean(payload.kv_enabled ?? payload.kv_state_enabled),
     e2e_manifest_enabled: Boolean(payload.e2e_manifest_enabled),
+    orchestrated_writes_enabled:
+      typeof payload.orchestrated_writes_enabled === "boolean"
+        ? payload.orchestrated_writes_enabled
+        : null,
     legacy_manifest_check_complete: payload.legacy_manifest_check_complete === true,
     legacy_manifests: Object.fromEntries(
       Object.keys(SERVICE_ROUTES).map((service) => {
@@ -542,6 +616,12 @@ function sanitizeStatus(response) {
     routes_enabled: Object.fromEntries(
       Object.keys(SERVICE_ROUTES).map((service) => [service, rawRoutes[service] === true]),
     ),
+    scenario_routes_enabled: Object.fromEntries(
+      Object.keys(SCENARIO_ROUTES).map((scenario) => [
+        scenario,
+        rawScenarioRoutes[scenario] === true,
+      ]),
+    ),
     required_envs: requiredEnvs,
     google_auth: {
       direct_env: Boolean(googleAuth.direct_env),
@@ -554,6 +634,9 @@ function sanitizeStatus(response) {
       present: rawWorkerVersion.present === true,
       id_sha256: /^[0-9a-f]{64}$/.test(String(rawWorkerVersion.id_sha256 ?? ""))
         ? String(rawWorkerVersion.id_sha256)
+        : null,
+      tag: RUN_ID_PATTERN.test(String(rawWorkerVersion.tag ?? ""))
+        ? String(rawWorkerVersion.tag)
         : null,
       timestamp: sanitizeTimestamp(rawWorkerVersion.timestamp),
     },
@@ -568,17 +651,37 @@ function sanitizeStatus(response) {
       status: Number.isInteger(syncLock.status) ? syncLock.status : null,
     },
     services,
+    scenarios,
     error: response.ok ? null : response.error,
   };
 }
 
 
-export async function deployDedicatedWorker(config, spawnImpl = spawn) {
+function preflightFailureCode(config, health, status, checks) {
+  if (!config.ok) {
+    return "e2e_mcp_configuration_invalid";
+  }
+  if (!health.ok) {
+    return safeErrorCode(health.error, "worker_health_unavailable");
+  }
+  if (!status.ok) {
+    return safeErrorCode(status.error, "worker_status_unavailable");
+  }
+  const failedCheck = Object.entries(checks)
+    .find(([, ready]) => ready !== true)?.[0];
+  return failedCheck ? `preflight_${failedCheck}_failed` : "preflight_failed";
+}
+
+
+export async function deployDedicatedWorker(config, versionTag, spawnImpl = spawn) {
   if (!config.cloudflareAccountId) {
     return { ok: false, status: null, error: "missing_cloudflare_account_id" };
   }
   if (!config.cloudflareApiToken) {
     return { ok: false, status: null, error: "missing_cloudflare_api_token" };
+  }
+  if (!RUN_ID_PATTERN.test(String(versionTag ?? ""))) {
+    return { ok: false, status: null, error: "invalid_worker_version_tag" };
   }
   const wranglerConfig = await readFile(
     resolve(REPO_ROOT, "workers", "wrangler.e2e.jsonc"),
@@ -591,7 +694,16 @@ export async function deployDedicatedWorker(config, spawnImpl = spawn) {
   return await new Promise((resolveResult) => {
     const child = spawnImpl(
       "npm",
-      ["run", "wrangler", "--", "deploy", "--config", "workers/wrangler.e2e.jsonc"],
+      [
+        "run",
+        "wrangler",
+        "--",
+        "deploy",
+        "--config",
+        "workers/wrangler.e2e.jsonc",
+        "--tag",
+        versionTag,
+      ],
       {
         cwd: REPO_ROOT,
         env: {
@@ -626,6 +738,32 @@ export async function deployDedicatedWorker(config, spawnImpl = spawn) {
       });
     });
   });
+}
+
+
+async function waitForDeployedWorker(
+  config,
+  runId,
+  fetchImpl,
+  delayImpl,
+) {
+  for (let attempt = 1; attempt <= DEPLOY_VERIFY_ATTEMPTS; attempt += 1) {
+    const response = await workerRequest(
+      config,
+      "/admin/e2e/status",
+      "GET",
+      runId,
+      fetchImpl,
+    );
+    const status = sanitizeStatus(response);
+    if (status.ok && status.worker_version.tag === runId) {
+      return { ok: true, attempts: attempt };
+    }
+    if (attempt < DEPLOY_VERIFY_ATTEMPTS) {
+      await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
+    }
+  }
+  return { ok: false, attempts: DEPLOY_VERIFY_ATTEMPTS };
 }
 
 
@@ -679,7 +817,7 @@ export async function readRepositoryMetadata(spawnImpl = spawn) {
 }
 
 
-function operationRoute(tool, target) {
+function operationRoute(tool, target, syncPhase = "run") {
   if (tool === "seed_fixture") {
     return SERVICE_ROUTES[target] ?? null;
   }
@@ -687,10 +825,19 @@ function operationRoute(tool, target) {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
-    return "/sync/all";
+    if (target === "discord_delta" && ["prepare", "resume"].includes(syncPhase)) {
+      return `${SCENARIO_ROUTES.discord_delta}/${syncPhase}`;
+    }
+    return SCENARIO_ROUTES[target] ?? null;
   }
   if (tool === "trigger_webhook") {
     return "/admin/e2e/trigger-webhook";
+  }
+  if (tool === "trigger_webhook_delivery") {
+    return "/admin/e2e/google-webhook-delivery";
+  }
+  if (tool === "trigger_webhook_change") {
+    return "/admin/e2e/google-webhook-change";
   }
   if (tool === "trigger_job") {
     return JOB_ROUTES[target] ?? null;
@@ -706,7 +853,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       timestamp: sanitizeTimestamp(entry.timestamp),
       tool: entry.tool,
       target: entry.target,
-      route: operationRoute(entry.tool, entry.target),
+      route: operationRoute(entry.tool, entry.target, entry.sync_phase),
       ok: entry.ok === true,
       status: Number.isInteger(entry.status) ? entry.status : null,
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
@@ -751,6 +898,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
     operations: finished,
     cleanup,
     services: status.services,
+    scenarios: status.scenarios,
     watch: status.watch,
   };
 }
@@ -790,6 +938,9 @@ export function createE2eMcpServer(options = {}) {
   const auditImpl = options.auditImpl ?? appendAuditEntry;
   const readAuditImpl = options.readAuditImpl ?? readAuditEntries;
   const deployImpl = options.deployImpl ?? deployDedicatedWorker;
+  const delayImpl = options.delayImpl ?? ((milliseconds) => new Promise(
+    (resolveDelay) => setTimeout(resolveDelay, milliseconds),
+  ));
   const repositoryMetadataImpl = options.repositoryMetadataImpl ?? readRepositoryMetadata;
   const config = loadE2eEnvironment(env);
   const server = new McpServer({ name: "ie-event-bot-e2e", version: "1.0.0" });
@@ -825,8 +976,14 @@ export function createE2eMcpServer(options = {}) {
           Object.values(status.legacy_manifests).every((value) => value.present === false),
         clean_manifests: Object.values(status.services).every(
           (manifest) => manifest.dirty === false,
+        ) && Object.values(status.scenarios).every(
+          (manifest) => manifest.dirty === false,
         ),
+        unowned_writes_blocked: status.orchestrated_writes_enabled === false,
         routes: Object.values(status.routes_enabled).every((enabled) => enabled === true),
+        scenario_routes: Object.values(status.scenario_routes_enabled).every(
+          (enabled) => enabled === true,
+        ),
         required_envs: REQUIRED_ENV_KEYS.every((key) => status.required_envs[key] === true),
         google_auth:
           status.google_auth.direct_env ||
@@ -845,6 +1002,9 @@ export function createE2eMcpServer(options = {}) {
         checks,
         e2e_status: status,
       };
+      payload.error = payload.ok
+        ? null
+        : preflightFailureCode(config, health, status, checks);
       return toolResult(payload, !payload.ok);
     },
   );
@@ -880,7 +1040,32 @@ export function createE2eMcpServer(options = {}) {
       const result = await runAudited(
         auditImpl,
         { run_id: runId, tool: "deploy_e2e", target: WORKER_NAME },
-        async () => await deployImpl(config),
+        async () => {
+          const deployed = await deployImpl(config, runId);
+          if (deployed.ok !== true) {
+            return deployed;
+          }
+          const verified = await waitForDeployedWorker(
+            config,
+            runId,
+            fetchImpl,
+            delayImpl,
+          );
+          if (!verified.ok) {
+            return {
+              ok: false,
+              status: deployed.status ?? null,
+              error: "worker_version_propagation_timeout",
+              version_verified: false,
+              verification_attempts: verified.attempts,
+            };
+          }
+          return {
+            ...deployed,
+            version_verified: true,
+            verification_attempts: verified.attempts,
+          };
+        },
       );
       return toolResult({ ...result, run_id: runId }, !result.ok);
     },
@@ -928,8 +1113,11 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "固定E2E Workerの全体同期routeを実行する。",
-      inputSchema: { run_id: runIdField },
+      description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しresumeで続行できる。",
+      inputSchema: {
+        run_id: runIdField, scenario: scenarioField,
+        sync_phase: z.enum(["run", "prepare", "resume"]).default("run"),
+      },
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -937,13 +1125,44 @@ export function createE2eMcpServer(options = {}) {
         openWorldHint: true,
       },
     },
-    async ({ run_id: runId }) => {
+    async ({ run_id: runId, scenario, sync_phase: syncPhase }) => {
+      if (scenario !== "discord_delta" && syncPhase !== "run") {
+        return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
+      }
       const result = await runAudited(
         auditImpl,
-        { run_id: runId, tool: "trigger_sync", target: "sync_all" },
+        { run_id: runId, tool: "trigger_sync", target: scenario, sync_phase: syncPhase },
         async () => {
-          const response = await workerRequest(config, "/sync/all", "POST", runId, fetchImpl);
-          return sanitizeOperation(response, runId);
+          let response = await workerRequest(
+            config,
+            operationRoute("trigger_sync", scenario, syncPhase),
+            "POST",
+            runId,
+            fetchImpl,
+          );
+          for (let attempt = 1; scenario === "discord_delta" && attempt < DEPLOY_VERIFY_ATTEMPTS &&
+               response.status === 409 && response.payload.error === "worker_version_mismatch"; attempt += 1) {
+            await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
+            response = await workerRequest(config, operationRoute("trigger_sync", scenario, syncPhase),
+              "POST", runId, fetchImpl);
+          }
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && syncPhase === "prepare" &&
+              (response.payload.status !== "prepared" || response.payload.dirty !== true)) {
+            return { ...sanitized, ok: false, error: "delta_prepare_not_ready" };
+          }
+          if (sanitized.ok && syncPhase === "resume" &&
+              (response.payload.ok !== true || response.payload.dirty !== false)) {
+            return { ...sanitized, ok: false, error: "delta_resume_incomplete" };
+          }
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
         },
       );
       return toolResult(result, !result.ok);
@@ -953,7 +1172,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_webhook",
     {
-      description: "固定E2E Workerの認証済みwebhook-dispatch simulationを実行する。",
+      description: "所有資源限定のWebhook ingress認証・重複抑止simulationを実行する。",
       inputSchema: { run_id: runIdField },
       annotations: {
         readOnlyHint: false,
@@ -974,7 +1193,93 @@ export function createE2eMcpServer(options = {}) {
             runId,
             fetchImpl,
           );
-          return sanitizeOperation(response, runId);
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
+        },
+      );
+      return toolResult(result, !result.ok);
+    },
+  );
+
+  server.registerTool(
+    "trigger_webhook_delivery",
+    {
+      description: "短命なrun所有watchを作成し、Googleからの初回sync通知到達後に停止する。",
+      inputSchema: { run_id: runIdField },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ run_id: runId }) => {
+      const result = await runAudited(
+        auditImpl,
+        { run_id: runId, tool: "trigger_webhook_delivery", target: "webhook_delivery" },
+        async () => {
+          const response = await workerRequest(
+            config,
+            SCENARIO_ROUTES.webhook_delivery,
+            "POST",
+            runId,
+            fetchImpl,
+          );
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
+        },
+      );
+      return toolResult(result, !result.ok);
+    },
+  );
+
+  server.registerTool(
+    "trigger_webhook_change",
+    {
+      description: "Googleの実exists通知から所有eventだけを共通dispatchでNotionへ反映・回収する。",
+      inputSchema: { run_id: runIdField },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ run_id: runId }) => {
+      const result = await runAudited(
+        auditImpl,
+        { run_id: runId, tool: "trigger_webhook_change", target: "webhook_change" },
+        async () => {
+          const response = await workerRequest(
+            config,
+            SCENARIO_ROUTES.webhook_change,
+            "POST",
+            runId,
+            fetchImpl,
+          );
+          const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && response.payload.run_id !== runId) {
+            return {
+              ...sanitized,
+              ok: false,
+              error: "worker_run_id_mismatch",
+            };
+          }
+          return sanitized;
         },
       );
       return toolResult(result, !result.ok);
@@ -984,7 +1289,7 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_job",
     {
-      description: "固定allowlistからE2E Workerのjobを1つ実行する。",
+      description: "固定allowlistからrun所有資源に限定したE2E jobを1つ実行する。",
       inputSchema: { run_id: runIdField, job: jobField },
       annotations: {
         readOnlyHint: false,
@@ -1036,7 +1341,7 @@ export function createE2eMcpServer(options = {}) {
     "assert_external_state",
     {
       description: "指定serviceの直近manifestが同じrun IDでcleanかを確認する。",
-      inputSchema: { run_id: runIdField, service: serviceField },
+      inputSchema: { run_id: runIdField, service: cleanupTargetField },
       annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
     },
     async ({ run_id: runId, service }) => {
@@ -1048,7 +1353,7 @@ export function createE2eMcpServer(options = {}) {
         fetchImpl,
       );
       const status = sanitizeStatus(response);
-      const manifest = status.services[service];
+      const manifest = status.services[service] ?? status.scenarios[service];
       const ok =
         status.ok && manifest.present && !manifest.dirty && manifest.run_id === runId;
       return toolResult(
@@ -1110,7 +1415,7 @@ export function createE2eMcpServer(options = {}) {
           ? repositoryReady
             ? null
             : "repository_metadata_unavailable"
-          : "worker_status_unavailable",
+          : safeErrorCode(status.error, "worker_status_unavailable"),
       };
       return toolResult(result, !result.ok);
     },
@@ -1119,10 +1424,10 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "cleanup_run",
     {
-      description: "manifestとrun IDが一致するserviceだけをcleanupする。",
+      description: "manifestとrun IDが一致するserviceまたはscenarioだけをcleanupする。",
       inputSchema: {
         run_id: runIdField,
-        service: serviceField,
+        service: cleanupTargetField,
         confirmation: z.string().describe("cleanup:<service>:<run ID>の完全一致"),
       },
       annotations: {

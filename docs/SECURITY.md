@@ -71,16 +71,32 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - HTTP 200 でも `cooldown_skip` または `in_progress_skip` なら未実行として失敗扱いにする。
 - status と run manifest は実 URL、Worker version ID、watch ID、外部資源 ID、token を返さず fingerprint だけを残す。
 - create の成否を確定できず検索結果も 0 件の場合、clean と推測せず dirty を維持する。
-- deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。
-- preflight は旧 KV manifest だけでなく、現行 Durable Object manifest が1件でも dirty なら失敗する。
+- Google→Notion scenario は外部 Notion DB、Discord 反映、Notion プロパティ名の上書きを実行前に拒否し、同期対応表と queue を永続化しない。
+- Google→Discord scenario は通常設定の Discord 同期を無効のまま保ち、専用 event 1件の適用呼び出しだけを有効化する。Notion と通常 KV の同期状態は変更しない。
+- Discord→Notion scenario は Google 同期と外部 Notion DB を明示的に無効化し、専用 event 1件の適用呼び出しだけを行う。通常の Discord snapshot / queue と作成通知は変更しない。
+- Discord→Google scenario は通常設定の Google 同期を無効のまま保ち、専用 event 1件の適用呼び出しだけを有効化し、内部・外部 Notion DB を一時 env view から隠す。通常の Discord snapshot / queue と作成通知は変更しない。
+- QA通知 scenario は専用 Q&A page 1件だけを通常ジョブと共通の通知判定へ渡し、初回抑止 cache を実行内へ閉じ込める。Q&A DB 全件取得、質問番号補完、共有KVの `qa_cache` は変更しない。
+- 前日リマインド scenario は専用 Scheduled Event 1件だけを通常ジョブと共通の通知判定へ渡し、通知済み cache を実行内へ閉じ込める。通常の Guild event 一覧処理、共有 KV の `reminder_cache`、実 Cron は変更しない。
+- Notion期限cleanup scenario は専用内部 DB に作成した期限到来・将来日時の page 2件だけを通常ジョブと共通の期限判定へ渡し、最終実行時刻を実行内へ閉じ込める。通常の内部 DB 全件取得、共有 KV の `cleanup:last_epoch`、実 Cron は変更しない。
+- Webhook simulation scenario は通常Workerと共通のingress handlerでchannel token不一致の事前拒否、正しいtokenによる1回目のdispatch、同じchannel IDとmessage numberによる2回目の重複抑止を確認する。重複状態はrun ID付きでDurable Objectに所有し、fingerprint一致後だけ削除する。Google差分取得結果からevent IDとrun markerが一致する1件だけを適用し、同期cursor、最終実行時刻、最終結果、Google認証cacheはrequest内へ閉じ込め、共有KVの対応表とqueueは変更しない。これはGoogleからの実配信やwatch channel作成の確認ではない。
+- Google Webhook実配信 scenario は外部request前にrun所有channelをdirty manifestへ記録し、600秒のTTLを付けたwatchだけを作成する。Googleからのcallbackは共通channel tokenを定時間比較した後、Durable Object内のchannel ID、resource ID、`sync`、message number `1`が一致する場合だけ`204`を返す。watch応答と初回通知の競合は同じDurable Objectで解決し、通常の同期dispatchと共有状態には接続しない。停止または所有権解決に失敗した場合はcleanと推測せずdirtyを維持する。
+- Google変更起因Webhook scenario は、所有eventを更新する前にcursorとwatch所有権をDurable Objectへ記録する。callbackはchannel token、channel / resource ID、`exists`、message numberを検証し、最初の通知だけを原子的にclaimする。共通Webhook ingressの差分取得結果からevent IDとrun markerが一致する1件だけをNotionへ適用し、cursor、最終時刻、最終結果、認証cache、対応表はrequest内へ閉じ込める。cleanupはwatch停止とrun所有dedupe削除をevent削除より先に必須とし、失敗時はdirtyを維持する。
+- Notion page の cleanup は DB、page、source event ID、run ID 入り title または content marker の一致を確認してから archive する。Google event も private source event ID、run ID 入り summary と description marker の一致を確認してから削除する。
+- Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
+- deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。Wranglerへrun IDをversion tagとして固定指定し、同じtagを専用Workerのversion metadataから読み戻せるまで外部書き込みscenarioを開始しない。規定回数内に反映を確認できなければ、旧revisionでscenarioを実行せず失敗させる。
+- preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
+- `trigger_sync` は任意 URL を受け取らず、通常の `/sync/all` ではなく、所有資源限定の Google→Notion / Discord と Discord→Notion / Google route だけを固定列挙から呼ぶ。
+- `trigger_job` の `qa_check`、`reminder`、`cleanup` は通常の `/jobs/*` ではなく、所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼ぶ。run-all は通常 route のまま既定拒否を維持する。
+- 通常の同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation、初回実配信、変更起因実配信は、それぞれ専用フラグと route で分離する。
 
 ## E2E GitHub Actions 境界
 
 - E2E workflow は手動起動だけを許可し、既定の `preflight` は read-only とする。
 - Secret を使う job は required reviewer 付きの `e2e` Environment を参照し、`GITHUB_TOKEN` は `contents: read` に限定する。
+- Worker URLとfingerprintはActionsログへの露出を防ぐため、GitHub Environment secretからだけ渡す。
 - Cloudflare account ID と API token は deploy step だけへ渡し、cleanup と evidence へ継承しない。
 - 外部 action は完全な commit SHA へ固定し、checkout 後の Git credential 永続化を無効にする。
-- run ID と監査開始記録が一致する service だけを `always()` cleanup の対象にする。
+- run ID と監査開始記録が一致する service / scenario だけを `always()` cleanup の対象にする。
 - artifact は固定フィールドでマスクした監査要約と manifest に限定し、14日で失効させる。
 
 ## 設定値の扱い
@@ -99,10 +115,12 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 
 次はローカル静的検査では未確認となるため、デプロイ時に別途確認する。
 
+2026-09-02の専用E2Eでは、共通channel tokenを付けた600秒の短命watch、Googleからの初回`sync`通知、所有event更新後の実`exists`通知、共通Webhook ingressと同期dispatchによるその1件だけのNotion適用、watchと全所有資源のcleanupを実サービスで確認した。cursor、最終時刻、最終結果、認証cache、Notion対応表とqueueは実行内へ閉じ込めた。この結果は、次に挙げる通常運用の共有状態や全件処理を証明しない。
+
 - Cloudflare 上の Secret 登録
 - KV と Durable Object の実バインディング
 - Webhook URL と外部サービス側の登録
-- token 付き watch の再登録と `X-Goog-Channel-Token` を含む実通知
+- 通常Workerにおけるtoken付きwatchの再登録・更新、共有cursorと全Calendarの全件適用を伴う通常同期dispatch
 - 必要に応じた Cloudflare WAF とレート制限の設定
 - API トークンの権限と有効期限
 - GitHub の Secret、Actions 権限、branch protection、ruleset

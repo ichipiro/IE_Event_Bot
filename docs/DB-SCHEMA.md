@@ -67,12 +67,22 @@ KV の JSON は安定した文字列表現で保存し、同じ内容の不要�
 | --- | --- | --- |
 | `lock` | 所有者と期限の JSON | 同期の排他 |
 | `sync:last_epoch` | 最終時刻の JSON | クールダウン |
-| `gcal_msg:<channel_id>:<message_number>` | 期限の JSON | Google Webhook 重複抑止 |
+| `gcal_msg:<channel_id>:<message_number>` | 期限と任意のE2E所有run IDのJSON | Google Webhook 重複抑止 |
 | `e2e:manifest:google` | E2E cleanup manifest の JSON | Google fixture の所有権と復旧 |
 | `e2e:manifest:discord` | E2E cleanup manifest の JSON | Discord fixture の所有権と復旧 |
 | `e2e:manifest:notion` | E2E cleanup manifest の JSON | Notion fixture の所有権と復旧 |
+| `e2e:manifest:discord_google` | E2E cleanup manifest の JSON | Discord→Google scenario の両資源の所有権と復旧 |
+| `e2e:manifest:discord_notion` | E2E cleanup manifest の JSON | Discord→Notion scenario の両資源の所有権と復旧 |
+| `e2e:manifest:google_discord` | E2E cleanup manifest の JSON | Google→Discord scenario の両資源の所有権と復旧 |
+| `e2e:manifest:google_notion` | E2E cleanup manifest の JSON | Google→Notion scenario の両資源の所有権と復旧 |
+| `e2e:manifest:qa_notification` | E2E cleanup manifest の JSON | QA通知 scenario のNotion pageとDiscord messageの所有権と復旧 |
+| `e2e:manifest:reminder` | E2E cleanup manifest の JSON | 前日リマインド scenario の Discord Scheduled Event と message の所有権と復旧 |
+| `e2e:manifest:notion_cleanup` | E2E cleanup manifest の JSON | Notion期限cleanup scenario の期限到来・将来日時 page の所有権と復旧 |
+| `e2e:manifest:webhook_dispatch` | E2E cleanup manifest の JSON | Webhook simulation scenario の Google event、Notion page、重複状態の所有権と復旧 |
+| `e2e:manifest:webhook_delivery` | E2E cleanup manifest の JSON | 短命なGoogle watch channel、resource ID、初回sync通知の所有権と復旧 |
+| `e2e:manifest:webhook_change` | E2E cleanup manifest の JSON | Google event更新、短命watch、最初のexists通知、Notion page、重複状態の所有権と復旧 |
 
-E2E manifest は cleanup が必要な間だけ実 ID を保持し、clean 化後は SHA-256 fingerprint へ置き換える。run ID、service、kind、サイズを Durable Object 側でも検証し、`SYNC_COORDINATOR` がない場合は KV へフォールバックせず失敗させる。
+E2E manifest は cleanup が必要な間だけ実 ID を保持し、clean 化後は SHA-256 fingerprint へ置き換える。`google_notion`、`webhook_dispatch`、`webhook_change` は Google event ID と Notion page ID、`google_discord` と `discord_google` は Google event ID と Discord Scheduled Event ID、`discord_notion` は Discord Scheduled Event ID と Notion page ID、`qa_notification` は Notion Q&A page ID と Discord message ID、`reminder` は Discord Scheduled Event ID と message ID、`notion_cleanup` は期限到来 page ID と将来日時 page ID を同じ run ID で保持し、片方でも cleanup または所有権確認に失敗すれば dirty を維持する。`webhook_dispatch` はさらにrun専用channel IDとmessage numberを保持し、同じrun IDが所有するDurable Object重複状態だけを削除する。`webhook_delivery`は外部request前にrun専用channel IDを保持し、watch応答と初回通知のどちらが先でも同一resource IDだけを原子的に紐付ける。`webhook_change`はさらにevent更新前cursor、最初の`exists` message number、dispatch要約を保持し、後続の`exists`通知は新たなdispatchへ進めない。watch停止とrun所有重複状態の削除が成功してからeventとpageを回収し、channel / resource / message numberと外部資源IDをfingerprintへ置き換える。run ID、service、kind、サイズを Durable Object 側でも検証し、`SYNC_COORDINATOR` がない場合は KV へフォールバックせず失敗させる。
 
 Durable Object は高頻度かつ整合性が必要な状態に限定し、イベント本文や大きな対応表は KV または外部サービスへ置く。Workers KV は結果整合で同一キーの短時間連続更新にも不向きなため、E2E の cleanup 所有権には使わない。
 

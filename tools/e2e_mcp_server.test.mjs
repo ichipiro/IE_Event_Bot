@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +12,7 @@ import {
   TOOL_NAMES,
   appendAuditEntry,
   createE2eMcpServer,
+  deployDedicatedWorker,
   deploymentEnvironment,
   loadE2eEnvironment,
   readAuditEntries,
@@ -138,13 +140,45 @@ test("監査パスとdeploy環境へ任意値やSecretを渡さない", async ()
 });
 
 
-test("公開ツールを10件に固定して任意URLや資源IDを受け取らない", async () => {
+test("Wrangler deployへ検証対象run IDだけをversion tagとして渡す", async () => {
+  let invocation;
+  const spawnImpl = (command, args, options) => {
+    invocation = { command, args, options };
+    const child = new EventEmitter();
+    child.kill = () => {};
+    queueMicrotask(() => child.emit("close", 0));
+    return child;
+  };
+
+  const result = await deployDedicatedWorker(
+    loadE2eEnvironment(ENV),
+    RUN_ID,
+    spawnImpl,
+  );
+
+  assert.deepEqual(result, { ok: true, status: 0, error: null });
+  assert.equal(invocation.command, "npm");
+  assert.deepEqual(invocation.args.slice(-2), ["--tag", RUN_ID]);
+  assert.equal(invocation.options.shell, false);
+  assert.equal(invocation.options.env.CLOUDFLARE_ACCOUNT_ID, ENV.CLOUDFLARE_ACCOUNT_ID);
+  assert.equal(invocation.options.env.CLOUDFLARE_API_TOKEN, ENV.CLOUDFLARE_API_TOKEN);
+  assert.equal("INTERNAL_API_TOKEN" in invocation.options.env, false);
+});
+
+
+test("公開ツールを12件に固定して任意URLや資源IDを受け取らない", async () => {
   await withClient({ env: ENV }, async (client) => {
     const listed = await client.listTools();
     const names = listed.tools.map((tool) => tool.name);
     assert.deepEqual(names, TOOL_NAMES);
 
-    const allowedFields = new Set(["run_id", "service", "job", "confirmation"]);
+    const allowedFields = new Set([
+      "run_id",
+      "service",
+      "scenario", "sync_phase",
+      "job",
+      "confirmation",
+    ]);
     for (const tool of listed.tools) {
       const properties = tool.inputSchema.properties ?? {};
       for (const field of Object.keys(properties)) {
@@ -168,6 +202,8 @@ test("公開ツールを10件に固定して任意URLや資源IDを受け取ら�
       "seed_fixture",
       "trigger_sync",
       "trigger_webhook",
+      "trigger_webhook_delivery",
+      "trigger_webhook_change",
       "trigger_job",
       "cleanup_run",
     ]) {
@@ -180,6 +216,7 @@ test("公開ツールを10件に固定して任意URLや資源IDを受け取ら�
 
 test("preflightは固定routeだけを読み応答中のIDをマスクする", async () => {
   const calls = [];
+  let orchestratedWritesEnabled = false;
   const fetchImpl = async (url, options) => {
     calls.push({ url, options });
     if (url.endsWith("/health")) {
@@ -190,6 +227,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       mode: "e2e",
       kv_enabled: true,
       e2e_manifest_enabled: true,
+      orchestrated_writes_enabled: orchestratedWritesEnabled,
       legacy_manifest_check_complete: true,
       legacy_manifests: {
         google: { present: false, dirty: false },
@@ -197,11 +235,26 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         notion: { present: false, dirty: false },
       },
       routes_enabled: { google: true, discord: true, notion: true },
+      scenario_routes_enabled: {
+        discord_google: true,
+        discord_notion: true,
+        discord_delta: true,
+        google_discord: true,
+        google_notion: true,
+        qa_notification: true,
+        reminder: true,
+        notion_cleanup: true,
+        webhook_dispatch: true,
+        webhook_delivery: true,
+        webhook_change: true,
+      },
       required_envs: Object.fromEntries([
         "notion_token",
         "notion_internal_db",
         "notion_qa_db",
         "google_calendar_id",
+        "gcal_webhook_url",
+        "gcal_webhook_token",
         "discord_token",
         "discord_guild_id",
         "discord_event_channel",
@@ -215,6 +268,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       worker_version: {
         present: true,
         id_sha256: "a".repeat(64),
+        tag: RUN_ID,
         timestamp: "2026-09-01T00:00:00.000Z",
       },
       watch: {
@@ -225,6 +279,19 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
         google: { present: true, dirty: false, run_id: RUN_ID, outcome: "passed" },
         discord: { present: false, dirty: false, run_id: null },
         notion: { present: false, dirty: false, run_id: null },
+      },
+      scenarios: {
+        discord_google: { present: false, dirty: false, run_id: null },
+        discord_notion: { present: false, dirty: false, run_id: null },
+        discord_delta: { present: false, dirty: false, run_id: null },
+        google_discord: { present: false, dirty: false, run_id: null },
+        google_notion: { present: false, dirty: false, run_id: null },
+        qa_notification: { present: false, dirty: false, run_id: null },
+        reminder: { present: false, dirty: false, run_id: null },
+        notion_cleanup: { present: false, dirty: false, run_id: null },
+        webhook_dispatch: { present: false, dirty: false, run_id: null },
+        webhook_delivery: { present: false, dirty: false, run_id: null },
+        webhook_change: { present: false, dirty: false, run_id: null },
       },
     });
   };
@@ -256,7 +323,481 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
     assert.equal(serialized.includes(ENV.INTERNAL_API_TOKEN), false);
     assert.equal(serialized.includes(ENV.E2E_WORKER_URL), false);
     assert.equal(Object.values(payload.checks).every(Boolean), true);
+    assert.equal(payload.checks.unowned_writes_blocked, true);
+    assert.equal(payload.checks.scenario_routes, true);
+    assert.equal(payload.e2e_status.orchestrated_writes_enabled, false);
+    assert.equal(payload.e2e_status.worker_version.tag, RUN_ID);
+    assert.equal(payload.error, null);
+
+    orchestratedWritesEnabled = true;
+    const unsafeResult = await client.callTool({
+      name: "preflight",
+      arguments: { run_id: RUN_ID },
+    });
+    const unsafePayload = parseToolResult(unsafeResult);
+    assert.equal(unsafePayload.ok, false);
+    assert.equal(unsafePayload.checks.unowned_writes_blocked, false);
+    assert.equal(unsafePayload.error, "preflight_unowned_writes_blocked_failed");
   });
+});
+
+
+test("trigger_syncとcleanupは選択した所有資源routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: { application_apply: 200 },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      for (const scenario of [
+        "google_notion",
+        "google_discord",
+        "discord_notion",
+        "discord_delta",
+        "discord_google",
+      ]) {
+        const syncResult = await client.callTool({
+          name: "trigger_sync",
+          arguments: { run_id: RUN_ID, scenario },
+        });
+        const cleanupResult = await client.callTool({
+          name: "cleanup_run",
+          arguments: {
+            run_id: RUN_ID,
+            service: scenario,
+            confirmation: `cleanup:${scenario}:${RUN_ID}`,
+          },
+        });
+
+        assert.equal(parseToolResult(syncResult).ok, true);
+        assert.equal(parseToolResult(cleanupResult).ok, true);
+      }
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-notion-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-google-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-google-sync/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    [
+      "google_notion",
+      "google_notion",
+      "google_discord",
+      "google_discord",
+      "discord_notion",
+      "discord_notion",
+      "discord_delta",
+      "discord_delta",
+      "discord_google",
+      "discord_google",
+    ],
+  );
+});
+
+
+test("Discord差分のprepareとresumeを固定routeへ送り監査に残す", async () => {
+  const calls = [];
+  const audit = [];
+  await withClient({
+    env: ENV,
+    auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: true }),
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return jsonResponse({ ok: true, run_id: RUN_ID,
+        status: url.endsWith("/prepare") ? "prepared" : "completed",
+        dirty: url.endsWith("/prepare"),
+      });
+    },
+  }, async (client) => {
+    for (const sync_phase of ["prepare", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+        arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase },
+      }));
+      assert.equal(result.ok, true);
+    }
+    const result = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID },
+    }));
+    assert.deepEqual(result.manifest.operations.map((op) => op.route), [
+      "/admin/e2e/discord-delta-sync/prepare", "/admin/e2e/discord-delta-sync/resume",
+    ]);
+  });
+  assert.deepEqual(calls.slice(0, 2), [
+    `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/prepare`,
+    `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/resume`,
+  ]);
+  assert.deepEqual(audit.filter((entry) => entry.phase === "start").map((entry) => entry.sync_phase),
+    ["prepare", "resume"]);
+});
+
+test("Discord差分は副作用前のversion不一致だけを待機して再送する", async () => {
+  let calls = 0;
+  const waits = [];
+  await withClient({ env: ENV, auditImpl: async () => {},
+    delayImpl: async (ms) => waits.push(ms),
+    fetchImpl: async (url, options) => {
+      calls += 1;
+      assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+      return calls === 1
+        ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
+        : jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare" },
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+    assert.deepEqual(waits, [3000]);
+  });
+});
+
+test("Discord差分以外の分割実行と不完全なprepare・resume応答を拒否する", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {},
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+    },
+  }, async (client) => {
+    const forbidden = parseToolResult(await client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "google_notion", sync_phase: "resume" },
+    }));
+    assert.equal(forbidden.error, "sync_phase_forbidden");
+    assert.equal(calls.length, 0);
+    for (const sync_phase of ["prepare", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+        arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase },
+      }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, sync_phase === "prepare" ? "delta_prepare_not_ready" : "delta_resume_incomplete");
+    }
+  });
+});
+
+test("trigger_webhookとcleanupは専用ingress simulation routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: { webhook_dispatch: 200 },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const triggerResult = await client.callTool({
+        name: "trigger_webhook",
+        arguments: { run_id: RUN_ID },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "webhook_dispatch",
+          confirmation: `cleanup:webhook_dispatch:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(triggerResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/trigger-webhook`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/trigger-webhook/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["webhook_dispatch", "webhook_dispatch"],
+  );
+});
+
+
+test("trigger_webhook_deliveryとcleanupは短命watch専用routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: {
+        watch_create: 200,
+        webhook_sync_delivery: 204,
+        watch_stop: 204,
+      },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const triggerResult = await client.callTool({
+        name: "trigger_webhook_delivery",
+        arguments: { run_id: RUN_ID },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "webhook_delivery",
+          confirmation: `cleanup:webhook_delivery:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(triggerResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-webhook-delivery`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-webhook-delivery/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["webhook_delivery", "webhook_delivery"],
+  );
+});
+
+
+test("trigger_webhook_changeとcleanupは実exists通知専用routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: {
+        watch_create: 200,
+        webhook_exists_delivery: 204,
+        watch_stop: 204,
+      },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const triggerResult = await client.callTool({
+        name: "trigger_webhook_change",
+        arguments: { run_id: RUN_ID },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "webhook_change",
+          confirmation: `cleanup:webhook_change:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(triggerResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-webhook-change`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/google-webhook-change/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    ["webhook_change", "webhook_change"],
+  );
+});
+
+
+test("trigger_jobはjobごとの所有資源限定routeだけを使う", async () => {
+  const calls = [];
+  const audit = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({
+      ok: true,
+      dirty: false,
+      run_id: RUN_ID,
+      stages: { job_notify: 200 },
+      cleanup: { ok: true, attempts: 1 },
+    });
+  };
+
+  await withClient(
+    { env: ENV, fetchImpl, auditImpl: async (entry) => audit.push(entry) },
+    async (client) => {
+      const jobResult = await client.callTool({
+        name: "trigger_job",
+        arguments: { run_id: RUN_ID, job: "qa_check" },
+      });
+      const cleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "qa_notification",
+          confirmation: `cleanup:qa_notification:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(jobResult).ok, true);
+      assert.equal(parseToolResult(cleanupResult).ok, true);
+
+      const reminderResult = await client.callTool({
+        name: "trigger_job",
+        arguments: { run_id: RUN_ID, job: "reminder" },
+      });
+      const reminderCleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "reminder",
+          confirmation: `cleanup:reminder:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(reminderResult).ok, true);
+      assert.equal(parseToolResult(reminderCleanupResult).ok, true);
+
+      const notionCleanupResult = await client.callTool({
+        name: "trigger_job",
+        arguments: { run_id: RUN_ID, job: "cleanup" },
+      });
+      const notionCleanupCleanupResult = await client.callTool({
+        name: "cleanup_run",
+        arguments: {
+          run_id: RUN_ID,
+          service: "notion_cleanup",
+          confirmation: `cleanup:notion_cleanup:${RUN_ID}`,
+        },
+      });
+
+      assert.equal(parseToolResult(notionCleanupResult).ok, true);
+      assert.equal(parseToolResult(notionCleanupCleanupResult).ok, true);
+    },
+  );
+
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    [
+      `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/qa-notification/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/reminder`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/reminder/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup/cleanup`,
+    ],
+  );
+  assert.equal(calls.every((call) => call.options.method === "POST"), true);
+  assert.deepEqual(
+    audit.filter((entry) => entry.phase === "start").map((entry) => entry.target),
+    [
+      "qa_check",
+      "qa_notification",
+      "reminder",
+      "reminder",
+      "cleanup",
+      "notion_cleanup",
+    ],
+  );
+});
+
+
+test("preflightとevidenceはstatusの固定エラーだけを伝える", async () => {
+  const sensitiveDetail = "sensitive-worker-status-detail";
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/health")) {
+      return jsonResponse({ ok: true, kv_state_enabled: true });
+    }
+    return jsonResponse(
+      {
+        ok: false,
+        error: "sync_coordinator_required",
+        detail: sensitiveDetail,
+      },
+      503,
+    );
+  };
+
+  await withClient(
+    {
+      env: ENV,
+      fetchImpl,
+      readAuditImpl: async () => [],
+      repositoryMetadataImpl: async () => ({
+        git_sha: "c".repeat(40),
+        dirty: false,
+      }),
+    },
+    async (client) => {
+      const preflightResult = await client.callTool({
+        name: "preflight",
+        arguments: { run_id: RUN_ID },
+      });
+      const preflightPayload = parseToolResult(preflightResult);
+      assert.equal(preflightPayload.ok, false);
+      assert.equal(preflightPayload.error, "sync_coordinator_required");
+      assert.equal(JSON.stringify(preflightPayload).includes(sensitiveDetail), false);
+
+      const evidenceResult = await client.callTool({
+        name: "collect_evidence",
+        arguments: { run_id: RUN_ID },
+      });
+      const evidencePayload = parseToolResult(evidenceResult);
+      assert.equal(evidencePayload.ok, false);
+      assert.equal(evidencePayload.error, "sync_coordinator_required");
+      assert.equal(JSON.stringify(evidencePayload).includes(sensitiveDetail), false);
+    },
+  );
 });
 
 
@@ -339,7 +880,10 @@ test("同期lockのHTTP 200 skipを実行成功として扱わない", async () 
       for (const name of ["trigger_sync", "trigger_webhook"]) {
         const result = await client.callTool({
           name,
-          arguments: { run_id: RUN_ID },
+          arguments: {
+            run_id: RUN_ID,
+            ...(name === "trigger_sync" ? { scenario: "google_notion" } : {}),
+          },
         });
         const payload = parseToolResult(result);
 
@@ -400,14 +944,25 @@ test("cleanupとdeployは完全一致confirmationより前に外部操作しな�
 test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す", async () => {
   const audit = [];
   let receivedConfig;
+  let receivedVersionTag;
 
   await withClient(
     {
       env: ENV,
-      deployImpl: async (config) => {
+      deployImpl: async (config, versionTag) => {
         receivedConfig = config;
+        receivedVersionTag = versionTag;
         return { ok: true, status: 0, error: null };
       },
+      fetchImpl: async () => jsonResponse({
+        ok: true,
+        worker_version: {
+          present: true,
+          id_sha256: "a".repeat(64),
+          tag: RUN_ID,
+          timestamp: "2026-09-01T00:00:01.000Z",
+        },
+      }),
       auditImpl: async (entry) => audit.push(entry),
     },
     async (client) => {
@@ -421,12 +976,65 @@ test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す"
       const payload = parseToolResult(result);
 
       assert.equal(payload.ok, true);
+      assert.equal(payload.version_verified, true);
+      assert.equal(payload.verification_attempts, 1);
       assert.equal(receivedConfig.cloudflareAccountId, ENV.CLOUDFLARE_ACCOUNT_ID);
       assert.equal(receivedConfig.cloudflareApiToken, ENV.CLOUDFLARE_API_TOKEN);
+      assert.equal(receivedVersionTag, RUN_ID);
       assert.equal(JSON.stringify(payload).includes(ENV.CLOUDFLARE_ACCOUNT_ID), false);
       assert.equal(JSON.stringify(payload).includes(ENV.INTERNAL_API_TOKEN), false);
       assert.equal(JSON.stringify(payload).includes(ENV.CLOUDFLARE_API_TOKEN), false);
       assert.deepEqual(audit.map((entry) => entry.phase), ["start", "finish"]);
+    },
+  );
+});
+
+
+test("deploy_e2eはrun ID tagの反映前に成功を返さない", async () => {
+  const audit = [];
+  let fetchCalls = 0;
+  let delayCalls = 0;
+
+  await withClient(
+    {
+      env: ENV,
+      deployImpl: async () => ({ ok: true, status: 0, error: null }),
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        return jsonResponse({
+          ok: true,
+          worker_version: {
+            present: true,
+            id_sha256: "b".repeat(64),
+            tag: "E2E-20260901T000001Z-deadbeef",
+            timestamp: "2026-09-01T00:00:00.000Z",
+          },
+        });
+      },
+      delayImpl: async (milliseconds) => {
+        assert.equal(milliseconds, 3_000);
+        delayCalls += 1;
+      },
+      auditImpl: async (entry) => audit.push(entry),
+    },
+    async (client) => {
+      const result = await client.callTool({
+        name: "deploy_e2e",
+        arguments: {
+          run_id: RUN_ID,
+          confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        },
+      });
+      const payload = parseToolResult(result);
+
+      assert.equal(payload.ok, false);
+      assert.equal(payload.error, "worker_version_propagation_timeout");
+      assert.equal(payload.version_verified, false);
+      assert.equal(payload.verification_attempts, 20);
+      assert.equal(fetchCalls, 20);
+      assert.equal(delayCalls, 19);
+      assert.deepEqual(audit.map((entry) => entry.phase), ["start", "finish"]);
+      assert.equal(audit.at(-1).ok, false);
     },
   );
 });
@@ -509,6 +1117,7 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
     worker_version: {
       present: true,
       id_sha256: createHash("sha256").update(rawVersionId).digest("hex"),
+      tag: RUN_ID,
       timestamp: "2026-09-01T00:00:00.000Z",
     },
     watch: {
@@ -525,6 +1134,17 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
         cleanup_attempts: 1,
         stages: { create: 200, delete: 204 },
         resource_fingerprints: { event_id_sha256: resourceFingerprint },
+      },
+    },
+    scenarios: {
+      google_notion: {
+        present: true,
+        dirty: false,
+        run_id: RUN_ID,
+        outcome: "passed",
+        cleanup_attempts: 1,
+        stages: { application_apply: 200, google_delete: 204 },
+        resource_fingerprints: { notion_page_id_sha256: "d".repeat(64) },
       },
     },
   });
@@ -561,6 +1181,7 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
         version: {
           present: true,
           id_sha256: createHash("sha256").update(rawVersionId).digest("hex"),
+          tag: RUN_ID,
           timestamp: "2026-09-01T00:00:00.000Z",
         },
       });
@@ -601,6 +1222,11 @@ test("collect_evidenceは識別子をマスクしたrun manifestを返す", asyn
         resourceFingerprint,
       );
       assert.equal(manifest.watch.channel_id_sha256.length, 64);
+      assert.equal(manifest.scenarios.google_notion.run_id, RUN_ID);
+      assert.equal(
+        manifest.scenarios.google_notion.resource_fingerprints.notion_page_id_sha256,
+        "d".repeat(64),
+      );
 
       const serialized = JSON.stringify(payload);
       assert.equal(serialized.includes(ENV.E2E_WORKER_URL), false);

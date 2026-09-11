@@ -18,6 +18,8 @@ E2E_TOOLS = [
     "seed_fixture",
     "trigger_sync",
     "trigger_webhook",
+    "trigger_webhook_delivery",
+    "trigger_webhook_change",
     "trigger_job",
     "read_status",
     "assert_external_state",

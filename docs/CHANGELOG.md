@@ -2,6 +2,19 @@
 
 この文書は、標準文書構成の変更を記録する。アプリケーションの公開リリース履歴は、Release Please が管理するリポジトリルートの `CHANGELOG.md` を正本とする。
 
+## 2026-09-11
+
+- Discord差分E2Eの実サービス成功、初回失敗と旧run回収、429対応、version確認の証拠を記録し、Issueの確認済み範囲を更新した。
+
+- Discord差分E2Eの準備・続行を別HTTPリクエストへ分割し、MCPの固定 `sync_phase`、単一claim、再送時の挙動と中断時のcleanup境界を記録した。
+
+- Discord差分E2Eのrun単位checkpoint保存・復元・cleanupを追記し、オブジェクト再作成によるローカル検証とHTTP途中再開・実Worker再起動の未確認範囲を明記した。
+
+- Discord差分E2Eをキャンセル・削除・archive読戻しへ拡張し、通常のキャンセル判定、ローカル回帰と実サービス未確認の境界を追記した。
+
+- Discord差分E2Eの手動モード、専用route、所有資源と状態分離、cleanup、検証境界を `docs/TESTING.md` と `docs/BACKEND.md` に追加した。
+- `docs/ISSUES.md` と `docs/WORKLOG.md` に、ローカル検証までの進捗と実サービス実行が未確認であることを記録した。
+
 ## 2026-09-02
 
 ### 変更

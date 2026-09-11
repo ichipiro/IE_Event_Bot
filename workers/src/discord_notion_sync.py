@@ -1,4 +1,6 @@
 import json
+import asyncio
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
@@ -6,6 +8,10 @@ from urllib.parse import quote
 from workers import fetch as _runtime_fetch
 
 from google_auth import get_google_access_token
+
+_DISCORD_GET_ATTEMPTS = 4
+_DISCORD_MAX_RETRY_DELAY = 10.0
+_DISCORD_USER_AGENT = "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)"
 
 
 async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
@@ -222,36 +228,49 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
         return None, 401
     url = f"https://discord.com/api/v10{path}" # v10
     body = None if payload is None else json.dumps(payload, ensure_ascii=False)
-    # Discord REST API リクエスト
-    try:
-        response = await fetch(
-            url,
-            {
-                "method": method.upper(),
-                "headers": {
-                    "Authorization": f"Bot {token}",
-                    "Content-Type": "application/json",
+    for attempt in range(_DISCORD_GET_ATTEMPTS):
+        # Discord REST API リクエスト
+        try:
+            response = await fetch(
+                url,
+                {
+                    "method": method.upper(),
+                    "headers": {
+                        "Authorization": f"Bot {token}",
+                        "Content-Type": "application/json",
+                        "User-Agent": _DISCORD_USER_AGENT,
+                    },
+                    "body": body,
                 },
-                "body": body,
-            },
-        )
-    except Exception as exc:
-        detail = str(exc).lower()
-        if "too many subrequests" in detail:
-            return None, 598
-        return None, 599
+            )
+        except Exception as exc:
+            detail = str(exc).lower()
+            if "too many subrequests" in detail:
+                return None, 598
+            return None, 599
 
-    # レスポンス読み取り
-    status = int(response.status)
-    text = await response.text()
-    if status >= 400:
-        return None, status
-    if status == 204 or not text:
-        return {}, status
-    try:
-        return json.loads(text), status
-    except Exception:
-        return {}, status
+        # レスポンス読み取り
+        status = int(response.status)
+        text = await response.text()
+        if status == 429 and method.upper() == "GET" and attempt + 1 < _DISCORD_GET_ATTEMPTS:
+            try:
+                data = json.loads(text)
+                delay = float(data.get("retry_after"))
+            except (ValueError, TypeError, AttributeError):
+                delay = -1
+            if math.isfinite(delay) and 0 <= delay <= _DISCORD_MAX_RETRY_DELAY:
+                await asyncio.sleep(delay)
+                continue
+        if status >= 400:
+            return None, status
+        if status == 204 or not text:
+            return {}, status
+        try:
+            return json.loads(text), status
+        except Exception:
+            return {}, status
+
+    return None, 429
 
 
 async def _list_discord_scheduled_events(env):
@@ -663,7 +682,13 @@ async def _google_delete_event(env, token: str, google_event_id: str):
     return int(response.status) < 400
 
 
-async def _sync_discord_event_upsert(env, event: dict, google_token: str | None) -> bool:
+async def _sync_discord_event_upsert(
+    env,
+    event: dict,
+    google_token: str | None,
+    *,
+    expected_internal_page_id: str | None = None,
+) -> bool:
     """
     Discordの単一イベントを Notion/Google に同期する。
     処理順:
@@ -695,6 +720,11 @@ async def _sync_discord_event_upsert(env, event: dict, google_token: str | None)
 
     internal_page = await _notion_query_by_message_id(env, internal_db, event_id) if internal_db else None
     external_page = await _notion_query_by_message_id(env, external_db, event_id) if external_db else None
+    # 所有済みpage限定の更新では、検索失敗を新規作成へ切り替えない。
+    if expected_internal_page_id is not None and (
+        not internal_page or internal_page.get("id") != expected_internal_page_id
+    ):
+        return False
     google_event_id = _notion_extract_rich_text(internal_page, prop_google_id) if internal_page else None
 
     # Google 同期（有効時）: 既存IDがあれば更新、なければ作成
@@ -783,7 +813,10 @@ async def _sync_discord_event_upsert(env, event: dict, google_token: str | None)
     return True
 
 
-async def _sync_discord_event_delete(env, event_id: str, google_token: str | None) -> bool:
+async def _sync_discord_event_delete(
+    env, event_id: str, google_token: str | None, *,
+    expected_internal_page_id: str | None = None,
+) -> bool:
     """
     Discord から削除されたイベントを Google/Notion から除去する。
     - Notion 内部ページからGoogleイベントIDを取得できた場合は Google も削除
@@ -793,8 +826,14 @@ async def _sync_discord_event_delete(env, event_id: str, google_token: str | Non
     external_db = _env_text(env, "NOTION_EVENT_ID", "")
     prop_google_id = _prop(env, "NOTION_PROP_GOOGLE_EVENT_ID", "GoogleイベントID")
 
+    if expected_internal_page_id is not None and not internal_db:
+        return False
     if internal_db:
         internal_page = await _notion_query_by_message_id(env, internal_db, event_id)
+        if expected_internal_page_id is not None and (
+            not internal_page or internal_page.get("id") != expected_internal_page_id
+        ):
+            return False
         google_event_id = _notion_extract_rich_text(internal_page, prop_google_id) if internal_page else None
         if google_event_id and _google_sync_enabled(env) and google_token:
             deleted = await _google_delete_event(env, google_token, google_event_id)
@@ -833,6 +872,13 @@ async def run_discord_notion_poll_sync(env, state):
             "errors": [error],
         }
 
+    return await _apply_discord_event_diff(env, state, events)
+
+
+async def _apply_discord_event_diff(
+    env, state, events: list[dict], *, upsert_runner=None, delete_runner=None,
+):
+    """取得済みイベントの差分判定・適用とsnapshot / queue更新を行う。"""
     current_snapshot = {} # フィンガープリント
     current_events = {} # イベント本体
     for event in events:
@@ -926,7 +972,8 @@ async def run_discord_notion_poll_sync(env, state):
             if not event:
                 retry_ops.append({"op": "delete", "id": event_id})
                 continue
-            ok = await _sync_discord_event_upsert(env, event, google_token)
+            apply = upsert_runner or _sync_discord_event_upsert
+            ok = await apply(env, event, google_token)
             if not ok:
                 had_error = True
                 errors.append(f"upsert_failed:{event_id}")
@@ -938,7 +985,8 @@ async def run_discord_notion_poll_sync(env, state):
                     errors.append(f"create_notify_failed:{event_id}")
         # 削除
         else:
-            ok = await _sync_discord_event_delete(env, event_id, google_token)
+            delete = delete_runner or _sync_discord_event_delete
+            ok = await delete(env, event_id, google_token)
             if not ok:
                 had_error = True
                 errors.append(f"delete_failed:{event_id}")

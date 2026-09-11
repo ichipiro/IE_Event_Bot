@@ -77,6 +77,7 @@ def install_api_stub(
     hide_notion_query_results: bool = False,
     discord_delete_statuses: list[int] | None = None,
     notion_archive_statuses: list[int] | None = None,
+    hide_canceled_events: bool = False,
 ):
     discord_events: dict[str, dict] = {}
     notion_pages: dict[str, dict] = {}
@@ -116,7 +117,11 @@ def install_api_stub(
                     raise RuntimeError("response lost after create")
                 return Response(json.dumps(event), status=200)
             if path == collection and method == "GET":
-                return Response(json.dumps(list(discord_events.values())), status=200)
+                listed = [
+                    event for event in discord_events.values()
+                    if not hide_canceled_events or event.get("status") != 4
+                ]
+                return Response(json.dumps(listed), status=200)
             if path.startswith(f"{collection}/"):
                 event_id = path.rsplit("/", 1)[-1]
                 if method == "GET":
@@ -132,6 +137,12 @@ def install_api_stub(
                     if status < 300:
                         discord_events.pop(event_id, None)
                     return Response("", status=status)
+                if method == "PATCH":
+                    event = discord_events.get(event_id)
+                    if event is None:
+                        return Response("", status=404)
+                    event.update(payload)
+                    return Response(json.dumps(event), status=200)
             raise AssertionError(f"想定外のDiscord API呼び出し: {method} {path}")
 
         if parsed.netloc == "api.notion.com":

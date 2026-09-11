@@ -175,7 +175,7 @@ test("公開ツールを12件に固定して任意URLや資源IDを受け取ら�
     const allowedFields = new Set([
       "run_id",
       "service",
-      "scenario",
+      "scenario", "sync_phase",
       "job",
       "confirmation",
     ]);
@@ -238,6 +238,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       scenario_routes_enabled: {
         discord_google: true,
         discord_notion: true,
+        discord_delta: true,
         google_discord: true,
         google_notion: true,
         qa_notification: true,
@@ -282,6 +283,7 @@ test("preflightは固定routeだけを読み応答中のIDをマスクする", a
       scenarios: {
         discord_google: { present: false, dirty: false, run_id: null },
         discord_notion: { present: false, dirty: false, run_id: null },
+        discord_delta: { present: false, dirty: false, run_id: null },
         google_discord: { present: false, dirty: false, run_id: null },
         google_notion: { present: false, dirty: false, run_id: null },
         qa_notification: { present: false, dirty: false, run_id: null },
@@ -361,6 +363,7 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
         "google_notion",
         "google_discord",
         "discord_notion",
+        "discord_delta",
         "discord_google",
       ]) {
         const syncResult = await client.callTool({
@@ -391,6 +394,8 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
       `${ENV.E2E_WORKER_URL}/admin/e2e/google-discord-sync/cleanup`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/discord-notion-sync/cleanup`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync`,
+      `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/cleanup`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/discord-google-sync`,
       `${ENV.E2E_WORKER_URL}/admin/e2e/discord-google-sync/cleanup`,
     ],
@@ -405,12 +410,96 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
       "google_discord",
       "discord_notion",
       "discord_notion",
+      "discord_delta",
+      "discord_delta",
       "discord_google",
       "discord_google",
     ],
   );
 });
 
+
+test("Discord差分のprepareとresumeを固定routeへ送り監査に残す", async () => {
+  const calls = [];
+  const audit = [];
+  await withClient({
+    env: ENV,
+    auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: true }),
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return jsonResponse({ ok: true, run_id: RUN_ID,
+        status: url.endsWith("/prepare") ? "prepared" : "completed",
+        dirty: url.endsWith("/prepare"),
+      });
+    },
+  }, async (client) => {
+    for (const sync_phase of ["prepare", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+        arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase },
+      }));
+      assert.equal(result.ok, true);
+    }
+    const result = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID },
+    }));
+    assert.deepEqual(result.manifest.operations.map((op) => op.route), [
+      "/admin/e2e/discord-delta-sync/prepare", "/admin/e2e/discord-delta-sync/resume",
+    ]);
+  });
+  assert.deepEqual(calls.slice(0, 2), [
+    `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/prepare`,
+    `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/resume`,
+  ]);
+  assert.deepEqual(audit.filter((entry) => entry.phase === "start").map((entry) => entry.sync_phase),
+    ["prepare", "resume"]);
+});
+
+test("Discord差分は副作用前のversion不一致だけを待機して再送する", async () => {
+  let calls = 0;
+  const waits = [];
+  await withClient({ env: ENV, auditImpl: async () => {},
+    delayImpl: async (ms) => waits.push(ms),
+    fetchImpl: async (url, options) => {
+      calls += 1;
+      assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+      return calls === 1
+        ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
+        : jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare" },
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(calls, 2);
+    assert.deepEqual(waits, [3000]);
+  });
+});
+
+test("Discord差分以外の分割実行と不完全なprepare・resume応答を拒否する", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {},
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+    },
+  }, async (client) => {
+    const forbidden = parseToolResult(await client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "google_notion", sync_phase: "resume" },
+    }));
+    assert.equal(forbidden.error, "sync_phase_forbidden");
+    assert.equal(calls.length, 0);
+    for (const sync_phase of ["prepare", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+        arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase },
+      }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, sync_phase === "prepare" ? "delta_prepare_not_ready" : "delta_resume_incomplete");
+    }
+  });
+});
 
 test("trigger_webhookとcleanupは専用ingress simulation routeだけを使う", async () => {
   const calls = [];

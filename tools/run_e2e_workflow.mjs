@@ -20,6 +20,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "notion",
   "discord_google",
   "discord_notion",
+  "discord_delta",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -35,6 +36,8 @@ export const COMMANDS = Object.freeze([
   "deploy-and-crud-smoke",
   "deploy-and-discord-google-smoke",
   "deploy-and-discord-notion-smoke",
+  "deploy-and-discord-delta-smoke",
+  "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
   "deploy-and-qa-notification-smoke",
@@ -87,6 +90,19 @@ function sleep(delayMs) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs));
 }
 
+
+export function selectWorkflowRunId(mode, recoveryRunId = "") {
+  if (mode === "deploy-and-discord-delta-recovery") {
+    if (!RUN_ID_PATTERN.test(recoveryRunId)) {
+      throw new E2eWorkflowError("recovery_run_id_invalid");
+    }
+    return recoveryRunId;
+  }
+  if (recoveryRunId) {
+    throw new E2eWorkflowError("recovery_run_id_forbidden");
+  }
+  return createRunId();
+}
 
 export function createRunId(now = new Date(), randomBytesImpl = randomBytes) {
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) {
@@ -426,6 +442,58 @@ export async function runDeployAndDiscordNotionSmoke(callTool, runId, options = 
 }
 
 
+export async function runDiscordDeltaRecovery(callTool, runId) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await requireTool(callTool, "cleanup_run", {
+    run_id: runId, service: "discord_delta", confirmation: `cleanup:discord_delta:${runId}`,
+  });
+  await runPreflight(callTool, runId);
+  return { ok: true, recovered: "discord_delta" };
+}
+
+export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId,
+    confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+
+  let primaryError = null;
+  try {
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
+      sync_phase: "prepare",
+    });
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
+      sync_phase: "resume",
+    });
+    await requireTool(callTool, "assert_external_state", {
+      run_id: runId,
+      service: "discord_delta",
+    });
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanup = await cleanupServices(callTool, runId, ["discord_delta"], {
+    attempts: 1,
+    sleepImpl: options.cleanup?.sleepImpl,
+  });
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  return { ok: true, scenarios: ["discord_delta"] };
+}
+
+
 export async function runDeployAndQaNotificationSmoke(callTool, runId, options = {}) {
   await requireTool(callTool, "deploy_e2e", {
     run_id: runId,
@@ -640,11 +708,13 @@ export function touchedServicesFromAudit(entries, runId) {
       entry?.run_id === runId &&
       entry.phase === "start" &&
       (
+        (entry.tool === "cleanup_run" && entry.target === "discord_delta") ||
         (entry.tool === "seed_fixture" && SERVICES.includes(entry.target)) ||
         (entry.tool === "trigger_sync" &&
           [
             "discord_google",
             "discord_notion",
+            "discord_delta",
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
@@ -797,6 +867,14 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-google-smoke") {
       await runDeployAndDiscordGoogleSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-delta-smoke") {
+      await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-delta-recovery") {
+      await runDiscordDeltaRecovery(callTool, runId);
       return;
     }
     if (command === "deploy-and-discord-notion-smoke") {

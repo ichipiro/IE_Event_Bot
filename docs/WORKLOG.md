@@ -6,6 +6,122 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: Discord差分E2Eの実サービス検証完了
+
+- commit `7c1005958c003592f040332da6f905ee4509c0c4` を対象に[専用workflow実行34581609741](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)が成功した。`e2e` Environment承認後、専用Workerへdeployして実行した。
+- run `E2E-20260911T085656Z-3563f478` で、別HTTPの `prepare → resume`、作成・無変更・更新・キャンセル・削除・削除後無変更を確認した。snapshot / queueの保存・復元も各stageが200で、通常共有状態は使用していない。
+- 実環境ではキャンセル後に一覧から消える分岐を観測した。明示削除は204、後続GETは404、Notion pageはarchive読戻し200だった。一覧に残る分岐とWorker再起動は実環境では未検証。
+- artifact `e2e-evidence-34581609741-1` を独立取得し、repository SHA・run ID・Worker version tagの一致、`outcome=passed`、`dirty=false`、cleanup成功、raw資源ID・snapshot / queueが記録されていないことを確認した。
+- GitHub上のPython 266件、Node 47件、Ruff、Pyright、設定・Secret hygiene・workflow検査、Wrangler dry-runが成功した。JUnit XMLの266件・失敗0件も確認した。
+- 初回失敗、旧runの回収、429でのfailed_cleanは下の履歴に分離して保持する。今回の成功で、それらを成功扱いへ変更しない。
+- 共有状態・全Guild適用・Google反映・実Cronを含む全体E2Eは未完了であり、Issue #17は継続する。
+
+## 2026-09-11: 旧run回収とDiscord一覧のレート制限対応
+
+- [復旧実行34581033503](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581033503)が成功し、初回runの `recovered`・`dirty=false` とWorker revisionの変更をartifactで確認した。
+- [再実行34581260948](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581260948)はDiscord一覧のHTTP 429で停止した。今回は `failed_clean`・`dirty=false` まで回収できた。初回失敗がUser-Agentだけに起因したとは断定しない。
+- DiscordのGETに限り、応答 `retry_after` が有限・非負・10秒以内の場合に最大4回の試行を行う。副作用のある書込みはこの再試行の対象にしない。
+- 最終artifactが旧version tagを返すケースも観測したため、Discord差分の各書込み入口でMCPが期待tagを送り、Workerが副作用前に検証する。不一致だけを最大20回・3秒間隔で待機する。
+- Python 266件、Node 47件、Ruff、Pyrightでローカル検証した。
+
+## 2026-09-11: Discord差分E2Eの初回実環境検証と復旧実装
+
+- commit `3210352` をforkの `feature/e2e-discord-delta` へpushし、[実行34580597939](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34580597939)でローカル検査・deploy・version tag一致を確認した。
+- Discord一覧取得で適用前に失敗した。Discord eventの削除は確認できたが、Notion作成試行の記録が先行していたため所有権未解決のdirtyが残った。
+- 成功したfixture用HTTP経路との比較で、通常Discord API wrapperには公式形式のUser-Agentがないことを確認し追加した。初回artifactは一覧失敗の実HTTP statusを保持していないため、原因の断定は保留する。以後は固定範囲のstatusだけをstageへ残す。
+- 一覧失敗が適用前であることを保存stageから確認できる場合に限定して未作成pageの回収を完了できるようにし、明示run ID専用の復旧モードを追加した。
+- ローカルのPython 260件、Node 46件と静的検査で確認した。実環境の回収結果は後続記録へ残す。
+
+## 2026-09-11: Discord差分E2EのHTTP間の準備・続行
+
+### 変更
+
+- `/admin/e2e/discord-delta-sync/prepare` で作成・読戻しまで実行し、保存済みsnapshot / queueと所有pageを `/resume` から読み直して続行する経路を追加した。
+- 再開前にrun・対象fingerprint・保存時のイベント内容・Notion pageを確認し、DOで準備済みrunの続行を一度だけ取得する。古い管理記録から準備済み状態への巻戻しも拒否する。
+- 成功済みの同runへの再送は外部操作を行わない。準備完了前や続行中の中断はcleanup対象とし、任意位置からは再実行しない。
+- MCPの固定 `sync_phase=prepare/resume` と監査経路を追加し、Discord差分の手動workflowを2リクエストへ変更した。省略時の一括実行は維持した。
+
+### ローカル検証
+
+- Python単体テスト256件、MCP / workflow契約テスト45件、Ruff、Pyrightが成功した。
+- 別HTTPリクエスト・Worker / DOオブジェクト再作成後の続行、成功後の再送、続行中断後のcleanup、prepare / resume各段階のworkflow失敗処理を確認した。
+- E2E設定、Secret hygiene、workflow policy、PlantUMLモデル検査、固定Wrangler 4.127.1のE2E dry-runが成功した。
+- dry-runは実認証情報とローカルSecretファイルを渡さない作業用コピーで実施した。Markdown相対リンク78件と `git diff --check` を確認した。
+
+### 検証境界
+
+- HTTP入口はローカルRequest、外部APIとDO storageは代替実装で検証した。実デプロイ、実サービス実行、実Worker再起動は未実施。
+- 続行できるのは作成・読戻し完了後の準備境界であり、任意位置からの再開や外部API操作のexactly-once実行を保証するものではない。
+- 通常同期の共有状態、全Guild適用、Google反映、実Cronは引き続き未確認。
+
+## 2026-09-11: Discord差分E2Eのrun状態保存と復元
+
+### 変更
+
+- snapshot / queueの組を `discord_delta` manifest内へ一括保存する専用DO actionを追加した。
+- 各差分処理の前に保存状態を読み直し、run・対象fingerprint・event ID・revisionが不一致なら後続適用を止める。
+- fixtureの管理記録更新ではcheckpointを保持し、cleanup成功時のclean置換で消去する。dirty時もstatusへraw IDを公開しない。
+- 更新・削除の失敗queueを、同じメモリstorageを引き継いでStateStore・DO・差分stateを作り直した後に再試行する回帰テストを追加した。
+
+### ローカル検証
+
+- Python単体テスト230件、MCP / workflow契約テスト42件、Ruff、Pyrightが成功した。
+- E2E設定、Secret hygiene、workflow policy、PlantUMLモデル検査、固定Wrangler 4.127.1のE2E dry-runが成功した。
+- dry-runは実認証情報とローカルSecretファイルを渡さない作業用コピーで実施した。
+- 追跡対象Markdownの相対リンクと `git diff --check` を確認した。
+
+### 検証境界
+
+- 外部APIとDO storageを代替したローカル検証であり、デプロイ・実サービス実行・実Worker再起動は未実施。
+- HTTPリクエストをまたぐscenarioの途中再開は未実装。中断runはdirtyを保持して所有資源をcleanupする。
+- 通常同期の共有snapshot / queue、全Guild適用、Google反映、実Cronは引き続き未確認。
+
+## 2026-09-11: Discord差分E2Eのキャンセル・削除検証
+
+### 変更
+
+- 既存の `discord_delta` scenarioへキャンセル、明示削除、削除後の変更なし判定を追加した。
+- キャンセル後の一覧に残る場合は更新、消えた場合は削除として扱う通常処理を維持し、観測した分岐をstageへ記録する。
+- 削除差分の前に個別GETの404と一覧消失を確認し、Notion再検索のpage ID一致を必須とした。
+- Notionのarchiveをcleanup前に読み戻し、途中失敗を後続cleanupの成功で上書きしない。
+- 更新・削除queueの再試行と、一覧から消えた完了eventを削除しない既存判定をローカル回帰テストで確認した。
+
+### ローカル検証
+
+- Python単体テスト209件、MCP / workflow契約テスト42件、Ruff、Pyrightが成功した。
+- E2E設定、Secret hygiene、workflow policy、PlantUMLモデル検査が成功した。
+- 実認証情報とローカルSecretファイルを渡さない作業用コピーで、固定Wrangler 4.127.1のE2E dry-runが成功した。
+- 追跡対象Markdownの相対リンク78件と `git diff --check` が成功した。
+
+### 検証境界
+
+- 外部通信を代替したローカル検証であり、デプロイや実サービスのキャンセル・削除は未実施。
+- キャンセル後の一覧の両応答形はローカルで確認し、実サービスで両分岐を観測済みとは扱わない。
+- 共有snapshot / queue、全Guild適用、Google反映、実Cronは引き続き未確認。
+
+## 2026-09-11: Discord差分同期の自己cleanup型E2E
+
+### 変更
+
+- 通常Discordポーリングから差分判定・適用・snapshot / queue更新を共通関数へ分離し、既存の通常動作を維持した。
+- run所有event 1件を実一覧から選択して作成・無変更・説明更新を確認し、同じNotion pageへの反映を読み戻すscenarioを追加した。
+- snapshot / queueは実行内stateへ限定し、作成通知先と共有state bindingを差分処理から隠した。
+- E2E更新では既存page IDとの一致を必須にし、Notion再検索失敗を別pageの新規作成へ切り替えない。
+- 独立した `discord_delta` manifest、専用route、MCP scenario、`deploy-and-discord-delta-smoke` 手動workflowモードを追加した。
+- Discord→Notionの既存fixture / cleanupを再利用し、途中失敗、応答喪失、run ID・対象fingerprint不一致、dirty状態からの回収を検証した。
+
+### 検証
+
+- 外部APIを代替したPython単体テスト198件、MCP / workflow契約テスト42件、Ruff、Pyrightが成功した。
+- E2E設定・Secret hygiene・workflow policy検査とPlantUMLモデル検査が成功した。
+- 固定Wrangler 4.127.1のE2E dry-runは、Pythonソースと設定を作業用ディレクトリへ複製し、実認証情報とローカルSecretファイルを渡さず実施した。
+
+### 未確認
+
+- 新モードの実サービス実行とCloudflareへのデプロイ
+- Discordの削除・キャンセル差分、共有snapshot / queueの永続化、全Guild適用、実Cron
+- queue失敗・再試行の証拠はローカル代替によるものであり、実サービスの障害注入ではない。
+
 ## 2026-09-02: Google変更起因Webhook 自己cleanup型 E2E
 
 ### 目的

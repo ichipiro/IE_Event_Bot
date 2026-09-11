@@ -97,6 +97,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-discord-state-smoke` | 専用Workerの通常StateStoreで固定2キーを保存し、別HTTPで読戻しとversionを照合後、所有キーを回収する |
 | `deploy-and-discord-kv-smoke` | 所有Discord event 1件を通常差分処理でNotionとKVへ反映し、別HTTPで読み直して外部資源と固定2キーを回収する |
 | `deploy-and-discord-batch-smoke` | 所有Discord event 2件を上限1件ずつNotionへ反映し、KVの残件を別HTTPで読み直して消化・回収する |
+| `deploy-and-discord-batch-google-smoke` | 所有2件を通常ポーリングからGoogle・Notionへ反映し、対応ID・KV残件・全資源回収を確認する |
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
@@ -179,6 +180,19 @@ MCPは `trigger_sync(scenario="discord_batch", sync_phase="prepare" / "resume" /
 通常ポーリングへの接続では、`discord_batch` の初回・advanceで `run_discord_notion_poll_sync` を呼ぶ。同じ一覧API取得を通し、状態読込み前にDOで所有する2件を選別する。所有ID・run marker・guild・初期内容が一致し、重複と欠落がないことを検証する。一覧順が変わってもDOに記録した順序で処理し、他のイベントは差分処理・KV・Notion反映へ渡さない。`batch_first_poll` / `batch_remaining_poll` を成功証跡へ記録する。通常の呼出しは選別・適用runnerを指定せず、従来どおり全件を扱う。
 
 追加のローカルテストは、有効な他イベントの混在と逆順、初回・advanceそれぞれの一覧欠落・重複・内容変更・不正要素・HTTP失敗を検証する。拒否時にはNotionとKVへ書き込まず、dirtyを保持して回収する。Google同期・通知・手動/Cronの通常HTTP入口はこのシナリオへ未接続で、実行34614558706は接続前の差分処理直接呼出しの証拠である。2026-09-12（JST）の[実行34615847619](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34615847619)では通常ポーリング経由が成功した。初回・残件のpoll各200、上限・残件読戻し・残件消化・最終読戻し・KV回収各200、Discord削除204とNotion archive 200各2件をartifactで独立照合した。監査7操作、Worker version・run一致、outcome=passed、全資源dirty=false、JUnit 410件・失敗0を確認した。verifyは各段階1回で、KV読戻しの再試行は発生していない。
+
+
+`discord_batch_google` は、同じ通常ポーリングと上限1件・別HTTP残件処理をGoogleとNotionへ接続する別シナリオである。`POST /admin/e2e/discord-batch-google` と `/verify`・`/advance`・`/cleanup` を使い、`E2E_DISCORD_BATCH_GOOGLE_ENABLED=true` と専用scopeが必要になる。通常のGoogle同期設定はfalseのまま、当該呼出しのenv viewだけをtrueにする。通知先と通常state bindingは隠す。
+
+GoogleイベントIDは各fixtureのrunからSHA-256で固定し、作成前からDOで保持する。Googleの[イベント作成仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)に従ったIDであり、作成直前のGETが404の場合だけPOSTへ進む。通常の単一イベント適用に追加したcallbackでGoogle・Notionそれぞれの作成着手をDOへ記録する。Google作成応答のID不一致は失敗とし、NotionのGoogleイベントIDとGoogleのDiscord参照・内容・時刻を別HTTPで照合する。既存IDとの衝突は採用しない。
+
+Google認証は各HTTPで既存の認証解決を使うが、通常KVのtoken cacheを読書きしない。解決したtokenはリクエスト内だけで再利用する。cleanupは既知のGoogle IDの所有をGETで確認して削除し、Notion・Discordと固定2KVキーも回収する。404/410は対象なしとして扱い、所有権不一致・削除失敗・KV削除失敗ではdirtyを保持する。全外部資源とKVの回収後だけcleanとし、固定IDを含む集約fingerprintを残す。
+
+MCPは `trigger_sync(scenario="discord_batch_google", sync_phase="prepare" / "resume" / "advance")` と `cleanup_run(service="discord_batch_google")` を使う。手動モードは `deploy-and-discord-batch-google-smoke`。専用Workerを1回deployし、Discord・Notion・Googleを各2件まで作る。prepare / advance各1回、各verify最大25回、同run・dirty=true・409の `discord_batch_google_not_ready` だけを待つ。作成の再送と任意位置からの自動再開は行わない。
+
+`tests/test_e2e_discord_batch_google.py` は対応ID・残件、Google/Notion作成応答の喪失、既存ID衝突、保存失敗、Google削除失敗、所有権/内容/対応ID変更、認証失敗後の成功判定取消しを代替APIで検証する。これらの障害注入はローカル限定で、実際の回線断・Worker停止は追加対象外である。Googleの通常cursor・対応表・全Calendar取得、作成通知、実Cron、TTL超過はこのシナリオへ含めない。
+
+2026-09-12（JST）の[実行34619150601](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34619150601)で `discord_batch_google` が成功した。実装commit `5d4a12bc40950b3e5a844db3355d04602edf119e` に対し、初回・残件の通常ポーリング、Google/Notion対応IDの読戻し、上限1件・残件消化・最終読戻しを確認した。prepare / advanceは各1回、verifyは各段階1回である。artifactの監査7操作、Google/Discord削除204とNotion archive 200各2件、KV回収200、Worker version・run一致、outcome=passed、全資源dirty=false、JUnit 431件・失敗0を独立照合した。KV読戻し再試行は発生していない。回収確認は各API応答とKV delete完了の範囲で、全拠点の削除反映を保証しない。
 
 ## テスト構成
 

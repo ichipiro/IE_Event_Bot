@@ -203,6 +203,51 @@ async function withClient(options, callback) {
 }
 
 
+test("Google付き2件シナリオの固定経路とdrained応答を監査する", async () => {
+  const calls = [], audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, headers: options.headers });
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !url.endsWith("/cleanup"),
+        status: url.endsWith("/advance") ? "drained" : "prepared", stage: "batch_pending_verified" });
+    },
+  }, async (client) => {
+    for (const phase of ["prepare", "resume", "advance"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch_google", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      if (phase === "advance") { assert.equal(result.execution_status, "drained"); }
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: "discord_batch_google", confirmation: `cleanup:discord_batch_google:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  assert.deepEqual(calls.map((c) => c.path), ["/admin/e2e/discord-batch-google", "/admin/e2e/discord-batch-google/verify",
+    "/admin/e2e/discord-batch-google/advance", "/admin/e2e/discord-batch-google/cleanup"]);
+  assert.ok(calls.slice(0, 3).every((c) => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+  assert.ok(audit.some((a) => a.sync_phase === "advance" && a.execution_status === "drained"));
+});
+
+
+for (const phase of ["prepare", "resume", "advance"]) {
+  test(`Google付き2件シナリオの${phase}は不正な完了応答を拒否する`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse({
+      ok: true, dirty: true, run_id: RUN_ID, status: "wrong", stage: "wrong",
+    }) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch_google", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "discord_batch_google_not_ready");
+    });
+  });
+}
+
+
+
+
 test("E2E Worker URLを固定host以外へ向けられない", () => {
   const production = loadE2eEnvironment({
     ...ENV,

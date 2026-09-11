@@ -6,6 +6,14 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: Discord差分E2Eの初回実環境検証と復旧実装
+
+- commit `3210352` をforkの `feature/e2e-discord-delta` へpushし、[実行34580597939](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34580597939)でローカル検査・deploy・version tag一致を確認した。
+- Discord一覧取得で適用前に失敗した。Discord eventの削除は確認できたが、Notion作成試行の記録が先行していたため所有権未解決のdirtyが残った。
+- 成功したfixture用HTTP経路との比較で、通常Discord API wrapperには公式形式のUser-Agentがないことを確認し追加した。初回artifactは一覧失敗の実HTTP statusを保持していないため、原因の断定は保留する。以後は固定範囲のstatusだけをstageへ残す。
+- 一覧失敗が適用前であることを保存stageから確認できる場合に限定して未作成pageの回収を完了できるようにし、明示run ID専用の復旧モードを追加した。
+- ローカルのPython 260件、Node 46件と静的検査で確認した。実環境の回収結果は後続記録へ残す。
+
 ## 2026-09-11: Discord差分E2EのHTTP間の準備・続行
 
 ### 変更

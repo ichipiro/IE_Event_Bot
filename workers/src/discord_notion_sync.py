@@ -7,6 +7,8 @@ from workers import fetch as _runtime_fetch
 
 from google_auth import get_google_access_token
 
+_DISCORD_USER_AGENT = "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)"
+
 
 async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
     opts = options or {}
@@ -231,6 +233,7 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
                 "headers": {
                     "Authorization": f"Bot {token}",
                     "Content-Type": "application/json",
+                    "User-Agent": _DISCORD_USER_AGENT,
                 },
                 "body": body,
             },

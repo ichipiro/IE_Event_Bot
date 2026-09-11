@@ -134,6 +134,10 @@ async def _poll_owned_event(
 ) -> bool:
     events, error = await _list_discord_scheduled_events(env)
     stages[f"{phase}_list"] = 200 if not error and events is not None else 500
+    if error and error.startswith("discord_list_failed:"):
+        status_text = error.removeprefix("discord_list_failed:")
+        if status_text.isdigit() and 400 <= int(status_text) <= 599:
+            stages[f"{phase}_list"] = int(status_text)
     if error or events is None:
         return False
     # 欠落・重複・所有marker変更は削除と推測せず、適用前に止める。

@@ -445,3 +445,53 @@ def test_delta_checkpoint_failure_stops_later_updates_and_cleans(monkeypatch):
     assert events == {}
     assert pages[PAGE_ID]["archived"] is True
     assert not any(method == "PATCH" and "/scheduled-events/" in path for method, path in calls)
+
+
+def test_delta_list_request_supplies_discord_user_agent(monkeypatch):
+    _, _, _, _ = install_api_stub(monkeypatch)
+    original = discord_notion_sync.fetch
+
+    async def require_user_agent(url, options=None):
+        if "scheduled-events?" in url:
+            assert (options or {})["headers"]["User-Agent"].startswith("DiscordBot (")
+        return await original(url, options)
+
+    monkeypatch.setattr(discord_notion_sync, "fetch", require_user_agent)
+    env = make_env()
+    assert run(probe.run_discord_delta_probe(env, StateStore(env), RUN_ID))["ok"] is True
+
+
+def test_list_failure_before_notion_apply_is_failed_clean(monkeypatch):
+    events, pages, _, _ = install_api_stub(monkeypatch)
+
+    async def blocked(env):
+        return None, "discord_list_failed:403"
+
+    monkeypatch.setattr(probe, "_list_discord_scheduled_events", blocked)
+    env = make_env()
+    result = run(probe.run_discord_delta_probe(env, StateStore(env), RUN_ID))
+    assert result["ok"] is False
+    assert result["dirty"] is False
+    assert result["stages"]["delta_create_list"] == 403
+    assert events == pages == {}
+
+
+@pytest.mark.parametrize("apply_started", [False, True])
+def test_legacy_list_failure_cleanup_requires_preapply_evidence(monkeypatch, apply_started):
+    install_api_stub(monkeypatch)
+    env = make_env()
+    state = StateStore(env)
+    stages = {"delta_create_list": 500, "application_apply": 500}
+    if apply_started:
+        stages["delta_create_checkpoint_read"] = 200
+    manifest = {
+        "version": 1, "kind": "discord_delta_sync", "dirty": True, "run_id": RUN_ID,
+        "stage": "cleanup_failed", "stages": stages,
+        "discord_event_id": DISCORD_EVENT_ID,
+        "target_fingerprints": probe._target_fingerprints(env.DISCORD_GUILD_ID, env.NOTION_EVENT_INTERNAL_ID),
+        "create_attempted": {"discord_event": True, "notion_page": True},
+    }
+    run(state.put_e2e_manifest("discord_delta", manifest))
+    result = run(probe.cleanup_discord_delta_probe(env, state, RUN_ID))
+    assert result["ok"] is not apply_started
+    assert result["dirty"] is apply_started

@@ -66,6 +66,7 @@ bash -n tools/configure_github_e2e_environment.sh
 | `deploy-and-crud-smoke` | 専用 Worker を deploy し、Google、Discord、Notion の自己 cleanup 型 CRUD probe と所有状態確認を順に行う |
 | `deploy-and-discord-google-smoke` | 専用 Worker を deploy し、Discord Scheduled Event を既存の適用処理で Google event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-discord-notion-smoke` | 専用 Worker を deploy し、Discord Scheduled Event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
+| `deploy-and-discord-delta-recovery` | 明示した `recovery_run_id` をversion tagにして修正版をdeployし、そのrunのDiscord差分資源だけをcleanupする。新規fixtureは作成しない |
 | `deploy-and-discord-delta-smoke` | 専用 Worker を deploy し、Discord一覧のrun所有1件で新規作成・変更なし・更新・キャンセル・削除を共通差分処理へ通し、Notion pageの反映とarchiveを検証後に両資源をcleanupする |
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
@@ -75,6 +76,8 @@ bash -n tools/configure_github_e2e_environment.sh
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
 | `deploy-and-webhook-delivery-smoke` | 専用 Worker を deploy し、run所有の短命watchを作成してGoogleの初回`sync`通知到達を確認後、watchを停止する |
 | `deploy-and-webhook-change-smoke` | 専用 Worker を deploy し、所有eventの更新でGoogleの実`exists`通知を発生させ、共通dispatchからその1件だけをNotionへ反映後、watch、dedupe、event、pageをcleanupする |
+
+復旧モードでは既存run IDを必須とし、他モードへの指定を拒否する。一覧取得で適用前に停止したことがstageから確定し、checkpointもNotion page IDもない旧delta記録では、Notion再検索で0件を確認した後に未作成として回収を完了できる。適用開始の痕跡がある場合はdirtyを維持する。
 
 書き込みモードは、各 `seed_fixture`、`trigger_sync`、または所有資源限定の `trigger_job` の監査開始記録がある service / scenario だけを run ID 付きで cleanup する。実行 CLI 内の cleanup に加え、workflow の `always()` step でも一時失敗を最大3回再試行する。所有権不一致、旧 manifest、対象 fingerprint 不一致は再試行せず、他 run の資源を削除しない。
 

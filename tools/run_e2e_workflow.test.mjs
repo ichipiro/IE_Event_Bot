@@ -16,6 +16,8 @@ import {
   runDeployAndDiscordGoogleSmoke,
   runDeployAndDiscordNotionSmoke,
   runDeployAndDiscordDeltaSmoke,
+  runDiscordDeltaRecovery,
+  selectWorkflowRunId,
   runDeployAndGoogleDiscordSmoke,
   runDeployAndGoogleNotionSmoke,
   runDeployAndNotionCleanupSmoke,
@@ -307,6 +309,22 @@ test("deploy後にDiscord→Notion適用と所有状態を確認する", async (
   assert.equal(CLEANUP_TARGETS.includes("discord_notion"), true);
 });
 
+
+test("recoveryは明示run IDだけを使いfixtureを作成しない", async () => {
+  assert.equal(selectWorkflowRunId("deploy-and-discord-delta-recovery", RUN_ID), RUN_ID);
+  assert.throws(() => selectWorkflowRunId("deploy-and-discord-delta-recovery", ""));
+  assert.throws(() => selectWorkflowRunId("preflight", RUN_ID));
+  const calls = [];
+  await runDiscordDeltaRecovery(async (name, args) => {
+    calls.push({ name, args });
+    return toolResult({ ok: true, run_id: RUN_ID });
+  }, RUN_ID);
+  assert.deepEqual(calls.map((call) => call.name), ["deploy_e2e", "cleanup_run", "preflight"]);
+  assert.equal(calls[1].args.confirmation, `cleanup:discord_delta:${RUN_ID}`);
+  assert.deepEqual(touchedServicesFromAudit([
+    { run_id: RUN_ID, tool: "cleanup_run", target: "discord_delta", phase: "start" },
+  ], RUN_ID), ["discord_delta"]);
+});
 
 test("deploy後にDiscord差分同期と所有状態を確認する", async () => {
   const calls = [];

@@ -331,6 +331,21 @@ def _clean_manifest(
     }
 
 
+def _delta_apply_not_started(manifest: dict) -> bool:
+    """旧delta記録でも、一覧取得で停止したことが確定する場合だけ未作成と扱う。"""
+    stages = manifest.get("stages") or {}
+    status = stages.get("delta_create_list")
+    return (
+        manifest.get("kind") == "discord_delta_sync"
+        and type(status) is int and 400 <= status <= 599
+        and stages.get("application_apply") == 500
+        and "delta_create_owned" not in stages
+        and "delta_create_checkpoint_read" not in stages
+        and "delta_create_diff" not in stages
+        and not manifest.get("delta_checkpoint") and not manifest.get("notion_page_id")
+    )
+
+
 async def _cleanup_resources(env, manifest: dict) -> dict:
     guild_id = _env_text(env, "DISCORD_GUILD_ID")
     database_id = _env_text(env, "NOTION_EVENT_INTERNAL_ID")
@@ -359,6 +374,7 @@ async def _cleanup_resources(env, manifest: dict) -> dict:
             not notion_error
             and not notion_page_id
             and create_attempted.get("notion_page") is True
+            and not _delta_apply_not_started(manifest)
         ):
             notion_error = "notion_page_ownership_unresolved"
 

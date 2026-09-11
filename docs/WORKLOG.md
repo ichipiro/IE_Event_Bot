@@ -1,5 +1,34 @@
 # 作業履歴
 
+## 2026-09-11: 外部fixtureと通常KVの接続を実サービスで検証
+
+- commit `727a7008a2adfd0842c82eb1f9124acb3e0cf188` の[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)が成功した。run `E2E-20260911T134041Z-a42a095d`、artifact `e2e-evidence-34605517604-1` を独立取得した。
+- 専用Workerのdeploy 1回、所有Discord eventとNotion pageの準備1回、通常StateStoreのKV読戻し1回、cleanupと再cleanupを照合した。通常差分処理の適用、外部資源の所有権・内容の読戻し、Discord削除204、Notion archive 200、KV削除完了、outcome=passed、全資源dirty=falseを確認した。
+- 監査とmanifestの操作順・成功応答、deploy時と最終Workerのversion fingerprint、run tagが一致した。ActionsのPython 376件、Node 115件、Ruff、Pyright、設定検査、Wrangler E2E dry-runが成功し、JUnit 376件・失敗0を独立照合した。
+- 読戻し待機は発生していない。cleanupは削除・archive応答とKVのdelete完了を確認したもので、全拠点の削除反映は保証しない。複数イベント、通常ポーリング、残件、通知、TTL超過は後続作業である。
+
+## 2026-09-11: 外部fixtureと通常KVの所有権を接続
+
+- `discord_kv` を追加し、Discord event 1件・Notion page 1件・通常StateStoreの固定2キーを同じDO manifestで所有する。作成前にscopeを固定し、外部資源とKVの回収が完了してからcleanにする。snapshot / queueはDOへ複製しない。
+- 通常差分処理での初回作成と、別HTTPでの外部資源・KV読戻しを接続した。Notionの適用時検索で既存page・検索失敗・不正応答を拒否する任意の制約を追加した。既定の通常同期は維持する。
+- MCP・手動workflow・監査回収対象へ接続した。外部fixture作成は1回に限定し、未反映の固定応答だけを有限回待つ。
+- Python 376件、Node 115件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。秘密ファイルを含めない作業用コピーで通常・E2E両設定のWrangler dry-runも成功した。既存ユーザー変更2ファイルを保持した。
+- この時点では実サービス未検証。複数件、通常ポーリング、残件、通知、TTL超過は後続作業である。
+
+## 2026-09-11: 通常KV・DOの保存と別HTTP読戻しを実環境で検証
+
+- commit `1e073cdc9e818fb7089417be96da3c0ba9a12599` の[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)が成功した。run `E2E-20260911T132729Z-11bd50f1`、artifact `e2e-evidence-34604249166-1` を独立取得した。
+- 専用Workerのdeploy 1回、通常StateStoreによる固定2キーの保存1回、別HTTP読戻し1回とHTTP 200を照合した。通常cleanupとworkflow末尾の再cleanupが成功し、`discord_state.outcome=passed`、全service / scenarioのdirty=falseを確認した。監査とmanifestの操作順・成功応答・deploy時と最終Workerのversion fingerprint・run tagが一致した。
+- ActionsのPython 352件、Node 108件、Ruff、Pyright、設定検査、Wrangler E2E dry-runが成功した。JUnitも独立取得し352件・失敗0を照合した。
+- 古いKV値による待機は発生しておらず、伝播遅延・全拠点の削除反映・ロックTTL超過はこの実行では検証していない。外部fixture・通常ポーリングは未接続であり、次に所有権の接続へ進む。
+
+## 2026-09-11: 通常KV検証の手動workflow
+
+- PR #64をupstream developへマージし、fork PR #51で同期した。
+- 通常KV専用モードを追加した。保存は1回、未反映の固定応答だけを3秒間隔・最大25回まで読戻し、同run・version・検証済みmanifestを照合して所有2キーを回収する。検証失敗と回収後のfailed_cleanを成功にしない。
+- Python 352件、Node 108件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。既存ユーザー変更2ファイルは保持した。
+- この時点では実KV・DOは未検証。外部fixtureと通常ポーリングは未接続である。
+
 ## 2026-09-11: 通常StateStoreのE2E隔離基盤
 
 - run・scope別KVアダプターとDO所有権検証を追加した。通常StateStoreの固定2キーを、保存・別HTTP読戻し・回収の3経路で扱う。外部APIは呼ばず、snapshot / queueをDOへ複製しない。

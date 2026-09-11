@@ -323,7 +323,7 @@ async def _discord_add_reaction(env, channel_id: str, message_id: str, emoji: st
     return result is not None or int(status or 0) == 204
 
 
-async def _notion_query_by_message_id(env, db_id: str, message_id: str):
+async def _notion_query_by_message_id(env, db_id: str, message_id: str, *, strict: bool = False):
     """
     Notion DB からメッセージID一致のページを1件取得する。
     一致がなければ None。
@@ -350,8 +350,12 @@ async def _notion_query_by_message_id(env, db_id: str, message_id: str):
     )
     # 成功時は200 OK
     if int(response.status) != 200:
+        if strict:
+            raise RuntimeError("notion_query_failed")
         return None
     data = json.loads(await response.text() or "{}")
+    if strict and (not isinstance(data, dict) or not isinstance(data.get("results"), list)):
+        raise RuntimeError("notion_query_invalid")
     results = data.get("results") or []
     return results[0] if results else None
 
@@ -688,6 +692,7 @@ async def _sync_discord_event_upsert(
     google_token: str | None,
     *,
     expected_internal_page_id: str | None = None,
+    require_new_internal_page: bool = False,
 ) -> bool:
     """
     Discordの単一イベントを Notion/Google に同期する。
@@ -718,7 +723,14 @@ async def _sync_discord_event_upsert(
     external_db = _env_text(env, "NOTION_EVENT_ID", "")
     prop_google_id = _prop(env, "NOTION_PROP_GOOGLE_EVENT_ID", "GoogleイベントID")
 
-    internal_page = await _notion_query_by_message_id(env, internal_db, event_id) if internal_db else None
+    if require_new_internal_page:
+        if not internal_db or external_db:
+            return False
+        internal_page = await _notion_query_by_message_id(env, internal_db, event_id, strict=True)
+        if internal_page is not None:
+            return False
+    else:
+        internal_page = await _notion_query_by_message_id(env, internal_db, event_id) if internal_db else None
     external_page = await _notion_query_by_message_id(env, external_db, event_id) if external_db else None
     # 所有済みpage限定の更新では、検索失敗を新規作成へ切り替えない。
     if expected_internal_page_id is not None and (

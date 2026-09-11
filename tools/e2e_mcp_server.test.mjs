@@ -76,33 +76,37 @@ function jsonResponse(payload, status = 200) {
   });
 }
 
-test("通常KVの保存と読戻しを別要求へ分け、同runだけを回収する", async () => {
+for (const [scenario, verifiedStage, path] of [
+  ["discord_state", "state_verified", "/admin/e2e/discord-state"],
+  ["discord_kv", "kv_verified", "/admin/e2e/discord-kv"],
+]) {
+test(`${scenario}の保存と読戻しを別要求へ分け、同runだけを回収する`, async () => {
   const calls = [];
   const audit = [];
   await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
     fetchImpl: async (url, options) => {
       calls.push({ path: new URL(url).pathname, headers: options.headers });
       return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !String(url).endsWith("/cleanup"),
-        stage: String(url).endsWith("/verify") ? "state_verified" : "state_prepared" });
+        status: "prepared", stage: String(url).endsWith("/verify") ? verifiedStage : "state_prepared" });
     },
   }, async (client) => {
     for (const syncPhase of ["prepare", "resume"]) {
       const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
-        run_id: RUN_ID, scenario: "discord_state", sync_phase: syncPhase,
+        run_id: RUN_ID, scenario, sync_phase: syncPhase,
       } }));
       assert.equal(result.ok, true, JSON.stringify(result));
     }
     const forbidden = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
-      run_id: RUN_ID, scenario: "discord_state", sync_phase: "advance",
+      run_id: RUN_ID, scenario, sync_phase: "advance",
     } }));
     assert.equal(forbidden.error, "sync_phase_forbidden");
     const cleanup = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
-      run_id: RUN_ID, service: "discord_state", confirmation: `cleanup:discord_state:${RUN_ID}`,
+      run_id: RUN_ID, service: scenario, confirmation: `cleanup:${scenario}:${RUN_ID}`,
     } }));
     assert.equal(cleanup.ok, true);
   });
   assert.deepEqual(calls.map((call) => call.path), [
-    "/admin/e2e/discord-state", "/admin/e2e/discord-state/verify", "/admin/e2e/discord-state/cleanup",
+    path, `${path}/verify`, `${path}/cleanup`,
   ]);
   for (const call of calls.slice(0, 2)) {
     assert.equal(call.headers["X-E2E-Run-ID"], RUN_ID);
@@ -112,8 +116,8 @@ test("通常KVの保存と読戻しを別要求へ分け、同runだけを回収
 });
 
 for (const invalid of ["stage", "dirty", "run"]) {
-  test(`通常KVの読戻し応答は${invalid}不一致を成功扱いしない`, async () => {
-    const payload = { ok: true, dirty: true, stage: "state_verified", run_id: RUN_ID };
+  test(`${scenario}の読戻し応答は${invalid}不一致を成功扱いしない`, async () => {
+    const payload = { ok: true, dirty: true, stage: verifiedStage, run_id: RUN_ID };
     if (invalid === "stage") {
       payload.stage = "state_prepared";
     } else if (invalid === "dirty") {
@@ -124,12 +128,14 @@ for (const invalid of ["stage", "dirty", "run"]) {
     await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse(payload) },
       async (client) => {
         const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
-          run_id: RUN_ID, scenario: "discord_state", sync_phase: "resume",
+          run_id: RUN_ID, scenario, sync_phase: "resume",
         } }));
         assert.equal(result.ok, false);
-        assert.equal(result.error, invalid === "run" ? "worker_run_id_mismatch" : "discord_state_not_ready");
+        assert.equal(result.error, invalid === "run" ? "worker_run_id_mismatch" : `${scenario}_not_ready`);
       });
   });
+}
+
 }
 
 

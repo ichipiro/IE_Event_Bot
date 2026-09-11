@@ -101,7 +101,7 @@ Discord一覧取得のHTTP 429は、有限・非負・10秒以内の `retry_afte
 
 手動workflowは `trigger_sync` の `sync_phase=prepare` と `resume` を別HTTPリクエストで実行する。`/admin/e2e/discord-delta-sync/prepare` は作成・読戻し完了後に `status=prepared`、`dirty=true` を返す。`/resume` は同じrun・対象・保存内容・所有pageを再確認し、DOで `delta_prepared` から `delta_resuming` への移行を一度だけ取得して残りを実行する。成功済みの同runへの再送は外部操作なしで `already_completed` を返す。準備完了前または続行中に中断したrunは任意位置から再実行せず、dirtyとしてcleanupする。
 
-実Worker再起動を伴う復元、共有snapshot / queueの永続化、Guild全件への適用、Google反映、実Cronは未確認である。2026-09-11時点では実装とローカル検証までで、新モードの実サービス実行は未実施。Discord statusの定義と変更操作は[公式API仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)を参照する。
+実Worker再起動を伴う復元、共有snapshot / queueの永続化、Guild全件への適用、Google反映、実Cronは未確認である。2026-09-11の[実行34581609741](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)で別HTTPのprepare / resume、全6回の差分・checkpoint処理、自己cleanup、dirty=false、version tag一致を実環境で確認した。実際に観測したのはキャンセル後に一覧から消える分岐であり、一覧に残る分岐はローカル検証のみである。Discord statusの定義と変更操作は[公式API仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)を参照する。
 
 
 Discord→Google モードは、専用 Guild に一意な Scheduled Event を作成して読み戻し、現行の `_sync_discord_event_upsert` へ1件だけ渡し、専用 Calendar に作られた event を Discord event ID の private extended property で検索して内容を確認する。通常設定の `DISCORD_TO_GOOGLE_SYNC_ENABLED=false` は維持し、この関数呼び出しだけを有効化する env view では内部・外部 Notion DB を空にする。通常の Discord snapshot / queue と作成通知は使用しない。Google 認証 token の取得・更新に伴う認証 cache は更新され得る。作成結果を確定できず検索結果も0件の場合は clean と推測せず dirty を維持する。

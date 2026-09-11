@@ -6,6 +6,16 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: Discord差分E2Eの実サービス検証完了
+
+- commit `7c1005958c003592f040332da6f905ee4509c0c4` を対象に[専用workflow実行34581609741](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)が成功した。`e2e` Environment承認後、専用Workerへdeployして実行した。
+- run `E2E-20260911T085656Z-3563f478` で、別HTTPの `prepare → resume`、作成・無変更・更新・キャンセル・削除・削除後無変更を確認した。snapshot / queueの保存・復元も各stageが200で、通常共有状態は使用していない。
+- 実環境ではキャンセル後に一覧から消える分岐を観測した。明示削除は204、後続GETは404、Notion pageはarchive読戻し200だった。一覧に残る分岐とWorker再起動は実環境では未検証。
+- artifact `e2e-evidence-34581609741-1` を独立取得し、repository SHA・run ID・Worker version tagの一致、`outcome=passed`、`dirty=false`、cleanup成功、raw資源ID・snapshot / queueが記録されていないことを確認した。
+- GitHub上のPython 266件、Node 47件、Ruff、Pyright、設定・Secret hygiene・workflow検査、Wrangler dry-runが成功した。JUnit XMLの266件・失敗0件も確認した。
+- 初回失敗、旧runの回収、429でのfailed_cleanは下の履歴に分離して保持する。今回の成功で、それらを成功扱いへ変更しない。
+- 共有状態・全Guild適用・Google反映・実Cronを含む全体E2Eは未完了であり、Issue #17は継続する。
+
 ## 2026-09-11: 旧run回収とDiscord一覧のレート制限対応
 
 - [復旧実行34581033503](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581033503)が成功し、初回runの `recovered`・`dirty=false` とWorker revisionの変更をartifactで確認した。

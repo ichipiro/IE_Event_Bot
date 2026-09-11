@@ -4,6 +4,8 @@
 
 ## 2026-09-11
 
+- Discord差分E2Eの実サービス成功、初回失敗と旧run回収、429対応、version確認の証拠を記録し、Issueの確認済み範囲を更新した。
+
 - Discord差分E2Eの準備・続行を別HTTPリクエストへ分割し、MCPの固定 `sync_phase`、単一claim、再送時の挙動と中断時のcleanup境界を記録した。
 
 - Discord差分E2Eのrun単位checkpoint保存・復元・cleanupを追記し、オブジェクト再作成によるローカル検証とHTTP途中再開・実Worker再起動の未確認範囲を明記した。

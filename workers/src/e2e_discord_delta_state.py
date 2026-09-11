@@ -3,6 +3,20 @@
 import json
 
 
+_DELTA_RESUME_REVISIONS = {"delta_prepared": 1, "delta_updated": 3}
+
+
+def delta_ready_to_resume(manifest: dict) -> bool:
+    event_id = str(manifest.get("discord_event_id") or "")
+    checkpoint = manifest.get("delta_checkpoint")
+    return (
+        bool(event_id) and bool(manifest.get("notion_page_id"))
+        and isinstance(checkpoint, dict) and valid_delta_checkpoint(checkpoint, event_id)
+        and checkpoint["revision"] == _DELTA_RESUME_REVISIONS.get(str(manifest.get("stage") or ""))
+        and checkpoint["queue"] == [] and set(checkpoint["snapshot"]) == {event_id}
+    )
+
+
 def delta_owner_matches(manifest: dict, owner: dict) -> bool:
     return (
         manifest.get("kind") == "discord_delta_sync"

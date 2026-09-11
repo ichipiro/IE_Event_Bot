@@ -68,7 +68,9 @@ bash -n tools/configure_github_e2e_environment.sh
 
 MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同scenarioの `sync_phase="resume"`、`cleanup_run(service="discord_state")` を順に使う。保存・検証はrun IDとWorker version tagの一致を必須とし、回収は古いversionでも同run・対象の一致を確認する。全経路で認証・POST・globalロックを要求する。補助シナリオの無効状態は既存シナリオのpreflightを阻害しないが、dirty記録は共通statusと回収対象へ含める。
 
-`E2E_STATE_SCOPE` は専用KVの論理識別子であり、Cloudflare namespaceの実IDを検証するものではない。bindingの実対象はデプロイ設定で別途確認する。KVの値をDOやアダプターへキャッシュせず、古い値・不正値を検証成功にしない。cleanupは固定キーのdelete完了を確認するもので、全拠点への削除伝播完了を保証しない。削除・manifest更新失敗ではdirtyを保持して再試行する。この段階では実KV、通常ポーリング、外部fixture、手動workflowの専用モードは未検証・未接続である。
+`E2E_STATE_SCOPE` は専用KVの論理識別子であり、Cloudflare namespaceの実IDを検証するものではない。bindingの実対象はデプロイ設定で別途確認する。KVの値をDOやアダプターへキャッシュせず、古い値・不正値を検証成功にしない。cleanupは固定キーのdelete完了を確認するもので、全拠点への削除伝播完了を保証しない。削除・manifest更新失敗ではdirtyを保持して再試行する。通常ポーリングと外部fixtureは未接続である。
+
+通常KVの手動モードは専用Workerを1回deployし、保存1回、別HTTPの読戻し、所有2キーの回収を行う。同run・dirty=true・HTTP 409の `discord_state_not_ready` だけを3秒間隔で最大25回まで検証し、保存要求は再送しない。検証後のmanifestとdeploy時のversion fingerprintを照合し、回収後の `outcome=passed` を必須とする。検証失敗はcleanup成功で上書きしない。cleanupは最大4回、失敗時1秒間隔で試み、workflowのalways処理でも監査に記録された同runの資源だけを回収する。実KV・DOでの結果は実行後に記録する。
 
 追加対象外の5件は [E2E-PLAN.md](E2E-PLAN.md#10-追加対象外) に定義する。
 
@@ -84,6 +86,7 @@ MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同sc
 | `deploy-and-discord-notion-smoke` | 専用 Worker を deploy し、Discord Scheduled Event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-discord-delta-recovery` | 明示した `recovery_run_id` をversion tagにして修正版をdeployし、そのrunのDiscord差分資源だけをcleanupする。新規fixtureは作成しない |
 | `deploy-and-discord-delta-smoke` | 専用 Worker を deploy し、Discord一覧のrun所有1件で新規作成・変更なし・更新・キャンセル・削除を共通差分処理へ通し、Notion pageの反映とarchiveを検証後に両資源をcleanupする |
+| `deploy-and-discord-state-smoke` | 専用Workerの通常StateStoreで固定2キーを保存し、別HTTPで読戻しとversionを照合後、所有キーを回収する |
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |

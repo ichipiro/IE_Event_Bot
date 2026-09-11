@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-11: 通常KV検証の手動workflow
+
+- PR #64をupstream developへマージし、fork PR #51で同期した。
+- 通常KV専用モードを追加した。保存は1回、未反映の固定応答だけを3秒間隔・最大25回まで読戻し、同run・version・検証済みmanifestを照合して所有2キーを回収する。検証失敗と回収後のfailed_cleanを成功にしない。
+- Python 352件、Node 108件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。既存ユーザー変更2ファイルは保持した。
+- この時点では実KV・DOは未検証。外部fixtureと通常ポーリングは未接続である。
+
 ## 2026-09-11: 通常StateStoreのE2E隔離基盤
 
 - run・scope別KVアダプターとDO所有権検証を追加した。通常StateStoreの固定2キーを、保存・別HTTP読戻し・回収の3経路で扱う。外部APIは呼ばず、snapshot / queueをDOへ複製しない。

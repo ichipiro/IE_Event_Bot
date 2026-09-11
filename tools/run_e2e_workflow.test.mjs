@@ -17,6 +17,7 @@ import {
   runDeployAndDiscordNotionSmoke,
   runDeployAndDiscordDeltaSmoke,
   runDeployAndDiscordStateSmoke,
+  runDeployAndDiscordKvSmoke,
   runDiscordDeltaRecovery,
   selectWorkflowRunId,
   runDeployAndGoogleDiscordSmoke,
@@ -35,7 +36,7 @@ import {
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
 
 
-function stateWorkflowFixture(overrides = {}) {
+function stateWorkflowFixture(overrides = {}, scenario = "discord_state") {
   const calls = [];
   const callTool = async (name, args) => {
     calls.push({ name, args });
@@ -50,7 +51,7 @@ function stateWorkflowFixture(overrides = {}) {
     }
     if (name === "read_status") {
       return toolResult({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
-        scenarios: { discord_state: { present: true, dirty: true, run_id: RUN_ID, stage: "state_verified" } } });
+        scenarios: { [scenario]: { present: true, dirty: true, run_id: RUN_ID, stage: scenario === "discord_state" ? "state_verified" : "kv_verified" } } });
     }
     return toolResult({ ok: true, run_id: RUN_ID, manifest: { outcome: "passed" } });
   };
@@ -140,6 +141,31 @@ for (const mismatch of ["version", "stage", "outcome"]) {
     await assert.rejects(runDeployAndDiscordStateSmoke(callTool, RUN_ID),
       mismatch === "outcome" ? /discord_state_outcome_failed/ : /discord_state_verification_mismatch/);
     assert.equal(calls.filter((call) => call.name === "cleanup_run").length, 1);
+  });
+}
+
+
+for (const failure of [null, "discord_kv_not_ready", "discord_kv_owner_mismatch"]) {
+  test(`外部fixture付きKVは保存を再送せず所有資源を回収する: ${failure}`, async () => {
+    let resumes = 0;
+    const { calls, callTool } = stateWorkflowFixture({ trigger_sync: async (args) => {
+      if (args.sync_phase === "resume" && ++resumes === 1 && failure) {
+        return { ok: false, run_id: RUN_ID, status: 409, dirty: true, error: failure };
+      }
+      return { ok: true, run_id: RUN_ID, status: 200, dirty: true };
+    } }, "discord_kv");
+    const result = runDeployAndDiscordKvSmoke(callTool, RUN_ID, { verify: { sleepImpl: async () => {} } });
+    if (failure === "discord_kv_owner_mismatch") {
+      await assert.rejects(result, /discord_kv_owner_mismatch/);
+    } else {
+      assert.deepEqual(await result, { ok: true, scenarios: ["discord_kv"] });
+    }
+    assert.equal(resumes, failure === "discord_kv_not_ready" ? 2 : 1);
+    assert.equal(calls.filter((call) => call.args.sync_phase === "prepare").length, 1);
+    assert.deepEqual(calls.filter((call) => call.name === "cleanup_run").map((call) => call.args.service), ["discord_kv"]);
+    assert.deepEqual(touchedServicesFromAudit([
+      { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "discord_kv" },
+    ], RUN_ID), ["discord_kv"]);
   });
 }
 

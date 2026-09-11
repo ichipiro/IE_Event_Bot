@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-11: 外部fixtureと通常KVの所有権を接続
+
+- `discord_kv` を追加し、Discord event 1件・Notion page 1件・通常StateStoreの固定2キーを同じDO manifestで所有する。作成前にscopeを固定し、外部資源とKVの回収が完了してからcleanにする。snapshot / queueはDOへ複製しない。
+- 通常差分処理での初回作成と、別HTTPでの外部資源・KV読戻しを接続した。Notionの適用時検索で既存page・検索失敗・不正応答を拒否する任意の制約を追加した。既定の通常同期は維持する。
+- MCP・手動workflow・監査回収対象へ接続した。外部fixture作成は1回に限定し、未反映の固定応答だけを有限回待つ。
+- Python 376件、Node 115件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。秘密ファイルを含めない作業用コピーで通常・E2E両設定のWrangler dry-runも成功した。既存ユーザー変更2ファイルを保持した。
+- この時点では実サービス未検証。複数件、通常ポーリング、残件、通知、TTL超過は後続作業である。
+
 ## 2026-09-11: 通常KV・DOの保存と別HTTP読戻しを実環境で検証
 
 - commit `1e073cdc9e818fb7089417be96da3c0ba9a12599` の[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)が成功した。run `E2E-20260911T132729Z-11bd50f1`、artifact `e2e-evidence-34604249166-1` を独立取得した。

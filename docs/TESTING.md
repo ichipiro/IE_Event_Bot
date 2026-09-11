@@ -72,6 +72,13 @@ MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同sc
 
 通常KVの手動モードは専用Workerを1回deployし、保存1回、別HTTPの読戻し、所有2キーの回収を行う。同run・dirty=true・HTTP 409の `discord_state_not_ready` だけを3秒間隔で最大25回まで検証し、保存要求は再送しない。検証後のmanifestとdeploy時のversion fingerprintを照合し、回収後の `outcome=passed` を必須とする。検証失敗はcleanup成功で上書きしない。cleanupは最大4回、失敗時1秒間隔で試み、workflowのalways処理でも監査に記録された同runの資源だけを回収する。2026-09-11の[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)では保存・別HTTP検証が各1回で成功し、回収後の `outcome=passed`、全資源の `dirty=false`、deployと最終Workerのversion一致をartifactで独立照合した。古いKV値による待機は発生していない。
 
+外部fixture付きの `discord_kv` は、Discord event 1件とNotion page 1件を作成前から同じDO manifestで所有する。専用scopeを先に固定し、Discord ID確定後だけ通常StateStoreの固定2キーを公開する。通常の `_apply_discord_event_diff` に所有1件を渡し、作成通知・Google同期は無効とする。適用時のNotion検索は、既存page・検索失敗・不正応答で新規作成を止める。通常の呼出しでは従来の検索動作を維持する。
+
+`POST /admin/e2e/discord-kv` で準備し、別HTTPの `/verify` で外部資源の所有権・内容とKVのsnapshot / queueを読み直す。`/cleanup` は外部資源を回収した後に所有KVを削除し、両方が完了してからcleanにする。KV削除失敗時もrun・scope・対象をDOに残す。DOにはsnapshot / queueを複製しない。各経路は認証・POST・globalロックを必須とし、準備・検証はWorker version tagとrunの一致を要求する。実行フラグは `E2E_DISCORD_KV_ENABLED` で、未設定なら無効である。
+
+MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` と `cleanup_run(service="discord_kv")` を使う。手動モードはfixture作成を1回に限定し、同run・dirty=true・HTTP 409の `discord_kv_not_ready` だけを3秒間隔・最大25回まで待つ。検証失敗は回収成功で上書きしない。ローカル代替APIでは部分保存・削除失敗・所有権不一致・古いsnapshot・再回収を確認した。実サービスでの結果は実行後に記録する。複数イベント、通常ポーリング、残件処理、通知、TTL超過は未接続・未検証である。
+
+
 追加対象外の5件は [E2E-PLAN.md](E2E-PLAN.md#10-追加対象外) に定義する。
 
 `.github/workflows/e2e-staging.yml` は `workflow_dispatch` 専用であり、PR、push、schedule からは起動しない。forkではこのworkflowを登録するため、既定ブランチを`develop`とする。最初の job でローカル検査と Wrangler dry-runを行い、成功後に `e2e` GitHub Environment の承認を待つ。`GITHUB_TOKEN` は `contents: read` だけに限定する。deploy時はrun IDをWorker version tagへ指定し、専用Workerの`CF_VERSION_METADATA.tag`から同じ値を読み戻すまで書き込みscenarioを開始しない。これによりWrangler終了直後に旧revisionへrequestが届いた場合を成功扱いしない。
@@ -87,6 +94,7 @@ MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同sc
 | `deploy-and-discord-delta-recovery` | 明示した `recovery_run_id` をversion tagにして修正版をdeployし、そのrunのDiscord差分資源だけをcleanupする。新規fixtureは作成しない |
 | `deploy-and-discord-delta-smoke` | 専用 Worker を deploy し、Discord一覧のrun所有1件で新規作成・変更なし・更新・キャンセル・削除を共通差分処理へ通し、Notion pageの反映とarchiveを検証後に両資源をcleanupする |
 | `deploy-and-discord-state-smoke` | 専用Workerの通常StateStoreで固定2キーを保存し、別HTTPで読戻しとversionを照合後、所有キーを回収する |
+| `deploy-and-discord-kv-smoke` | 所有Discord event 1件を通常差分処理でNotionとKVへ反映し、別HTTPで読み直して外部資源と固定2キーを回収する |
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |

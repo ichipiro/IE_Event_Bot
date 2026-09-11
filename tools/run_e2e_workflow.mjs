@@ -497,12 +497,21 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
     if (updateReplay.execution_status !== "updated" || updateReplay.dirty !== true) {
       throw new E2eWorkflowError("delta_update_replay_failed");
     }
-    await requireTool(callTool, "trigger_sync", {
+    // 拒否側が先に終わっても、続行側の完了を待ってからcleanupする。
+    const concurrent = await Promise.all([0, 1].map(() => toolOutcome(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
       version_sha256: version,
       sync_phase: "resume",
-    });
+    })));
+    const completed = concurrent.filter((result) => result.ok && result.payload.status === 200 &&
+      result.payload.dirty === false && result.payload.execution_status === null);
+    const rejected = concurrent.filter((result) => !result.ok && result.payload.status === 409 &&
+      result.error === "e2e_lock_unavailable");
+    if (completed.length !== 1 || rejected.length !== 1 ||
+        concurrent.some((result) => result.payload.run_id !== runId)) {
+      throw new E2eWorkflowError("delta_concurrent_resume_failed");
+    }
     const completedReplay = await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",

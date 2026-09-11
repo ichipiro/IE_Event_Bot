@@ -693,6 +693,9 @@ async def _sync_discord_event_upsert(
     *,
     expected_internal_page_id: str | None = None,
     require_new_internal_page: bool = False,
+    new_google_event_id: str | None = None,
+    before_google_create=None,
+    before_internal_create=None,
 ) -> bool:
     """
     Discordの単一イベントを Notion/Google に同期する。
@@ -702,6 +705,10 @@ async def _sync_discord_event_upsert(
     3) Google 同期（有効時）: 既存IDがあれば更新、なければ作成
     4) Notion 内部/外部ページへ反映
     """
+    if new_google_event_id is not None and (
+        not require_new_internal_page or not _google_sync_enabled(env) or not google_token
+    ):
+        return False
     # 時刻/基本情報の正規化
     event_id = str((event or {}).get("id") or "")
     if not event_id:
@@ -754,9 +761,13 @@ async def _sync_discord_event_upsert(
             if not google_ok:
                 return False
         else:
+            if new_google_event_id is not None:
+                google_payload["id"] = new_google_event_id
+            if before_google_create is not None:
+                await before_google_create()
             created_google = await _google_create_event(env, google_token, google_payload)
             new_google_id = str((created_google or {}).get("id") or "")
-            if not new_google_id:
+            if not new_google_id or (new_google_event_id is not None and new_google_id != new_google_event_id):
                 return False
             google_event_id = new_google_id
 
@@ -778,6 +789,8 @@ async def _sync_discord_event_upsert(
             if not ok:
                 return False
         else:
+            if before_internal_create is not None:
+                await before_internal_create()
             created_id = await _notion_create_event(
                 env,
                 internal_db,

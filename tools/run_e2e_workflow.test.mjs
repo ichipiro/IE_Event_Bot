@@ -19,6 +19,7 @@ import {
   runDeployAndDiscordStateSmoke,
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
+  runDeployAndDiscordBatchGoogleSmoke,
   runDiscordDeltaRecovery,
   selectWorkflowRunId,
   runDeployAndGoogleDiscordSmoke,
@@ -204,6 +205,46 @@ for (const failure of [null, "pending_stage", "advance", "final_stage", "not_rea
     assert.deepEqual(touchedServicesFromAudit([
       { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "discord_batch" },
     ], RUN_ID), ["discord_batch"]);
+  });
+}
+
+
+for (const failure of [null, "pending_stage", "advance", "final_stage", "not_ready"]) {
+  test(`Google付き2件workflowは残件照合後だけ1回続行し回収する: ${failure}`, async () => {
+    let advanced = false;
+    let reads = 0;
+    const calls = [];
+    const callTool = async (name, args) => {
+      calls.push({ name, args });
+      if (name === "deploy_e2e") { return toolResult({ ok: true, version_sha256: "a".repeat(64) }); }
+      if (name === "trigger_sync") {
+        if (args.sync_phase === "resume" && failure === "not_ready" && ++reads === 1) {
+          return toolResult({ ok: false, status: 409, dirty: true, run_id: RUN_ID, error: "discord_batch_google_not_ready" });
+        }
+        if (args.sync_phase === "advance") { advanced = true; }
+        return toolResult({ ok: true, status: 200, dirty: true, run_id: RUN_ID,
+          execution_status: args.sync_phase === "advance" ? (failure === "advance" ? "updated" : "drained") : "prepared" });
+      }
+      if (name === "read_status") { return toolResult({ ok: true,
+        worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { discord_batch_google: { present: true, dirty: true, run_id: RUN_ID,
+          stage: (advanced ? failure === "final_stage" : failure === "pending_stage")
+            ? "wrong" : (advanced ? "batch_verified" : "batch_pending_verified") } },
+      }); }
+      return toolResult({ ok: true, manifest: { outcome: "passed" } });
+    };
+    const result = runDeployAndDiscordBatchGoogleSmoke(callTool, RUN_ID, { verify: { sleepImpl: async () => {} } });
+    if (failure && failure !== "not_ready") {
+      await assert.rejects(result, /discord_batch_google_/);
+    } else {
+      assert.deepEqual(await result, { ok: true, scenarios: ["discord_batch_google"] });
+    }
+    assert.equal(calls.filter((c) => c.args.sync_phase === "prepare").length, 1);
+    assert.equal(calls.filter((c) => c.args.sync_phase === "advance").length, failure === "pending_stage" ? 0 : 1);
+    assert.deepEqual(calls.filter((c) => c.name === "cleanup_run").map((c) => c.args.service), ["discord_batch_google"]);
+    assert.deepEqual(touchedServicesFromAudit([
+      { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "discord_batch_google" },
+    ], RUN_ID), ["discord_batch_google"]);
   });
 }
 

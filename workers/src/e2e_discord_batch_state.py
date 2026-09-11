@@ -10,9 +10,19 @@ from e2e_discord_kv_state import KEYS, OwnedDiscordKV
 
 SERVICE = "discord_batch"
 KIND = "discord_batch_sync"
+GOOGLE_SERVICE = "discord_batch_google"
+GOOGLE_KIND = "discord_batch_google_sync"
 COUNT = 2
-_FIELDS = ("run_id", "scope_id", "state_scope_sha256", "target_fingerprints")
+_FIELDS = ("kind", "run_id", "scope_id", "state_scope_sha256", "target_fingerprints")
 _ID_FIELDS = ("discord_event_id", "notion_page_id", "source_sha256")
+
+
+def manifest_service(value: dict) -> str:
+    return GOOGLE_SERVICE if value.get("kind") == GOOGLE_KIND else SERVICE
+
+
+def google_event_id(run_id: str) -> str:
+    return "e2e" + sha256(f"discord-batch-google:{run_id}".encode()).hexdigest()
 
 
 def slot_run_id(run_id: str, index: int) -> str:
@@ -23,6 +33,9 @@ def slot_run_id(run_id: str, index: int) -> str:
 
 def fixture_fingerprint(slots: list) -> str:
     owners = [{key: slot.get(key) for key in ("run_id", *_ID_FIELDS)} for slot in slots]
+    for owner, slot in zip(owners, slots):
+        if "google_event_id" in slot:
+            owner["google_event_id"] = slot["google_event_id"]
     return sha256(
         json.dumps(owners, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -31,12 +44,18 @@ def fixture_fingerprint(slots: list) -> str:
 def valid_batch_owner(value: dict) -> bool:
     slots = value.get("fixtures")
     targets = value.get("target_fingerprints")
+    google = value.get("kind") == GOOGLE_KIND
+    target_keys = {"guild_id_sha256", "notion_database_id_sha256"}
+    attempt_keys = {"discord_event", "notion_page"}
+    if google:
+        target_keys.add("calendar_id_sha256")
+        attempt_keys.add("google_event")
     if not (
         re.fullmatch(r"E2E-\d{8}T\d{6}Z-[0-9a-f]{8}", str(value.get("run_id") or ""))
         and re.fullmatch(r"[0-9a-f]{32}", str(value.get("scope_id") or ""))
         and re.fullmatch(r"[0-9a-f]{64}", str(value.get("state_scope_sha256") or ""))
         and isinstance(targets, dict)
-        and set(targets) == {"guild_id_sha256", "notion_database_id_sha256"}
+        and set(targets) == target_keys
         and all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in targets.values())
         and isinstance(slots, list)
         and len(slots) == COUNT
@@ -50,7 +69,7 @@ def valid_batch_owner(value: dict) -> bool:
         attempted = slot.get("create_attempted")
         if (
             not isinstance(attempted, dict)
-            or set(attempted) != {"discord_event", "notion_page"}
+            or set(attempted) != attempt_keys
             or any(type(v) is not bool for v in attempted.values())
         ):
             return False
@@ -65,6 +84,15 @@ def valid_batch_owner(value: dict) -> bool:
             return False
         if "source_sha256" in slot and not re.fullmatch(
             r"[0-9a-f]{64}", str(slot["source_sha256"])
+        ):
+            return False
+        if google and (
+            slot.get("google_event_id") != google_event_id(slot["run_id"])
+            or type(slot.get("google_cleanup_done", False)) is not bool
+        ):
+            return False
+        if not google and any(
+            k in slot for k in ("google_event_id", "google_cleanup_done")
         ):
             return False
         if type(slot.get("cleanup_done", False)) is not bool:
@@ -110,7 +138,10 @@ def valid_batch_transition(previous: dict, value: dict) -> bool:
             for k, v in old["create_attempted"].items()
         ):
             return False
-        if old.get("cleanup_done") and not new.get("cleanup_done"):
+        if any(
+            old.get(k) and not new.get(k)
+            for k in ("cleanup_done", "google_cleanup_done")
+        ):
             return False
     return (
         previous.get("stage") != "batch_cleanup"
@@ -119,7 +150,7 @@ def valid_batch_transition(previous: dict, value: dict) -> bool:
 
 
 async def check_batch_owner(store, owner: dict) -> dict:
-    current = await store.get_e2e_manifest(SERVICE)
+    current = await store.get_e2e_manifest(manifest_service(owner))
     if (
         not isinstance(current, dict)
         or current.get("dirty") is not True
@@ -131,7 +162,7 @@ async def check_batch_owner(store, owner: dict) -> dict:
 
 
 def key_prefix(owner: dict) -> str:
-    return f"e2e:discord_batch:{owner['run_id']}:{owner['scope_id']}:"
+    return f"e2e:{manifest_service(owner)}:{owner['run_id']}:{owner['scope_id']}:"
 
 
 async def cleanup_batch_kv(store, owner: dict) -> None:

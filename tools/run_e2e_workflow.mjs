@@ -24,6 +24,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_state",
   "discord_kv",
   "discord_batch",
+  "discord_batch_google",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -43,6 +44,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-discord-state-smoke",
   "deploy-and-discord-kv-smoke",
   "deploy-and-discord-batch-smoke",
+  "deploy-and-discord-batch-google-smoke",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -511,13 +513,13 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
         throw new E2eWorkflowError(`${scenario}_verification_mismatch`);
       }
     }
-    if (scenario === "discord_batch") {
+    if (["discord_batch", "discord_batch_google"].includes(scenario)) {
       await verify("batch_pending_verified");
       const advanced = await requireTool(callTool, "trigger_sync", {
         run_id: runId, scenario, sync_phase: "advance",
       });
       if (advanced.status !== 200 || advanced.dirty !== true || advanced.run_id !== runId || advanced.execution_status !== "drained") {
-        throw new E2eWorkflowError("discord_batch_advance_failed");
+        throw new E2eWorkflowError(`${scenario}_advance_failed`);
       }
     }
     await verify(verifiedStage);
@@ -547,6 +549,11 @@ export async function runDeployAndDiscordStateSmoke(callTool, runId, options = {
 
 export async function runDeployAndDiscordKvSmoke(callTool, runId, options = {}) {
   return runDiscordKvSmoke(callTool, runId, "discord_kv", "kv_verified", options);
+}
+
+
+export async function runDeployAndDiscordBatchGoogleSmoke(callTool, runId, options = {}) {
+  return runDiscordKvSmoke(callTool, runId, "discord_batch_google", "batch_verified", options);
 }
 
 
@@ -875,6 +882,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "discord_state",
             "discord_kv",
             "discord_batch",
+            "discord_batch_google",
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
@@ -1031,6 +1039,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-delta-smoke") {
       await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-batch-google-smoke") {
+      await runDeployAndDiscordBatchGoogleSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-discord-batch-smoke") {

@@ -322,7 +322,7 @@ def test_auth_failure_during_reverification_revokes_passed_outcome(monkeypatch):
     original = e2e_discord_batch_google.get_google_access_token
 
     async def missing_token(env, state):
-        assert state is None
+        assert state.enabled() is False
         return None
 
     monkeypatch.setattr(
@@ -333,3 +333,24 @@ def test_auth_failure_during_reverification_revokes_passed_outcome(monkeypatch):
     monkeypatch.setattr(e2e_discord_batch_google, "get_google_access_token", original)
     assert call(env, "/cleanup")[0] == 200
     assert owner(env)["outcome"] == "failed_clean"
+
+
+def test_service_account_resolution_uses_disabled_cache_state(monkeypatch):
+    import google_auth
+    from e2e_discord_batch_google import GoogleBatch
+
+    env = environment()
+    env.GOOGLE_API_BEARER_TOKEN = ""
+    original = dict(env.STATE_KV.data)
+
+    async def service_account(env, state):
+        assert state.enabled() is False
+        await google_auth._save_cached_token(state, "fixture-access-token", 123456789)
+        return "fixture-access-token"
+
+    monkeypatch.setattr(
+        google_auth, "_fetch_token_from_service_account", service_account
+    )
+    context = run(GoogleBatch.connect(env))
+    assert context.env.GOOGLE_API_BEARER_TOKEN == "fixture-access-token"
+    assert env.STATE_KV.data == original

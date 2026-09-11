@@ -6,6 +6,7 @@ from e2e_discord_notion_probe import _env_text, _event_name
 from e2e_discord_probe import _run_marker
 from e2e_google_probe import _event_item_url, _google_request
 from google_auth import get_google_access_token
+from state import StateStore
 
 
 class GoogleBatchError(Exception):
@@ -31,7 +32,7 @@ class GoogleBatch:
     async def connect(cls, env):
         if not _env_text(env, "GOOGLE_CALENDAR_ID"):
             raise GoogleBatchError("discord_batch_google_calendar_required")
-        token = await get_google_access_token(env, None)
+        token = await get_google_access_token(env, StateStore(_DeltaEnv(env)))
         if not token:
             raise GoogleBatchError("discord_batch_google_token_required")
         return cls(env, token)

@@ -9,7 +9,7 @@
 - [x] 通常KV専用の手動workflowに読戻し待機・revision照合・失敗時の回収を接続する。
 - [x] 実KV・DOで上記経路を検証する（[実行34604249166](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34604249166)）。
 - [x] 外部fixture 1組の所有権を通常KVへ接続し、別HTTP検証と一括回収をローカル検証する。
-- [ ] 外部fixtureと通常KVの接続を実サービスで検証する。
+- [x] 外部fixtureと通常KVの接続を実サービスで検証する（[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)）。
 - [ ] 複数イベントの適用・回収へ拡張する。
 
 現在の `discord_state` はKVだけの補助シナリオであり、外部イベントを作成・同期しない。snapshot / queueは通常StateStoreで別々に保存し、DOには所有メタデータだけを置く。

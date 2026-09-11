@@ -76,7 +76,7 @@ MCPでは `trigger_sync(scenario="discord_state", sync_phase="prepare")`、同sc
 
 `POST /admin/e2e/discord-kv` で準備し、別HTTPの `/verify` で外部資源の所有権・内容とKVのsnapshot / queueを読み直す。`/cleanup` は外部資源を回収した後に所有KVを削除し、両方が完了してからcleanにする。KV削除失敗時もrun・scope・対象をDOに残す。DOにはsnapshot / queueを複製しない。各経路は認証・POST・globalロックを必須とし、準備・検証はWorker version tagとrunの一致を要求する。実行フラグは `E2E_DISCORD_KV_ENABLED` で、未設定なら無効である。
 
-MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` と `cleanup_run(service="discord_kv")` を使う。手動モードはfixture作成を1回に限定し、同run・dirty=true・HTTP 409の `discord_kv_not_ready` だけを3秒間隔・最大25回まで待つ。検証失敗は回収成功で上書きしない。ローカル代替APIでは部分保存・削除失敗・所有権不一致・古いsnapshot・再回収を確認した。実サービスでの結果は実行後に記録する。複数イベント、通常ポーリング、残件処理、通知、TTL超過は未接続・未検証である。
+MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` と `cleanup_run(service="discord_kv")` を使う。手動モードはfixture作成を1回に限定し、同run・dirty=true・HTTP 409の `discord_kv_not_ready` だけを3秒間隔・最大25回まで待つ。検証失敗は回収成功で上書きしない。ローカル代替APIでは部分保存・削除失敗・所有権不一致・古いsnapshot・再回収を確認した。2026-09-11の[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)で準備・別HTTP検証が各1回で成功し、通常差分処理の適用・KV読戻し・Discord削除204・Notion archive 200・KV削除完了を確認した。監査とmanifestを独立取得し、version・runの一致、outcome=passed、全資源dirty=falseを照合した。読戻し待機は発生していない。cleanupは外部APIの削除・archive応答とKVのdelete完了を確認するもので、全拠点の削除反映を保証しない。複数イベント、通常ポーリング、残件処理、通知、TTL超過は未接続・未検証である。
 
 
 追加対象外の5件は [E2E-PLAN.md](E2E-PLAN.md#10-追加対象外) に定義する。

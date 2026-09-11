@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-11: 外部fixtureと通常KVの接続を実サービスで検証
+
+- commit `727a7008a2adfd0842c82eb1f9124acb3e0cf188` の[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)が成功した。run `E2E-20260911T134041Z-a42a095d`、artifact `e2e-evidence-34605517604-1` を独立取得した。
+- 専用Workerのdeploy 1回、所有Discord eventとNotion pageの準備1回、通常StateStoreのKV読戻し1回、cleanupと再cleanupを照合した。通常差分処理の適用、外部資源の所有権・内容の読戻し、Discord削除204、Notion archive 200、KV削除完了、outcome=passed、全資源dirty=falseを確認した。
+- 監査とmanifestの操作順・成功応答、deploy時と最終Workerのversion fingerprint、run tagが一致した。ActionsのPython 376件、Node 115件、Ruff、Pyright、設定検査、Wrangler E2E dry-runが成功し、JUnit 376件・失敗0を独立照合した。
+- 読戻し待機は発生していない。cleanupは削除・archive応答とKVのdelete完了を確認したもので、全拠点の削除反映は保証しない。複数イベント、通常ポーリング、残件、通知、TTL超過は後続作業である。
+
 ## 2026-09-11: 外部fixtureと通常KVの所有権を接続
 
 - `discord_kv` を追加し、Discord event 1件・Notion page 1件・通常StateStoreの固定2キーを同じDO manifestで所有する。作成前にscopeを固定し、外部資源とKVの回収が完了してからcleanにする。snapshot / queueはDOへ複製しない。

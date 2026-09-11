@@ -1,5 +1,19 @@
 # 作業履歴
 
+## 2026-09-11: 再デプロイ後のDiscord差分続行を実サービスで検証
+
+- commit `2232f7ab81626d74d803060cd9f490933cd72e3c` の[実行34593390627](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34593390627)が成功した。run `E2E-20260911T111946Z-80bb78e9` で専用Workerを2回deployした。
+- artifact `e2e-evidence-34593390627-1` を独立取得し、2つのversion ID fingerprintが異なること、再deployのprevious値、最初の2要求と後続3要求のversion指定、最終Workerのversion・tag一致を確認した。更新後のadvance再送はupdated、完了後のresume再送はalready_completedだった。
+- 全6回の差分・checkpoint処理、状態分離・永続化、削除204・読戻し404、Notion archive読戻し200、cleanup成功、全service / scenarioのdirty=falseを確認した。キャンセル後は一覧から消える分岐を観測した。
+- ActionsのPython 294件、Node 67件、Ruff、Pyright、設定検査、Wrangler dry-runが成功した。JUnitも独立取得し、294件・失敗0を照合した。
+- 実デプロイversionをまたぐ保存状態の継続を確認した結果であり、DOプロセスの強制再起動、応答喪失、同時実行競合、任意位置のクラッシュ復旧は含まない。
+
+## 2026-09-11: Discord差分E2Eの再デプロイ継続検証
+
+- 更新完了後に同run IDの専用Workerを再deployし、異なるversion IDを確認してから更新再送・続行・完了再送を行う。旧version、別run、未完了checkpoint、他資源dirtyでは再deployを拒否する。
+- MCPの固定入力・監査にversion IDのSHA-256を追加し、Workerは要求されたtagとversion IDの不一致を外部操作前に拒否する。失敗時は同runの所有資源だけを回収する。
+- Python 294件、Node 67件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。実サービス検証はこの時点では未実施。DO bindingは変更せず、DOプロセスの強制再起動・任意位置のクラッシュ復旧はこの試験に含めない。
+
 ## 記録方針
 
 - 目的、変更した文書または機能、実施した検証、未確認事項を簡潔に記録する。

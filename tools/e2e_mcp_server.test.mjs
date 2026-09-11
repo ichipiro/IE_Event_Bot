@@ -175,7 +175,7 @@ test("公開ツールを12件に固定して任意URLや資源IDを受け取ら�
     const allowedFields = new Set([
       "run_id",
       "service",
-      "scenario", "sync_phase",
+      "scenario", "sync_phase", "version_sha256", "previous_version_sha256",
       "job",
       "confirmation",
     ]);
@@ -466,13 +466,14 @@ test("Discord差分は副作用前のversion不一致だけを待機して再送
     fetchImpl: async (url, options) => {
       calls += 1;
       assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+      assert.equal(options.headers["X-E2E-Version-ID-SHA256"], "c".repeat(64));
       return calls === 1
         ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
         : jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
     },
   }, async (client) => {
     const result = parseToolResult(await client.callTool({ name: "trigger_sync",
-      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare" },
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare", version_sha256: "c".repeat(64) },
     }));
     assert.equal(result.ok, true);
     assert.equal(calls, 2);
@@ -507,9 +508,13 @@ test("再送の固定応答だけを監査ファイルとmanifestへ残す", asy
   // 実際のJSONL書込み・読戻しでも任意文字列を取り込まない。
   for (const execution_status of replies) {
     await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "discord_delta",
-      phase: "finish", ok: true, status: 200, execution_status });
+      phase: "finish", ok: true, status: 200, execution_status,
+      version_sha256: execution_status === "updated" ? "c".repeat(64) : "private_version",
+      previous_version_sha256: "private_previous_version" });
   }
   const saved = await readAuditEntries(runId);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.version_sha256), ["c".repeat(64), null, null]);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.previous_version_sha256), [null, null, null]);
   assert.deepEqual(saved.slice(-3).map((entry) => entry.execution_status),
     ["updated", "already_completed", null]);
 });
@@ -995,7 +1000,7 @@ test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す"
         ok: true,
         worker_version: {
           present: true,
-          id_sha256: "a".repeat(64),
+          id_sha256: "c".repeat(64),
           tag: RUN_ID,
           timestamp: "2026-09-01T00:00:01.000Z",
         },
@@ -1293,4 +1298,76 @@ test("固定版Playwright MCPがallowlist対象ツールを公開する", async 
   } finally {
     await client.close();
   }
+});
+
+function redeployStatus() {
+  return { ok: true, mode: "e2e", e2e_manifest_enabled: true,
+    orchestrated_writes_enabled: false,
+    worker_version: { present: true, tag: RUN_ID, id_sha256: "c".repeat(64) },
+    scenarios: { discord_delta: { present: true, dirty: true, run_id: RUN_ID, stage: "delta_updated" } } };
+}
+
+for (const invalid of ["stage", "run", "version", "missing_metadata", "writes_unknown", "other_dirty"]) {
+  test(`再deployは${invalid}のcheckpointを拒否する`, async () => {
+    const status = redeployStatus();
+    if (invalid === "stage") {
+      status.scenarios.discord_delta.stage = "delta_resuming";
+    } else if (invalid === "run") {
+      status.scenarios.discord_delta.run_id = "E2E-20260901T000000Z-abcdef01";
+    } else if (invalid === "version") {
+      status.worker_version.id_sha256 = "d".repeat(64);
+    } else if (invalid === "missing_metadata") {
+      status.worker_version.present = false;
+    } else if (invalid === "writes_unknown") {
+      delete status.orchestrated_writes_enabled;
+    } else {
+      status.services = { notion: { present: true, dirty: true } };
+    }
+    let deploys = 0;
+    await withClient({ env: ENV, auditImpl: async () => {},
+      fetchImpl: async () => jsonResponse(status),
+      deployImpl: async () => { deploys += 1; return { ok: true }; },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        previous_version_sha256: "c".repeat(64),
+      } }));
+      assert.equal(result.error, "redeploy_checkpoint_mismatch");
+      assert.equal(deploys, 0);
+    });
+  });
+}
+
+test("再deployは同tagの旧versionを待機し新versionの系譜を監査へ残す", async () => {
+  const audit = [];
+  let reads = 0;
+  const waits = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "e".repeat(40), dirty: false }),
+    deployImpl: async () => ({ ok: true, status: 0 }),
+    delayImpl: async (ms) => waits.push(ms),
+    fetchImpl: async () => {
+      const status = redeployStatus();
+      if (++reads >= 3) {
+        status.worker_version.id_sha256 = "d".repeat(64);
+      }
+      return jsonResponse(status);
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+      run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+      previous_version_sha256: "c".repeat(64),
+    } }));
+    assert.equal(result.ok, true);
+    assert.equal(result.verification_attempts, 2);
+    assert.equal(result.version_sha256, "d".repeat(64));
+    assert.equal(result.previous_version_sha256, "c".repeat(64));
+    assert.equal(waits.length, 1);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID } }));
+    const deploy = evidence.manifest.operations.find((op) => op.tool === "deploy_e2e");
+    assert.equal(deploy.version_sha256, "d".repeat(64));
+    assert.equal(deploy.previous_version_sha256, "c".repeat(64));
+  });
 });

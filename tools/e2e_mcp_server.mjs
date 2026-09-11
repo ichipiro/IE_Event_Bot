@@ -255,6 +255,15 @@ async function assertSafeAuditPath(path, kind) {
 }
 
 
+function versionEvidence(value) {
+  const digest = (item) => typeof item === "string" && /^[0-9a-f]{64}$/.test(item) ? item : null;
+  return {
+    version_sha256: digest(value.version_sha256),
+    previous_version_sha256: digest(value.previous_version_sha256),
+  };
+}
+
+
 function sanitizeExecutionStatus(value) {
   return ["prepared", "updated", "already_completed"].includes(value) ? value : null;
 }
@@ -280,6 +289,7 @@ export async function appendAuditEntry(entry) {
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
     execution_status: sanitizeExecutionStatus(entry.execution_status),
+    ...versionEvidence(entry),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
   const options = {
@@ -334,6 +344,7 @@ export async function readAuditEntries(runId) {
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
           execution_status: sanitizeExecutionStatus(entry.execution_status),
+          ...versionEvidence(entry),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
       }
@@ -366,7 +377,7 @@ export function deploymentEnvironment(env = process.env) {
 }
 
 
-async function workerRequest(config, route, method, runId, fetchImpl) {
+async function workerRequest(config, route, method, runId, fetchImpl, versionSha256 = null) {
   if (!config.ok) {
     return {
       ok: false,
@@ -386,6 +397,9 @@ async function workerRequest(config, route, method, runId, fetchImpl) {
   if (method === "POST" && route.startsWith(SCENARIO_ROUTES.discord_delta) &&
       !route.endsWith("/cleanup")) {
     headers["X-E2E-Version-Tag"] = runId;
+    if (versionSha256) {
+      headers["X-E2E-Version-ID-SHA256"] = versionSha256;
+    }
   }
 
   let response;
@@ -753,6 +767,7 @@ async function waitForDeployedWorker(
   runId,
   fetchImpl,
   delayImpl,
+  previousVersion = null,
 ) {
   for (let attempt = 1; attempt <= DEPLOY_VERIFY_ATTEMPTS; attempt += 1) {
     const response = await workerRequest(
@@ -763,8 +778,9 @@ async function waitForDeployedWorker(
       fetchImpl,
     );
     const status = sanitizeStatus(response);
-    if (status.ok && status.worker_version.tag === runId) {
-      return { ok: true, attempts: attempt };
+    if (status.ok && status.worker_version.present && status.worker_version.id_sha256 &&
+        status.worker_version.tag === runId && status.worker_version.id_sha256 !== previousVersion) {
+      return { ok: true, attempts: attempt, version_sha256: status.worker_version.id_sha256 };
     }
     if (attempt < DEPLOY_VERIFY_ATTEMPTS) {
       await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
@@ -864,6 +880,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       ok: entry.ok === true,
       status: Number.isInteger(entry.status) ? entry.status : null,
       execution_status: sanitizeExecutionStatus(entry.execution_status),
+      ...versionEvidence(entry),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
   const allTimestamps = audit
@@ -932,6 +949,7 @@ async function runAudited(auditImpl, entry, operation) {
       ok: result.ok === true,
       status: result.status,
       execution_status: sanitizeExecutionStatus(result.execution_status),
+      ...versionEvidence({ ...entry, ...result }),
       error: result.error,
     });
   } catch {
@@ -1025,6 +1043,7 @@ export function createE2eMcpServer(options = {}) {
       inputSchema: {
         run_id: runIdField,
         confirmation: z.string().describe("deploy:ie-event-bot-e2e:<run ID>の完全一致"),
+        previous_version_sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
       },
       annotations: {
         readOnlyHint: false,
@@ -1033,7 +1052,7 @@ export function createE2eMcpServer(options = {}) {
         openWorldHint: true,
       },
     },
-    async ({ run_id: runId, confirmation }) => {
+    async ({ run_id: runId, confirmation, previous_version_sha256: previousVersion }) => {
       if (confirmation !== `deploy:${WORKER_NAME}:${runId}`) {
         return toolResult(
           { ok: false, run_id: runId, error: "deploy_confirmation_mismatch" },
@@ -1048,8 +1067,22 @@ export function createE2eMcpServer(options = {}) {
       }
       const result = await runAudited(
         auditImpl,
-        { run_id: runId, tool: "deploy_e2e", target: WORKER_NAME },
+        { run_id: runId, tool: "deploy_e2e", target: WORKER_NAME, previous_version_sha256: previousVersion },
         async () => {
+          if (previousVersion) {
+            const response = await workerRequest(config, "/admin/e2e/status", "GET", runId, fetchImpl);
+            const status = sanitizeStatus(response);
+            const manifest = status.scenarios.discord_delta;
+            if (!status.ok || status.mode !== "e2e" || !status.e2e_manifest_enabled ||
+                status.orchestrated_writes_enabled !== false || !status.worker_version.present ||
+                status.worker_version.tag !== runId ||
+                status.worker_version.id_sha256 !== previousVersion || !manifest.present ||
+                !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "delta_updated" ||
+                Object.values(status.services).some((item) => item.dirty) ||
+                Object.entries(status.scenarios).some(([key, item]) => key !== "discord_delta" && item.dirty)) {
+              return { ok: false, status: 409, error: "redeploy_checkpoint_mismatch" };
+            }
+          }
           const deployed = await deployImpl(config, runId);
           if (deployed.ok !== true) {
             return deployed;
@@ -1059,6 +1092,7 @@ export function createE2eMcpServer(options = {}) {
             runId,
             fetchImpl,
             delayImpl,
+            previousVersion,
           );
           if (!verified.ok) {
             return {
@@ -1073,6 +1107,8 @@ export function createE2eMcpServer(options = {}) {
             ...deployed,
             version_verified: true,
             verification_attempts: verified.attempts,
+            version_sha256: verified.version_sha256,
+            previous_version_sha256: previousVersion ?? null,
           };
         },
       );
@@ -1126,6 +1162,7 @@ export function createE2eMcpServer(options = {}) {
       inputSchema: {
         run_id: runIdField, scenario: scenarioField,
         sync_phase: z.enum(["run", "prepare", "advance", "resume"]).default("run"),
+        version_sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
       },
       annotations: {
         readOnlyHint: false,
@@ -1134,13 +1171,13 @@ export function createE2eMcpServer(options = {}) {
         openWorldHint: true,
       },
     },
-    async ({ run_id: runId, scenario, sync_phase: syncPhase }) => {
-      if (scenario !== "discord_delta" && syncPhase !== "run") {
+    async ({ run_id: runId, scenario, sync_phase: syncPhase, version_sha256: versionSha256 }) => {
+      if (scenario !== "discord_delta" && (syncPhase !== "run" || versionSha256)) {
         return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
       }
       const result = await runAudited(
         auditImpl,
-        { run_id: runId, tool: "trigger_sync", target: scenario, sync_phase: syncPhase },
+        { run_id: runId, tool: "trigger_sync", target: scenario, sync_phase: syncPhase, version_sha256: versionSha256 },
         async () => {
           let response = await workerRequest(
             config,
@@ -1148,12 +1185,13 @@ export function createE2eMcpServer(options = {}) {
             "POST",
             runId,
             fetchImpl,
+            versionSha256,
           );
           for (let attempt = 1; scenario === "discord_delta" && attempt < DEPLOY_VERIFY_ATTEMPTS &&
                response.status === 409 && response.payload.error === "worker_version_mismatch"; attempt += 1) {
             await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
             response = await workerRequest(config, operationRoute("trigger_sync", scenario, syncPhase),
-              "POST", runId, fetchImpl);
+              "POST", runId, fetchImpl, versionSha256);
           }
           const sanitized = sanitizeOperation(response, runId);
           if (sanitized.ok && syncPhase === "prepare" &&

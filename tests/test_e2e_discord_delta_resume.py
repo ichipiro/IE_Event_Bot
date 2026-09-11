@@ -1,6 +1,7 @@
 """HTTP間の準備・続行と、続行中断後の重複防止をローカルで確認する。"""
 
 from copy import deepcopy
+from hashlib import sha256
 
 import pytest
 
@@ -179,6 +180,48 @@ def test_delta_version_gate_rejects_stale_worker_before_io(monkeypatch, phase):
     assert response.status == 409
     assert response_json(response)["error"] == "worker_version_mismatch"
     assert calls == []
+
+
+@pytest.mark.parametrize("phase", ["prepare", "advance", "resume"])
+@pytest.mark.parametrize("expected", ["old-version", "invalid", "missing-tag"])
+def test_same_tag_version_id_mismatch_rejected_before_io(monkeypatch, phase, expected):
+    _, _, calls, _ = install_api_stub(monkeypatch)
+    worker = e2e_entry.Default()
+    worker.env = make_env()
+    worker.env.INTERNAL_API_TOKEN = "test-token"
+    worker.env.E2E_DISCORD_DELTA_ENABLED = "true"
+    worker.env.CF_VERSION_METADATA = {"id": "new-version", "tag": RUN_ID}
+    digest = sha256(b"old-version").hexdigest() if expected == "old-version" else "invalid"
+    headers = {**ROUTE_HEADERS, "X-E2E-Version-ID-SHA256": digest}
+    if expected != "missing-tag":
+        headers["X-E2E-Version-Tag"] = RUN_ID
+    response = run(worker.fetch(Request(
+        f"https://bot.test/admin/e2e/discord-delta-sync/{phase}", method="POST", headers=headers,
+    )))
+    assert response.status == 409
+    assert response_json(response)["error"] == "worker_version_mismatch"
+    assert calls == []
+
+
+def test_version_id_gate_allows_continuation_after_metadata_change(monkeypatch):
+    events, pages, _, _ = install_api_stub(monkeypatch)
+    env = make_env()
+    env.INTERNAL_API_TOKEN = "test-token"
+    env.E2E_DISCORD_DELTA_ENABLED = "true"
+    env.SYNC_DO_LOCK_ENABLED = "true"
+    for phase, version in [("prepare", "first"), ("advance", "first"),
+                           ("advance", "second"), ("resume", "second"), ("resume", "second")]:
+        worker = e2e_entry.Default()
+        worker.env = env
+        env.CF_VERSION_METADATA = {"id": version, "tag": RUN_ID}
+        headers = {**ROUTE_HEADERS, "X-E2E-Version-Tag": RUN_ID,
+                   "X-E2E-Version-ID-SHA256": sha256(version.encode()).hexdigest()}
+        response = run(worker.fetch(Request(
+            f"https://bot.test/admin/e2e/discord-delta-sync/{phase}", method="POST", headers=headers,
+        )))
+        assert response.status == 200
+    assert events == {}
+    assert pages[PAGE_ID]["archived"] is True
 
 
 @pytest.mark.parametrize("hide_canceled", [False, True])

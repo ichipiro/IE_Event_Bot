@@ -419,7 +419,7 @@ test("trigger_syncとcleanupは選択した所有資源routeだけを使う", as
 });
 
 
-test("Discord差分のprepareとresumeを固定routeへ送り監査に残す", async () => {
+test("Discord差分のprepare・advance・resumeを固定routeへ送り監査に残す", async () => {
   const calls = [];
   const audit = [];
   await withClient({
@@ -430,12 +430,12 @@ test("Discord差分のprepareとresumeを固定routeへ送り監査に残す", a
     fetchImpl: async (url) => {
       calls.push(url);
       return jsonResponse({ ok: true, run_id: RUN_ID,
-        status: url.endsWith("/prepare") ? "prepared" : "completed",
-        dirty: url.endsWith("/prepare"),
+        status: url.endsWith("/prepare") ? "prepared" : url.endsWith("/advance") ? "updated" : "completed",
+        dirty: !url.endsWith("/resume"),
       });
     },
   }, async (client) => {
-    for (const sync_phase of ["prepare", "resume"]) {
+    for (const sync_phase of ["prepare", "advance", "resume"]) {
       const result = parseToolResult(await client.callTool({ name: "trigger_sync",
         arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase },
       }));
@@ -445,15 +445,17 @@ test("Discord差分のprepareとresumeを固定routeへ送り監査に残す", a
       arguments: { run_id: RUN_ID },
     }));
     assert.deepEqual(result.manifest.operations.map((op) => op.route), [
-      "/admin/e2e/discord-delta-sync/prepare", "/admin/e2e/discord-delta-sync/resume",
+      "/admin/e2e/discord-delta-sync/prepare", "/admin/e2e/discord-delta-sync/advance",
+      "/admin/e2e/discord-delta-sync/resume",
     ]);
   });
-  assert.deepEqual(calls.slice(0, 2), [
+  assert.deepEqual(calls.slice(0, 3), [
     `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/prepare`,
+    `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/advance`,
     `${ENV.E2E_WORKER_URL}/admin/e2e/discord-delta-sync/resume`,
   ]);
   assert.deepEqual(audit.filter((entry) => entry.phase === "start").map((entry) => entry.sync_phase),
-    ["prepare", "resume"]);
+    ["prepare", "advance", "resume"]);
 });
 
 test("Discord差分は副作用前のversion不一致だけを待機して再送する", async () => {
@@ -478,7 +480,7 @@ test("Discord差分は副作用前のversion不一致だけを待機して再送
   });
 });
 
-test("Discord差分以外の分割実行と不完全なprepare・resume応答を拒否する", async () => {
+test("Discord差分以外の分割実行と不完全なprepare・advance・resume応答を拒否する", async () => {
   const calls = [];
   await withClient({ env: ENV, auditImpl: async () => {},
     fetchImpl: async (url) => {
@@ -491,12 +493,13 @@ test("Discord差分以外の分割実行と不完全なprepare・resume応答を
     }));
     assert.equal(forbidden.error, "sync_phase_forbidden");
     assert.equal(calls.length, 0);
-    for (const sync_phase of ["prepare", "resume"]) {
+    for (const sync_phase of ["prepare", "advance", "resume"]) {
       const result = parseToolResult(await client.callTool({ name: "trigger_sync",
         arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase },
       }));
       assert.equal(result.ok, false);
-      assert.equal(result.error, sync_phase === "prepare" ? "delta_prepare_not_ready" : "delta_resume_incomplete");
+      assert.equal(result.error, sync_phase === "prepare" ? "delta_prepare_not_ready"
+        : sync_phase === "advance" ? "delta_advance_not_ready" : "delta_resume_incomplete");
     }
   });
 });

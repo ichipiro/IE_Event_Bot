@@ -366,7 +366,7 @@ def test_delta_queue_retries_failed_owned_update_with_unchanged_snapshot(monkeyp
     assert env.STATE_KV.put_calls == []
 
 
-@pytest.mark.parametrize("suffix", ["", "/cleanup", "/prepare", "/resume"])
+@pytest.mark.parametrize("suffix", ["", "/cleanup", "/prepare", "/advance", "/resume"])
 @pytest.mark.parametrize("case,status", [
     ("disabled", 404), ("unauthorized", 401), ("get", 405),
     ("missing_run", 400), ("valid", 200), ("exception", 409),
@@ -374,7 +374,7 @@ def test_delta_queue_retries_failed_owned_update_with_unchanged_snapshot(monkeyp
 def test_delta_routes_enforce_auth_method_run_id(monkeypatch, suffix, case, status):
     calls = []
 
-    async def fake_probe(env, state, run_id=None, expected_run_id=None, prepare_only=False):
+    async def fake_probe(env, state, run_id=None, expected_run_id=None, prepare_only=False, pause_after_update=False):
         calls.append(run_id or expected_run_id)
         if case == "exception":
             raise RuntimeError("private exception")

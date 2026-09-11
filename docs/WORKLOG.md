@@ -6,6 +6,23 @@
 - Git のコミット履歴を置き換えず、作業の判断と検証境界を補足する。
 - シークレット、個人情報、外部サービスの認証値を記録しない。
 
+## 2026-09-11: Discord差分E2Eの更新後再開を実サービスで検証
+
+- commit `2d8b73cc35ac41243a867108d01bc77c5a48821c` を対象に[実行34588410907](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34588410907)が成功した。run `E2E-20260911T101743Z-a9189d45` で、別HTTPの `prepare → advance → resume` を確認した。
+- 更新・Notion読戻し後に保存した状態から続行し、全6回の差分・checkpoint処理、更新段階と続行段階の状態分離・永続化を確認した。キャンセル後は一覧から消える分岐を観測した。
+- Discordの明示削除204・後続GET404、Notionのarchive読戻し200、cleanup成功、`outcome=passed`、`dirty=false` を確認した。
+- artifact `e2e-evidence-34588410907-1` を独立取得し、3つのHTTP経路の順序と成功、repository SHAとWorker version tagの一致、全サービスのclean状態、資源ID・snapshot / queue・claim内部状態を出力しないことを照合した。
+- GitHub上のPython 284件、Node 48件、Ruff・Pyright・E2E設定検査・Wrangler dry-runが成功した。JUnitを独立取得し、284件・失敗0件も確認した。
+- 実Worker再起動、応答喪失による再送・競合、任意位置からの復旧、キャンセル後に一覧へ残る分岐、共有状態・全件適用・実Cronの実環境検証は含まない。再送・競合・オブジェクト再作成は以下のローカル検証に分けて保持する。
+
+## 2026-09-11: Discord差分E2Eの更新完了境界からの続行
+
+- `advance` を追加し、無変更・説明更新・Notion読戻し後に `delta_updated` とrevision 3を保存する。手動workflowは `prepare → advance → resume` で実行し、従来の2リクエスト経路と一括実行も維持する。
+- 続行時は段階・revision・所有資源を再確認する。取得したrevisionをDOへ記録し、遅延した前段階の保存要求が次段階のclaimを解除することを防ぐ。保存完了後の再送は更新を繰り返さず、保存前中断はdirtyのままcleanupする。
+- ローカル代替APIでPython 284件、Node 48件が成功した。新規経路の認証、version不一致の拒否、オブジェクト再作成、更新後の再送、古いclaim・資源変更の拒否、失敗後のcleanupを含む。
+- Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、Wrangler 4.127.1のE2E dry-runを確認した。dry-runには追跡対象のソースと設定だけを隔離コピーし、認証情報を渡していない。
+- 今回は実サービスへの3リクエスト実行と実Worker再起動を検証していない。従来の2リクエスト実行の成功証拠は以下に保持する。共有状態、全件適用、実Cronは引き続き未確認。
+
 ## 2026-09-11: Discord差分E2Eの実サービス検証完了
 
 - commit `7c1005958c003592f040332da6f905ee4509c0c4` を対象に[専用workflow実行34581609741](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)が成功した。`e2e` Environment承認後、専用Workerへdeployして実行した。

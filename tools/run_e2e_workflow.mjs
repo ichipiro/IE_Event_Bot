@@ -470,6 +470,11 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
     await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
+      sync_phase: "advance",
+    });
+    await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
       sync_phase: "resume",
     });
     await requireTool(callTool, "assert_external_state", {

@@ -554,11 +554,17 @@ def _build_event_created_message(env, event: dict) -> str | None:
     return "\n".join(lines)
 
 
-async def _notify_discord_event_created(env, event: dict) -> bool:
+async def _notify_discord_event_created(env, event: dict, *, delivery: dict | None = None) -> bool:
     """新規作成された Discord イベントを通知チャンネルへ投稿する。"""
     channel_id = _env_text(env, "EVENT_CREATE_CHANNEL_ID", "")
     if not channel_id:
         return False
+    if delivery is not None and delivery.get("channel_id") != channel_id:
+        # 設定変更後に保留中の通知を別チャンネルへ転送しない。
+        return False
+    message_id = str((delivery or {}).get("message_id") or "")
+    if message_id:
+        return await _discord_add_reaction(env, channel_id, message_id, "✅")
     role_id = _env_text(env, "EVENT_CREATE_ROLE_ID", "")
     message = _build_event_created_message(env, event)
     if not message:
@@ -578,6 +584,9 @@ async def _notify_discord_event_created(env, event: dict) -> bool:
     )
     if not message_id:
         return False
+    if delivery is not None:
+        # 投稿成功・リアクション失敗を次回の再投稿にしない。
+        delivery["message_id"] = message_id
     # 参加表明用の✅リアクションを付与する
     return await _discord_add_reaction(env, channel_id, message_id, "✅")
 
@@ -965,13 +974,17 @@ async def _apply_discord_event_diff(
     # 変更対象IDを重複なくまとめる
     merged_ids = []
     seen_ids = set()
+    queued_by_id = {}
     # まず残りキューから探す
     for op in queued_ops:
+        if not isinstance(op, dict):
+            continue
         event_id = str((op or {}).get("id") or "").strip()
         if not event_id or event_id in seen_ids:
             continue
         seen_ids.add(event_id)
         merged_ids.append(event_id)
+        queued_by_id[event_id] = op
     # 登録された全イベントIDから探す
     for event_id in created_ids + updated_ids + deleted_ids:
         if event_id in seen_ids:
@@ -980,10 +993,38 @@ async def _apply_discord_event_diff(
         merged_ids.append(event_id)
 
     merged_ops = []
+    changed_ids = set(created_ids + updated_ids)
+    channel_id = _env_text(env, "EVENT_CREATE_CHANNEL_ID", "")
     # スナップショットを見て各イベントを作成/更新するか削除するか決める
     for event_id in merged_ids:
         op_type = "upsert" if event_id in current_snapshot else "delete"
-        merged_ops.append({"op": op_type, "id": event_id})
+        queued = queued_by_id.get(event_id, {})
+        if (op_type == "delete" and queued.get("op") == "notify"
+                and not _should_treat_missing_event_as_delete(previous_snapshot.get(event_id))):
+            # 完了イベントは一覧から消えても同期先を削除せず、保留通知だけを破棄する。
+            continue
+        op = {"op": op_type, "id": event_id}
+        if op_type == "upsert":
+            notification = queued.get("notification")
+            if notification is None and event_id in created_ids and channel_id:
+                notification = {"channel_id": channel_id}
+            if notification is not None:
+                if (not isinstance(notification, dict)
+                        or not isinstance(notification.get("channel_id"), str)
+                        or not notification["channel_id"].strip()
+                        or ("message_id" in notification and (
+                            not isinstance(notification["message_id"], str)
+                            or not notification["message_id"].strip()))):
+                    raise RuntimeError("discord_notification_state_invalid")
+                op["notification"] = dict(notification)
+            if queued.get("op") == "notify":
+                if notification is None:
+                    raise RuntimeError("discord_notification_state_invalid")
+                # 通知だけの再試行では成功済みの外部同期を繰り返さない。
+                # その間にイベントが変わった場合は更新を先に反映する。
+                if event_id not in changed_ids:
+                    op["op"] = "notify"
+        merged_ops.append(op)
 
     # 変更対象イベントを今回処理する分と残りに分ける
     target_ops = merged_ops[:max_changes]
@@ -999,22 +1040,23 @@ async def _apply_discord_event_diff(
             continue
         processed_count += 1
         # 作成/更新
-        if op_type == "upsert":
+        if op_type in ("upsert", "notify"):
             event = current_events.get(event_id)
             if not event:
                 retry_ops.append({"op": "delete", "id": event_id})
                 continue
             apply = upsert_runner or _sync_discord_event_upsert
-            ok = await apply(env, event, google_token)
+            ok = op_type == "notify" or await apply(env, event, google_token)
             if not ok:
                 had_error = True
                 errors.append(f"upsert_failed:{event_id}")
-                retry_ops.append({"op": "upsert", "id": event_id})
-            elif event_id in created_ids:
-                notified = await _notify_discord_event_created(env, event)
-                if not notified and _env_text(env, "EVENT_CREATE_CHANNEL_ID", ""):
+                retry_ops.append(op)
+            elif "notification" in op:
+                notified = await _notify_discord_event_created(env, event, delivery=op["notification"])
+                if not notified:
                     had_error = True
                     errors.append(f"create_notify_failed:{event_id}")
+                    retry_ops.append({**op, "op": "notify"})
         # 削除
         else:
             delete = delete_runner or _sync_discord_event_delete

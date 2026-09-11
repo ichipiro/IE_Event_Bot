@@ -59,6 +59,8 @@ Durable Object がない場合、`gcal_msg:<channel_id>:<message_number>` を KV
 
 KV の JSON は安定した文字列表現で保存し、同じ内容の不要な再書き込みを避ける。KV は最終的整合性であり、厳密な一意制約や複数キーのトランザクションを提供する前提ではない。
 
+`sync:discord_notion_queue` の各要素は `id` と `op`（`upsert` / `delete` / `notify`）を持つ。新規イベントの通知が未完了なら `notification: {channel_id, message_id?}` を付加する。`message_id` は投稿結果を取得した後だけ記録し、リアクションの再試行に使う。同期未完了は `upsert`、同期成功後の通知未完了は `notify` として保存する。完了後はqueueから取り除く。通知なしの従来の `upsert` / `delete` 要素も読み込めるが、旧queueに失われた通知の要否は復元できない。旧実装は `notify` を理解しないため、保留通知がある状態での旧版への切戻しは再同期・通知消失の可能性がある。
+
 旧E2E実装の `e2e:google_calendar_crud`、`e2e:discord_crud`、`e2e:notion_crud` がKVに残っている場合、新しいE2E probeは外部操作前に停止する。値を応答へ出さず、既存資源のcleanup状態を人が確認して旧キーを処理するまで自動移行しない。
 
 ## Durable Object

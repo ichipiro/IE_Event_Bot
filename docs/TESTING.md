@@ -58,6 +58,10 @@ bash -n tools/configure_github_e2e_environment.sh
 
 `tests/test_discord_state_recovery.py` は通常の `StateStore` と差分処理を使い、KV・外部APIを代替する。作成・更新・削除の再試行、queue / snapshotの保存失敗、件数上限による残件を、新しいStateStoreで読み直して確認する。保存失敗後の成功済み操作の再実行は許容し、未処理操作が消えないことを確認する。
 
+`tests/test_discord_notification_retry.py` は同じ通常ポーリングとStateStoreを使い、一覧取得・同期先・Discord APIを代替する。上限超過、同期失敗後の通知、投稿失敗、リアクション失敗、通知待ちのイベント変更・削除、完了イベントの保護、通知の件数上限、通知先変更・無効化、旧queue互換、不正な通知状態での書込み拒否を確認する。最初の4件の再現テストが修正前に失敗し、修正後は22件すべて成功した。
+
+投稿成功後のmessage IDを保存し、リアクションだけの再試行では再投稿しない。Discordの[Create Reaction](https://docs.discord.com/developers/resources/message#create-reaction)は対象messageへのPUTで成功時204を返す。ローカルテストはこのAPI境界を代替しており、実サービス配信は未検証である。投稿応答の喪失、KV保存失敗・古い値の参照を含めた一度だけの配信は保証しない。既存の `discord_batch` / `discord_batch_google` は通知先を隠しており、通知の所有・回収と専用workflowへの接続は後続作業とする。
+
 `tests/test_discord_sync_lock.py` は手動・Cronと全体同期の共通ロック、競合時の最終結果保護、適用・結果保存の例外とキャンセル後の解放、取得エラー時の停止、明示無効時の互換性を確認する。並行HTTPの検証では、1件が適用中の間にもう1件が409で拒否されることを確認する。
 
 これらはローカル検証であり、実KVの伝播遅延、ロックTTL超過、実Cron、通常Guild全件への実サービス適用は未検証である。run所有checkpointを使う専用Discord差分E2Eの成功も、通常の共有KVの実動作を証明しない。

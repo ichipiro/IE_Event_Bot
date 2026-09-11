@@ -107,6 +107,8 @@ Discord差分の手動workflowは初回deployでversion IDのSHA-256を取得し
 
 監査JSONL・manifestには注入が実行されたことを真偽値 `response_discarded` で記録する。成功runでも応答破棄のoperationは `ok=false`・HTTP 200として残り、同時resumeの期待409も別に残る。これはMCP側で本文未読を強制する障害注入であり、実際の回線断、Workerの途中停止、処理完了前の中断を起こした証拠ではない。
 
+2026-09-11の[実行34597932061](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34597932061)では、最初のadvanceがHTTP 200・`ok=false`・`response_discarded=true`・`worker_response_discarded` として記録された。別versionへの再deploy後のadvanceはupdatedとなり、同時resume、完了再送、全6回のcheckpoint、cleanupと全資源dirty=falseを確認した。artifactとJUnitを独立取得して照合した。意図した失敗記録は応答破棄1件とロック拒否1件だけだった。
+
 同時resumeの2要求は同run・同versionを指定し、両方の終了を待つ。片方がHTTP 200・dirty=false・通常完了、もう片方がHTTP 409・`e2e_lock_unavailable` の場合だけ成功とする。両方成功、両方拒否、完了済み再送しか観測できない場合、異なるエラーや通信失敗は成功扱いにしない。拒否側を自動再送せず、その失敗を監査・manifestへ保持するため、成功runでも期待した409のoperationが1件残る。両要求が終了してから完了再送・所有状態確認・cleanupへ進み、検証失敗時も両要求終了後に同runだけを回収する。
 
 2026-09-11の[実行34594293913](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34594293913)で同時resumeを実サービス検証した。監査JSONLのresumeは開始・開始・終了・終了・開始・終了の順で、並行2要求のHTTP 200 / 409と、その後のalready_completed応答を独立照合した。期待した409以外のoperationは成功し、全6回のcheckpoint・cleanup・全資源dirty=falseを確認した。

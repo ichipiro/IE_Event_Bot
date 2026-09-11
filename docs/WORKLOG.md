@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-11: 応答本文破棄後の再送を実サービスで検証
+
+- commit `effc0e3e3db13b829919d5cfcf50194e7ed86676` の[実行34597932061](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34597932061)が成功した。run `E2E-20260911T121617Z-de3d2c74`、artifact `e2e-evidence-34597932061-1` を独立取得した。
+- 最初のadvanceの本文破棄flag・HTTP 200・固定エラーと本文由来statusがnullであること、2回のdeployの異なるversion ID、再deploy後のadvanceのupdated応答を照合した。
+- 同時resumeの開始・開始・終了・終了の順序とHTTP 200 / 409、完了再送のalready_completed、全6回の差分・checkpoint、cleanup・全資源dirty=falseを確認した。意図した失敗記録は本文破棄1件とロック拒否1件だけだった。
+- ActionsのPython 296件、Node 89件、Ruff、Pyright、設定検査、Wrangler dry-runが成功した。JUnitも独立取得し296件・失敗0を照合した。
+- 実サービスを使ったMCP側の本文未読破棄試験であり、実際の回線断、Workerの途中停止、処理完了前の中断、DO claim自体の実環境競合は含まない。
+
 ## 2026-09-11: Discord差分E2Eの応答本文破棄と再送
 
 - PR #61をupstream developへマージし、fork PR #48で同期した。ローカルdevelopとorigin/developの一致、upstream/developの祖先関係を確認した。

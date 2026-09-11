@@ -21,6 +21,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_google",
   "discord_notion",
   "discord_delta",
+  "discord_state",
   "google_discord",
   "google_notion",
   "qa_notification",

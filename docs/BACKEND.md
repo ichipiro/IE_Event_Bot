@@ -110,6 +110,8 @@ StateStore
 
 ## E2E 専用 Worker
 
+通常StateStoreの検証用 `discord_state` は、`E2E_STATE_SCOPE` 設定時だけ専用の保存・検証・回収routeを公開する。KV bindingをrun ID・一意なscope・snapshot / queueの固定キーへ制限し、読書きのたびにDO manifestの所有権を確認する。snapshot / queueは通常どおり別々のKV書込みであり、DOには所有メタデータだけを保存する。外部イベントの同期は行わず、通常経路と接続する前段の基盤として扱う。
+
 `workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
 
 Google→Notion scenario は、専用 Calendar の event を `apply_google_events` へ渡し、専用 Notion 内部 DB の page を確認後に両方を cleanup する。外部 Notion DB と Discord 反映を事前に拒否し、一時状態により通常の同期対応表と queue を変更しない。Google event ID、Notion page ID、対象 fingerprint は `google_notion` の Durable Object manifest で管理する。

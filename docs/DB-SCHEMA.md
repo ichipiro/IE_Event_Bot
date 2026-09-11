@@ -2,6 +2,8 @@
 
 ## 概要
 
+E2Eの通常KV検証では `e2e:discord_state:<run_id>:<scope_id>:discord:snapshot` と同prefixの `sync:discord_notion_queue` だけを使用する。scopeは準備時に生成する32桁hex、run IDと所有event ID一覧・対象fingerprintはDOの `e2e:manifest:discord_state` に保持する。DOはdirtyな所有権の差し替えとclean後の同run再利用を拒否する。回収後はrun IDとfingerprint、結果だけを残す。通常のKVキーと既存Discord差分checkpointは変更しない。
+
 このシステムは、単一のリレーショナルデータベースを持たない。イベントの業務データは Notion、同期状態は Workers KV、競合しやすい小さな状態は Durable Object に保存する。
 
 `workers/wrangler.jsonc` に Cloudflare D1 の `d1_databases` はない。`new_sqlite_classes` は `SyncCoordinator` Durable Object のマイグレーションであり、D1 スキーマではない。

@@ -480,6 +480,40 @@ test("Discord差分は副作用前のversion不一致だけを待機して再送
   });
 });
 
+test("再送の固定応答だけを監査ファイルとmanifestへ残す", async () => {
+  const runId = "E2E-20260911T000000Z-abcdef01";
+  const audit = [];
+  const replies = ["updated", "already_completed", "private_response_text"];
+  let count = 0;
+  await withClient({ env: ENV,
+    auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+    fetchImpl: async () => jsonResponse({ ok: true, run_id: runId, dirty: false, status: replies[count++] }),
+  }, async (client) => {
+    for (const sync_phase of ["run", "resume", "run"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync",
+        arguments: { run_id: runId, scenario: "discord_delta", sync_phase },
+      }));
+      assert.equal(result.ok, true);
+    }
+    const result = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: runId },
+    }));
+    assert.deepEqual(result.manifest.operations.map((op) => op.execution_status),
+      ["updated", "already_completed", null]);
+    assert.equal(JSON.stringify(audit).includes("private_response_text"), false);
+  });
+  // 実際のJSONL書込み・読戻しでも任意文字列を取り込まない。
+  for (const execution_status of replies) {
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "discord_delta",
+      phase: "finish", ok: true, status: 200, execution_status });
+  }
+  const saved = await readAuditEntries(runId);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.execution_status),
+    ["updated", "already_completed", null]);
+});
+
 test("Discord差分以外の分割実行と不完全なprepare・advance・resume応答を拒否する", async () => {
   const calls = [];
   await withClient({ env: ENV, auditImpl: async () => {},

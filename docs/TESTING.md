@@ -105,6 +105,8 @@ Discord差分の手動workflowは初回deployでversion IDのSHA-256を取得し
 
 同時resumeの2要求は同run・同versionを指定し、両方の終了を待つ。片方がHTTP 200・dirty=false・通常完了、もう片方がHTTP 409・`e2e_lock_unavailable` の場合だけ成功とする。両方成功、両方拒否、完了済み再送しか観測できない場合、異なるエラーや通信失敗は成功扱いにしない。拒否側を自動再送せず、その失敗を監査・manifestへ保持するため、成功runでも期待した409のoperationが1件残る。両要求が終了してから完了再送・所有状態確認・cleanupへ進み、検証失敗時も両要求終了後に同runだけを回収する。
 
+2026-09-11の[実行34594293913](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34594293913)で同時resumeを実サービス検証した。監査JSONLのresumeは開始・開始・終了・終了・開始・終了の順で、並行2要求のHTTP 200 / 409と、その後のalready_completed応答を独立照合した。期待した409以外のoperationは成功し、全6回のcheckpoint・cleanup・全資源dirty=falseを確認した。
+
 HTTP入口の同期ロックがDO claimより先に作用する。実E2Eの対象は入口ロックによる同時要求の拒否であり、DO claimそのものの競合はローカル代替APIで別に確認する。ローカルでは続行側をclaim後に一時停止し、HTTP入口の拒否側に外部API呼出しがないことと、同revisionを読んだ別要求のDO claim拒否・更新と削除の重複防止を検証する。
 
 各続行は同じrun・対象・保存内容・所有pageを再確認し、DOで保存段階とrevisionが一致する場合だけ `delta_resuming` を取得する。更新完了の保存は取得したclaimとrevision 3を確認し、検証結果と段階を一括で保存する。遅延した前段階の保存要求では次段階のclaimを解除できない。更新完了後の `advance` 再送は所有資源の読戻しだけを行い、説明更新を繰り返さない。成功済みの同runへの `advance` / `resume` HTTP再送は外部操作なしで `already_completed` を返す。準備・更新完了として保存できた境界だけが続行対象であり、外部書込み中や段階保存前の中断はdirtyとしてcleanupする。

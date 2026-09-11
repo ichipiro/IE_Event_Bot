@@ -4,6 +4,8 @@
 
 ## 2026-09-11
 
+- 同時resumeの実サービス成功（実行34594293913）、並行開始・HTTP 200 / 409・checkpoint・cleanupの独立照合を記録した。
+
 - Discord差分E2Eに同時resumeの通常完了・ロック拒否の判定と、両要求終了後のcleanupを追加し、入口ロックとDO claimの検証範囲を区別した。
 
 - 再デプロイ後のDiscord差分続行の実サービス成功（実行34593390627）と、2つのversion ID・checkpoint・cleanupの独立照合を記録した。

@@ -173,7 +173,7 @@ MCP の `trigger_sync` は固定 `scenario` 列挙に応じ、`/sync/all` では
 
 MCPは `trigger_sync(scenario="discord_batch", sync_phase="prepare" / "resume" / "advance")` と `cleanup_run(service="discord_batch")` を使う。手動モード `deploy-and-discord-batch-smoke` はprepare / advanceを各1回に限定し、各読戻しで同run・dirty=true・HTTP 409の `discord_batch_not_ready` だけを3秒間隔・最大25回まで待つ。初回残件の確認前にadvanceせず、advanceを再送しない。cleanupは外部資源ごとの完了をDOに記録し、未完了だけを再試行する。外部資源の回収と固定2キーの削除が完了するまでdirtyを維持し、最後はIDを除いたfingerprintだけを残す。
 
-`tests/test_e2e_discord_batch_probe.py` は固定2件の上限・残件処理、別HTTPの状態復元、古いKVの2回目読込による処理済みイベントへの再適用拒否、保存・削除・部分回収の失敗、所有権変更、再検証失敗後の成功判定取消しを代替APIで確認する。通常ポーリング、Google同期、作成通知、TTL超過、実サービスでの保存失敗注入は含まない。
+`tests/test_e2e_discord_batch_probe.py` は固定2件の上限・残件処理、別HTTPの状態復元、古いKVの2回目読込による処理済みイベントへの再適用拒否、保存・削除・部分回収の失敗、所有権変更、再検証失敗後の成功判定取消しを代替APIで確認する。通常ポーリング、Google同期、作成通知、TTL超過、実サービスでの保存失敗注入は含まない。2026-09-12（JST）の[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)でprepare→残件確認→advance→最終確認→cleanupが成功した。各verifyは1回、prepare / advanceも各1回である。監査とmanifestの7操作、初回上限・残件読戻し・残件適用・最終読戻し・KV回収の各200、Discord削除204とNotion archive 200を各2件、version・run一致、outcome=passed、全資源dirty=falseを独立照合した。KV遅延による待機は発生していない。cleanupは外部API応答とKV deleteの完了を確認し、全拠点の削除反映は保証しない。
 
 ## テスト構成
 

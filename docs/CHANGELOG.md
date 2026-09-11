@@ -4,7 +4,7 @@
 
 ## 2026-09-12
 
-- 固定2件の所有・上限1件・通常KV残件の別HTTP消化・回収を行う `discord_batch` と専用手動workflowを追加した。ローカル検証と実サービス未検証の境界を記録した。
+- 固定2件の所有・上限1件・通常KV残件の別HTTP消化・回収を行う `discord_batch` と専用手動workflowを追加した。ローカル検証に加え、[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)の上限・残件処理・全資源回収・version一致を記録した。
 
 ## 2026-09-11
 

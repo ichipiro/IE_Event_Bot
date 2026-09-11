@@ -11,14 +11,14 @@
 - [x] 外部fixture 1組の所有権を通常KVへ接続し、別HTTP検証と一括回収をローカル検証する。
 - [x] 外部fixtureと通常KVの接続を実サービスで検証する（[実行34605517604](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34605517604)）。
 - [x] 固定2件の所有・上限1件での適用・KV残件の別HTTP消化・回収を実装し、ローカル検証する。
-- [ ] 固定2件の適用・残件・回収を実サービスで検証する。
+- [x] 固定2件の適用・残件・回収を実サービスで検証する（[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)）。
 
 現在の `discord_state` はKVだけの補助シナリオであり、外部イベントを作成・同期しない。snapshot / queueは通常StateStoreで別々に保存し、DOには所有メタデータだけを置く。
 
 ## 2. 通常Discord同期
 
 - [ ] 通常ポーリングからNotion・Google反映まで接続する。
-- [ ] 固定2件のsnapshot / queue、件数上限、残件を実サービスで検証する。
+- [x] 固定2件のsnapshot / queue、件数上限、残件を実サービスで検証する（[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)）。
 - [ ] 通常ポーリングでの複数イベント、再試行、作成通知を検証する。
 - [ ] 手動・単独Cron・全体同期の競合を検証する。
 

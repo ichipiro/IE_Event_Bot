@@ -99,7 +99,7 @@ queueの更新・削除失敗後の再試行は、同じメモリstorageを引�
 
 Discord一覧取得のHTTP 429は、有限・非負・10秒以内の `retry_after` に従い最大4回まで試行する。MCPはDiscord差分の書込み時に期待version tagを送り、Workerは副作用前に不一致を拒否する。この拒否だけは最大20回・3秒間隔で再送する。
 
-手動workflowは `trigger_sync` の `sync_phase=prepare`、`advance`、`resume` を別HTTPリクエストで実行する。`/admin/e2e/discord-delta-sync/prepare` は作成・読戻し完了後に `status=prepared`、`dirty=true` を返す。`/advance` は無変更・説明更新・Notion読戻しを確認してrevision 3と `delta_updated` を保存し、`status=updated`、`dirty=true` を返す。`/resume` は残りのキャンセル・削除・cleanupを実行する。従来の `prepare → resume` と一括実行も維持する。
+手動workflowは `trigger_sync` の `sync_phase` を `prepare → advance → advance（再送）→ resume → resume（再送）` の順で実行する。更新後の再送は `updated`・`dirty=true`、完了後の再送は `already_completed`・`dirty=false` を必須とし、不一致時も同runだけをcleanupする。監査JSONLとmanifestのoperationには許可した固定値だけを `execution_status` として記録する。`/admin/e2e/discord-delta-sync/prepare` は作成・読戻し完了後に `status=prepared`、`dirty=true` を返す。`/advance` は無変更・説明更新・Notion読戻しを確認してrevision 3と `delta_updated` を保存し、`status=updated`、`dirty=true` を返す。`/resume` は残りのキャンセル・削除・cleanupを実行する。従来の `prepare → resume` と一括実行も維持する。
 
 各続行は同じrun・対象・保存内容・所有pageを再確認し、DOで保存段階とrevisionが一致する場合だけ `delta_resuming` を取得する。更新完了の保存は取得したclaimとrevision 3を確認し、検証結果と段階を一括で保存する。遅延した前段階の保存要求では次段階のclaimを解除できない。更新完了後の `advance` 再送は所有資源の読戻しだけを行い、説明更新を繰り返さない。成功済みの同runへの `advance` / `resume` HTTP再送は外部操作なしで `already_completed` を返す。準備・更新完了として保存できた境界だけが続行対象であり、外部書込み中や段階保存前の中断はdirtyとしてcleanupする。
 

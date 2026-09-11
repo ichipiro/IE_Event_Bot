@@ -44,6 +44,7 @@ const SERVICE_ROUTES = Object.freeze({
 const SCENARIO_ROUTES = Object.freeze({
   discord_google: "/admin/e2e/discord-google-sync",
   discord_notion: "/admin/e2e/discord-notion-sync",
+  discord_delta: "/admin/e2e/discord-delta-sync",
   google_discord: "/admin/e2e/google-discord-sync",
   google_notion: "/admin/e2e/google-notion-sync",
   qa_notification: "/admin/e2e/qa-notification",
@@ -59,6 +60,7 @@ const CLEANUP_ROUTES = Object.freeze({
   notion: "/admin/e2e/notion-crud/cleanup",
   discord_google: "/admin/e2e/discord-google-sync/cleanup",
   discord_notion: "/admin/e2e/discord-notion-sync/cleanup",
+  discord_delta: "/admin/e2e/discord-delta-sync/cleanup",
   google_discord: "/admin/e2e/google-discord-sync/cleanup",
   google_notion: "/admin/e2e/google-notion-sync/cleanup",
   qa_notification: "/admin/e2e/qa-notification/cleanup",
@@ -107,6 +109,7 @@ const serviceField = z.enum(["google", "discord", "notion"]);
 const scenarioField = z.enum([
   "discord_google",
   "discord_notion",
+  "discord_delta",
   "google_discord",
   "google_notion",
 ]);
@@ -116,6 +119,7 @@ const cleanupTargetField = z.enum([
   "notion",
   "discord_google",
   "discord_notion",
+  "discord_delta",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -266,6 +270,7 @@ export async function appendAuditEntry(entry) {
     run_id: entry.run_id,
     tool: entry.tool,
     target: entry.target,
+    sync_phase: ["run", "prepare", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
@@ -318,6 +323,7 @@ export async function readAuditEntries(runId) {
           run_id: runId,
           tool: entry.tool,
           target: entry.target,
+          sync_phase: ["run", "prepare", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
@@ -806,7 +812,7 @@ export async function readRepositoryMetadata(spawnImpl = spawn) {
 }
 
 
-function operationRoute(tool, target) {
+function operationRoute(tool, target, syncPhase = "run") {
   if (tool === "seed_fixture") {
     return SERVICE_ROUTES[target] ?? null;
   }
@@ -814,6 +820,9 @@ function operationRoute(tool, target) {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
+    if (target === "discord_delta" && ["prepare", "resume"].includes(syncPhase)) {
+      return `${SCENARIO_ROUTES.discord_delta}/${syncPhase}`;
+    }
     return SCENARIO_ROUTES[target] ?? null;
   }
   if (tool === "trigger_webhook") {
@@ -839,7 +848,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       timestamp: sanitizeTimestamp(entry.timestamp),
       tool: entry.tool,
       target: entry.target,
-      route: operationRoute(entry.tool, entry.target),
+      route: operationRoute(entry.tool, entry.target, entry.sync_phase),
       ok: entry.ok === true,
       status: Number.isInteger(entry.status) ? entry.status : null,
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
@@ -1099,8 +1108,11 @@ export function createE2eMcpServer(options = {}) {
   server.registerTool(
     "trigger_sync",
     {
-      description: "選択した所有資源限定の適用シナリオを実行し、両資源をcleanupする。",
-      inputSchema: { run_id: runIdField, scenario: scenarioField },
+      description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しresumeで続行できる。",
+      inputSchema: {
+        run_id: runIdField, scenario: scenarioField,
+        sync_phase: z.enum(["run", "prepare", "resume"]).default("run"),
+      },
       annotations: {
         readOnlyHint: false,
         destructiveHint: true,
@@ -1108,19 +1120,30 @@ export function createE2eMcpServer(options = {}) {
         openWorldHint: true,
       },
     },
-    async ({ run_id: runId, scenario }) => {
+    async ({ run_id: runId, scenario, sync_phase: syncPhase }) => {
+      if (scenario !== "discord_delta" && syncPhase !== "run") {
+        return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
+      }
       const result = await runAudited(
         auditImpl,
-        { run_id: runId, tool: "trigger_sync", target: scenario },
+        { run_id: runId, tool: "trigger_sync", target: scenario, sync_phase: syncPhase },
         async () => {
           const response = await workerRequest(
             config,
-            SCENARIO_ROUTES[scenario],
+            operationRoute("trigger_sync", scenario, syncPhase),
             "POST",
             runId,
             fetchImpl,
           );
           const sanitized = sanitizeOperation(response, runId);
+          if (sanitized.ok && syncPhase === "prepare" &&
+              (response.payload.status !== "prepared" || response.payload.dirty !== true)) {
+            return { ...sanitized, ok: false, error: "delta_prepare_not_ready" };
+          }
+          if (sanitized.ok && syncPhase === "resume" &&
+              (response.payload.ok !== true || response.payload.dirty !== false)) {
+            return { ...sanitized, ok: false, error: "delta_resume_incomplete" };
+          }
           if (sanitized.ok && response.payload.run_id !== runId) {
             return {
               ...sanitized,

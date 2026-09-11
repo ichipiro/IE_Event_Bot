@@ -309,6 +309,7 @@ def _clean_manifest(
     discord_event_id: str,
     notion_page_id: str,
     started_at: str | None,
+    manifest_kind: str = "discord_notion_sync",
 ) -> dict:
     fingerprints = _target_fingerprints(guild_id, database_id)
     if discord_event_id:
@@ -317,7 +318,7 @@ def _clean_manifest(
         fingerprints["notion_page_id_sha256"] = _fingerprint(notion_page_id)
     return {
         "version": 1,
-        "kind": "discord_notion_sync",
+        "kind": manifest_kind,
         "dirty": False,
         "last_run_id": run_id,
         "outcome": outcome,
@@ -443,6 +444,12 @@ async def run_discord_notion_sync_probe(
     env,
     state,
     run_id: str | None = None,
+    *,
+    manifest_service: str = DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
+    manifest_kind: str = "discord_notion_sync",
+    apply_runner=None,
+    verification_runner=None,
+    pause_after_apply: bool = False,
 ) -> dict:
     """専用Discord eventを既存適用処理でNotionへ反映し、両方を削除する。"""
     if not state.enabled():
@@ -451,7 +458,7 @@ async def run_discord_notion_sync_probe(
         return {"ok": False, "dirty": False, "error": "sync_coordinator_required"}
 
     current_manifest = await state.get_e2e_manifest(
-        DISCORD_NOTION_SYNC_MANIFEST_SERVICE
+        manifest_service
     )
     if isinstance(current_manifest, dict) and current_manifest.get("dirty") is True:
         return {
@@ -517,7 +524,7 @@ async def run_discord_notion_sync_probe(
 
     manifest = {
         "version": 1,
-        "kind": "discord_notion_sync",
+        "kind": manifest_kind,
         "dirty": True,
         "run_id": run_id,
         "target_fingerprints": _target_fingerprints(guild_id, database_id),
@@ -526,7 +533,7 @@ async def run_discord_notion_sync_probe(
         "stages": dict(stages),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    await state.put_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+    await state.put_e2e_manifest(manifest_service, manifest)
 
     error = ""
     discord_event_id = ""
@@ -534,7 +541,7 @@ async def run_discord_notion_sync_probe(
     event_payload = _event_payload(run_id)
     manifest["create_attempted"]["discord_event"] = True
     manifest["stage"] = "discord_create_started"
-    await state.put_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+    await state.put_e2e_manifest(manifest_service, manifest)
     create_status, created = await _discord_request_stage(
         env,
         stages,
@@ -570,7 +577,7 @@ async def run_discord_notion_sync_probe(
         manifest["discord_event_id"] = discord_event_id
         manifest["stage"] = "discord_created"
         manifest["stages"] = dict(stages)
-        await state.put_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
 
     discord_event = created
     if not error:
@@ -618,13 +625,12 @@ async def run_discord_notion_sync_probe(
         manifest["create_attempted"]["notion_page"] = True
         manifest["stage"] = "application_apply_started"
         manifest["stages"] = dict(stages)
-        await state.put_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
         try:
-            apply_ok = await _sync_discord_event_upsert(
-                env,
-                discord_event,
-                None,
-            )
+            if apply_runner is None:
+                apply_ok = await _sync_discord_event_upsert(env, discord_event, None)
+            else:
+                apply_ok = await apply_runner(discord_event, stages, retries)
         except Exception:
             apply_ok = False
         stages["application_apply"] = 200 if apply_ok else 500
@@ -651,7 +657,7 @@ async def run_discord_notion_sync_probe(
             manifest["stage"] = "notion_page_found"
             manifest["stages"] = dict(stages)
             await state.put_e2e_manifest(
-                DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
+                manifest_service,
                 manifest,
             )
 
@@ -677,6 +683,43 @@ async def run_discord_notion_sync_probe(
         ):
             error = "notion_page_verification_failed"
 
+    if not error and pause_after_apply:
+        manifest["stage"] = "delta_prepared"
+        manifest["stages"] = dict(stages)
+        manifest["rate_limit_retries"] = dict(retries)
+        await state.put_e2e_manifest(manifest_service, manifest)
+        return {
+            "ok": True, "dirty": True, "run_id": run_id,
+            "status": "prepared", "stages": stages,
+        }
+
+    if not error and verification_runner is not None:
+        try:
+            verified = await verification_runner(
+                discord_event, notion_page_id, stages, retries
+            )
+        except Exception:
+            verified = False
+        stages["scenario_verification"] = 200 if verified else 500
+        if not verified:
+            error = "discord_scenario_verification_failed"
+
+    return await _finish_sync_probe(
+        env, state, manifest, stages, retries, error,
+        manifest_service=manifest_service, manifest_kind=manifest_kind,
+    )
+
+
+async def _finish_sync_probe(
+    env, state, manifest: dict, stages: dict, retries: dict, error: str,
+    *, manifest_service: str, manifest_kind: str,
+) -> dict:
+    """適用結果を維持して所有資源を回収し、最終manifestを保存する。"""
+    run_id = str(manifest["run_id"])
+    guild_id = _env_text(env, "DISCORD_GUILD_ID")
+    database_id = _env_text(env, "NOTION_EVENT_INTERNAL_ID")
+    discord_event_id = str(manifest.get("discord_event_id") or "")
+    notion_page_id = str(manifest.get("notion_page_id") or "")
     operation_ok = not error
     manifest["stages"] = dict(stages)
     cleanup = await _cleanup_resources(env, manifest)
@@ -689,7 +732,7 @@ async def run_discord_notion_sync_probe(
 
     if cleanup_ok:
         await state.put_e2e_manifest(
-            DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
+            manifest_service,
             _clean_manifest(
                 run_id,
                 outcome="passed" if operation_ok else "failed_clean",
@@ -700,6 +743,7 @@ async def run_discord_notion_sync_probe(
                 database_id=database_id,
                 discord_event_id=discord_event_id,
                 notion_page_id=notion_page_id,
+                manifest_kind=manifest_kind,
                 started_at=str(manifest.get("created_at") or "") or None,
             ),
         )
@@ -713,7 +757,7 @@ async def run_discord_notion_sync_probe(
             manifest["discord_event_id"] = discord_event_id
         if notion_page_id:
             manifest["notion_page_id"] = notion_page_id
-        await state.put_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
 
     result = {
         "ok": operation_ok and cleanup_ok,
@@ -735,6 +779,9 @@ async def cleanup_discord_notion_sync_probe(
     env,
     state,
     expected_run_id: str | None = None,
+    *,
+    manifest_service: str = DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
+    manifest_kind: str = "discord_notion_sync",
 ) -> dict:
     """run IDと対象fingerprint確認後にdirtyな両資源のcleanupを再実行する。"""
     if not state.enabled():
@@ -743,13 +790,13 @@ async def cleanup_discord_notion_sync_probe(
         return {"ok": False, "dirty": True, "error": "sync_coordinator_required"}
 
     expected_run_id = str(expected_run_id or "").strip()
-    manifest = await state.get_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE)
+    manifest = await state.get_e2e_manifest(manifest_service)
     if not isinstance(manifest, dict) or manifest.get("dirty") is not True:
         last_run_id = str((manifest or {}).get("last_run_id") or "")
         if expected_run_id and last_run_id and last_run_id != expected_run_id:
             return {"ok": False, "dirty": False, "error": "cleanup_run_id_mismatch"}
         return {"ok": True, "dirty": False, "action": "noop_clean"}
-    if manifest.get("kind") != "discord_notion_sync":
+    if manifest.get("kind") != manifest_kind:
         return {"ok": False, "dirty": True, "error": "invalid_dirty_manifest"}
 
     run_id = str(manifest.get("run_id") or "")
@@ -795,7 +842,7 @@ async def cleanup_discord_notion_sync_probe(
             manifest["discord_event_id"] = discord_event_id
         if notion_page_id:
             manifest["notion_page_id"] = notion_page_id
-        await state.put_e2e_manifest(DISCORD_NOTION_SYNC_MANIFEST_SERVICE, manifest)
+        await state.put_e2e_manifest(manifest_service, manifest)
         return {
             "ok": False,
             "dirty": True,
@@ -805,7 +852,7 @@ async def cleanup_discord_notion_sync_probe(
         }
 
     await state.put_e2e_manifest(
-        DISCORD_NOTION_SYNC_MANIFEST_SERVICE,
+        manifest_service,
         _clean_manifest(
             run_id,
             outcome="recovered",
@@ -816,6 +863,7 @@ async def cleanup_discord_notion_sync_probe(
             database_id=database_id,
             discord_event_id=discord_event_id,
             notion_page_id=notion_page_id,
+            manifest_kind=manifest_kind,
             started_at=str(manifest.get("created_at") or "") or None,
         ),
     )

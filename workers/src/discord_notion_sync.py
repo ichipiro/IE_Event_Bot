@@ -663,7 +663,13 @@ async def _google_delete_event(env, token: str, google_event_id: str):
     return int(response.status) < 400
 
 
-async def _sync_discord_event_upsert(env, event: dict, google_token: str | None) -> bool:
+async def _sync_discord_event_upsert(
+    env,
+    event: dict,
+    google_token: str | None,
+    *,
+    expected_internal_page_id: str | None = None,
+) -> bool:
     """
     Discordの単一イベントを Notion/Google に同期する。
     処理順:
@@ -695,6 +701,11 @@ async def _sync_discord_event_upsert(env, event: dict, google_token: str | None)
 
     internal_page = await _notion_query_by_message_id(env, internal_db, event_id) if internal_db else None
     external_page = await _notion_query_by_message_id(env, external_db, event_id) if external_db else None
+    # 所有済みpage限定の更新では、検索失敗を新規作成へ切り替えない。
+    if expected_internal_page_id is not None and (
+        not internal_page or internal_page.get("id") != expected_internal_page_id
+    ):
+        return False
     google_event_id = _notion_extract_rich_text(internal_page, prop_google_id) if internal_page else None
 
     # Google 同期（有効時）: 既存IDがあれば更新、なければ作成
@@ -783,7 +794,10 @@ async def _sync_discord_event_upsert(env, event: dict, google_token: str | None)
     return True
 
 
-async def _sync_discord_event_delete(env, event_id: str, google_token: str | None) -> bool:
+async def _sync_discord_event_delete(
+    env, event_id: str, google_token: str | None, *,
+    expected_internal_page_id: str | None = None,
+) -> bool:
     """
     Discord から削除されたイベントを Google/Notion から除去する。
     - Notion 内部ページからGoogleイベントIDを取得できた場合は Google も削除
@@ -793,8 +807,14 @@ async def _sync_discord_event_delete(env, event_id: str, google_token: str | Non
     external_db = _env_text(env, "NOTION_EVENT_ID", "")
     prop_google_id = _prop(env, "NOTION_PROP_GOOGLE_EVENT_ID", "GoogleイベントID")
 
+    if expected_internal_page_id is not None and not internal_db:
+        return False
     if internal_db:
         internal_page = await _notion_query_by_message_id(env, internal_db, event_id)
+        if expected_internal_page_id is not None and (
+            not internal_page or internal_page.get("id") != expected_internal_page_id
+        ):
+            return False
         google_event_id = _notion_extract_rich_text(internal_page, prop_google_id) if internal_page else None
         if google_event_id and _google_sync_enabled(env) and google_token:
             deleted = await _google_delete_event(env, google_token, google_event_id)
@@ -833,6 +853,13 @@ async def run_discord_notion_poll_sync(env, state):
             "errors": [error],
         }
 
+    return await _apply_discord_event_diff(env, state, events)
+
+
+async def _apply_discord_event_diff(
+    env, state, events: list[dict], *, upsert_runner=None, delete_runner=None,
+):
+    """取得済みイベントの差分判定・適用とsnapshot / queue更新を行う。"""
     current_snapshot = {} # フィンガープリント
     current_events = {} # イベント本体
     for event in events:
@@ -926,7 +953,8 @@ async def run_discord_notion_poll_sync(env, state):
             if not event:
                 retry_ops.append({"op": "delete", "id": event_id})
                 continue
-            ok = await _sync_discord_event_upsert(env, event, google_token)
+            apply = upsert_runner or _sync_discord_event_upsert
+            ok = await apply(env, event, google_token)
             if not ok:
                 had_error = True
                 errors.append(f"upsert_failed:{event_id}")
@@ -938,7 +966,8 @@ async def run_discord_notion_poll_sync(env, state):
                     errors.append(f"create_notify_failed:{event_id}")
         # 削除
         else:
-            ok = await _sync_discord_event_delete(env, event_id, google_token)
+            delete = delete_runner or _sync_discord_event_delete
+            ok = await delete(env, event_id, google_token)
             if not ok:
                 had_error = True
                 errors.append(f"delete_failed:{event_id}")

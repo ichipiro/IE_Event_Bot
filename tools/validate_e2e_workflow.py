@@ -97,6 +97,11 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
+        text.count("deploy-and-discord-delta-smoke") == 3,
+        "discord_delta_mode_contract_changed",
+    )
+    _expect(
+        errors,
         text.count("deploy-and-google-notion-smoke") == 3,
         "google_notion_mode_contract_changed",
     )
@@ -192,6 +197,11 @@ def _check_workflow(text: str) -> list[str]:
         errors,
         "inputs.mode == 'deploy-and-discord-notion-smoke'" in cleanup_block,
         "cleanup_discord_notion_mode_guard_missing",
+    )
+    _expect(
+        errors,
+        "inputs.mode == 'deploy-and-discord-delta-smoke'" in cleanup_block,
+        "cleanup_discord_delta_mode_guard_missing",
     )
     _expect(
         errors,

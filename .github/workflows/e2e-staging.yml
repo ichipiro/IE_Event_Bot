@@ -13,6 +13,7 @@ on:
           - deploy-and-crud-smoke
           - deploy-and-discord-google-smoke
           - deploy-and-discord-notion-smoke
+          - deploy-and-discord-delta-smoke
           - deploy-and-google-discord-smoke
           - deploy-and-google-notion-smoke
           - deploy-and-qa-notification-smoke
@@ -124,6 +125,7 @@ jobs:
           ${{ inputs.mode == 'deploy-and-crud-smoke' ||
           inputs.mode == 'deploy-and-discord-google-smoke' ||
           inputs.mode == 'deploy-and-discord-notion-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-smoke' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||
@@ -149,6 +151,7 @@ jobs:
           (inputs.mode == 'deploy-and-crud-smoke' ||
           inputs.mode == 'deploy-and-discord-google-smoke' ||
           inputs.mode == 'deploy-and-discord-notion-smoke' ||
+          inputs.mode == 'deploy-and-discord-delta-smoke' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||

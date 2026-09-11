@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-11: Discord差分E2Eの再デプロイ継続検証
+
+- 更新完了後に同run IDの専用Workerを再deployし、異なるversion IDを確認してから更新再送・続行・完了再送を行う。旧version、別run、未完了checkpoint、他資源dirtyでは再deployを拒否する。
+- MCPの固定入力・監査にversion IDのSHA-256を追加し、Workerは要求されたtagとversion IDの不一致を外部操作前に拒否する。失敗時は同runの所有資源だけを回収する。
+- Python 294件、Node 67件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査が成功した。実サービス検証はこの時点では未実施。DO bindingは変更せず、DOプロセスの強制再起動・任意位置のクラッシュ復旧はこの試験に含めない。
+
 ## 記録方針
 
 - 目的、変更した文書または機能、実施した検証、未確認事項を簡潔に記録する。

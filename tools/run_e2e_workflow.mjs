@@ -454,10 +454,14 @@ export async function runDiscordDeltaRecovery(callTool, runId) {
 }
 
 export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {}) {
-  await requireTool(callTool, "deploy_e2e", {
+  const initialDeploy = await requireTool(callTool, "deploy_e2e", {
     run_id: runId,
     confirmation: `deploy:ie-event-bot-e2e:${runId}`,
   });
+  let version = initialDeploy.version_sha256;
+  if (!/^[0-9a-f]{64}$/.test(String(version ?? ""))) {
+    throw new E2eWorkflowError("delta_deploy_version_missing");
+  }
   await runPreflight(callTool, runId, options.preflight);
 
   let primaryError = null;
@@ -465,16 +469,29 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
     await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
+      version_sha256: version,
       sync_phase: "prepare",
     });
     await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
+      version_sha256: version,
       sync_phase: "advance",
     });
+    const redeployed = await requireTool(callTool, "deploy_e2e", {
+      run_id: runId,
+      confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+      previous_version_sha256: version,
+    });
+    if (!/^[0-9a-f]{64}$/.test(String(redeployed.version_sha256 ?? "")) ||
+        redeployed.version_sha256 === version || redeployed.previous_version_sha256 !== version) {
+      throw new E2eWorkflowError("delta_redeploy_version_mismatch");
+    }
+    version = redeployed.version_sha256;
     const updateReplay = await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
+      version_sha256: version,
       sync_phase: "advance",
     });
     if (updateReplay.execution_status !== "updated" || updateReplay.dirty !== true) {
@@ -483,11 +500,13 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
     await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
+      version_sha256: version,
       sync_phase: "resume",
     });
     const completedReplay = await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
+      version_sha256: version,
       sync_phase: "resume",
     });
     if (completedReplay.execution_status !== "already_completed" || completedReplay.dirty !== false) {

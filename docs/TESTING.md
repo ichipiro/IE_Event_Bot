@@ -62,6 +62,10 @@ bash -n tools/configure_github_e2e_environment.sh
 
 これらはローカル検証であり、実KVの伝播遅延、ロックTTL超過、実Cron、通常Guild全件への実サービス適用は未検証である。run所有checkpointを使う専用Discord差分E2Eの成功も、通常の共有KVの実動作を証明しない。
 
+通常ポーリングへの接続では、`discord_batch` の初回・advanceで `run_discord_notion_poll_sync` を呼ぶ。同じ一覧API取得を通し、状態読込み前にDOで所有する2件を選別する。所有ID・run marker・guild・初期内容が一致し、重複と欠落がないことを検証する。一覧順が変わってもDOに記録した順序で処理し、他のイベントは差分処理・KV・Notion反映へ渡さない。`batch_first_poll` / `batch_remaining_poll` を成功証跡へ記録する。通常の呼出しは選別・適用runnerを指定せず、従来どおり全件を扱う。
+
+追加のローカルテストは、有効な他イベントの混在と逆順、初回・advanceそれぞれの一覧欠落・重複・内容変更・不正要素・HTTP失敗を検証する。拒否時にはNotionとKVへ書き込まず、dirtyを保持して回収する。Google同期・通知・手動/Cronの通常HTTP入口はこのシナリオへ未接続で、上記実行34614558706は接続前の差分処理直接呼出しの証拠である。
+
 ## 手動 E2E workflow
 
 通常KVの隔離基盤は `tests/test_e2e_discord_kv_state.py` で検証する。専用Workerの `POST /admin/e2e/discord-state` がDOへ所有run・scope・対象fingerprintを保存してから、通常StateStoreで固定2キーへfixtureを書く。別HTTPの `/verify` で読み直し、`/cleanup` で所有2キーだけを削除する。外部サービスAPIは呼ばない。

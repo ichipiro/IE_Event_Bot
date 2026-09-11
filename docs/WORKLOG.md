@@ -1,5 +1,20 @@
 # 作業履歴
 
+## 2026-09-11: 応答本文破棄後の再送を実サービスで検証
+
+- commit `effc0e3e3db13b829919d5cfcf50194e7ed86676` の[実行34597932061](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34597932061)が成功した。run `E2E-20260911T121617Z-de3d2c74`、artifact `e2e-evidence-34597932061-1` を独立取得した。
+- 最初のadvanceの本文破棄flag・HTTP 200・固定エラーと本文由来statusがnullであること、2回のdeployの異なるversion ID、再deploy後のadvanceのupdated応答を照合した。
+- 同時resumeの開始・開始・終了・終了の順序とHTTP 200 / 409、完了再送のalready_completed、全6回の差分・checkpoint、cleanup・全資源dirty=falseを確認した。意図した失敗記録は本文破棄1件とロック拒否1件だけだった。
+- ActionsのPython 296件、Node 89件、Ruff、Pyright、設定検査、Wrangler dry-runが成功した。JUnitも独立取得し296件・失敗0を照合した。
+- 実サービスを使ったMCP側の本文未読破棄試験であり、実際の回線断、Workerの途中停止、処理完了前の中断、DO claim自体の実環境競合は含まない。
+
+## 2026-09-11: Discord差分E2Eの応答本文破棄と再送
+
+- PR #61をupstream developへマージし、fork PR #48で同期した。ローカルdevelopとorigin/developの一致、upstream/developの祖先関係を確認した。
+- 最初のadvanceはHTTP 200ヘッダー受信後にMCP側で本文を読まずcancelする。注入結果を固定flag・エラーで識別し、別のstatus取得によるcheckpoint照合、再deploy、advance再送、同時resumeへ続ける。本文を受け取っていない要求のdirtyはnullとして扱う。
+- ローカルでNode 89件、Python 296件、Ruff、Pyrightが成功した。本文未読、cancelの実行、非200・通信失敗・cancel失敗の区別、入力範囲制限、監査flag、注入未確認時のcleanupを検証した。
+- 実サービス検証はこの時点では未実施。MCP側の意図的な本文破棄を対象とし、実際の回線断、Workerの途中停止、処理完了前の中断は含まない。
+
 ## 2026-09-11: 同時resumeを実サービスで検証
 
 - commit `526bcb0ce2cea9546237f45c0765ac6a378b1db3` の[実行34594293913](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34594293913)が成功した。run `E2E-20260911T113112Z-ae440f60`、artifact `e2e-evidence-34594293913-1` を独立取得して照合した。

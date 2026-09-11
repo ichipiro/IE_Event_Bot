@@ -289,6 +289,7 @@ export async function appendAuditEntry(entry) {
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
     execution_status: sanitizeExecutionStatus(entry.execution_status),
+    response_discarded: entry.response_discarded === true,
     ...versionEvidence(entry),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
@@ -344,6 +345,7 @@ export async function readAuditEntries(runId) {
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
           execution_status: sanitizeExecutionStatus(entry.execution_status),
+          response_discarded: entry.response_discarded === true,
           ...versionEvidence(entry),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
@@ -377,7 +379,7 @@ export function deploymentEnvironment(env = process.env) {
 }
 
 
-async function workerRequest(config, route, method, runId, fetchImpl, versionSha256 = null) {
+async function workerRequest(config, route, method, runId, fetchImpl, versionSha256 = null, responseMode = "read") {
   if (!config.ok) {
     return {
       ok: false,
@@ -412,6 +414,18 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
     });
   } catch {
     return { ok: false, status: 0, error: "worker_request_failed", payload: {} };
+  }
+
+  if (responseMode === "discard_after_headers" && response.status === 200) {
+    try {
+      if (!response.body) {
+        throw new Error("response_body_missing");
+      }
+      await response.body.cancel();
+    } catch {
+      return { ok: false, status: 200, error: "worker_response_discard_failed", payload: {} };
+    }
+    return { ok: false, status: 200, error: "worker_response_discarded", response_discarded: true, payload: {} };
   }
 
   let text = "";
@@ -505,8 +519,9 @@ function sanitizeOperation(response, runId) {
     ok,
     status: response.status,
     execution_status: executionStatus,
+    response_discarded: response.response_discarded === true,
     run_id: runId,
-    dirty: Boolean(payload.dirty),
+    dirty: response.response_discarded === true ? null : Boolean(payload.dirty),
     stages: sanitizeStages(payload.stages),
     cleanup: {
       ok: cleanup.ok === true,
@@ -880,6 +895,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       ok: entry.ok === true,
       status: Number.isInteger(entry.status) ? entry.status : null,
       execution_status: sanitizeExecutionStatus(entry.execution_status),
+      response_discarded: entry.response_discarded === true,
       ...versionEvidence(entry),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
@@ -949,6 +965,7 @@ async function runAudited(auditImpl, entry, operation) {
       ok: result.ok === true,
       status: result.status,
       execution_status: sanitizeExecutionStatus(result.execution_status),
+      response_discarded: result.response_discarded === true,
       ...versionEvidence({ ...entry, ...result }),
       error: result.error,
     });
@@ -1163,6 +1180,7 @@ export function createE2eMcpServer(options = {}) {
         run_id: runIdField, scenario: scenarioField,
         sync_phase: z.enum(["run", "prepare", "advance", "resume"]).default("run"),
         version_sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+        response_mode: z.enum(["read", "discard_after_headers"]).default("read"),
       },
       annotations: {
         readOnlyHint: false,
@@ -1171,7 +1189,10 @@ export function createE2eMcpServer(options = {}) {
         openWorldHint: true,
       },
     },
-    async ({ run_id: runId, scenario, sync_phase: syncPhase, version_sha256: versionSha256 }) => {
+    async ({ run_id: runId, scenario, sync_phase: syncPhase, version_sha256: versionSha256, response_mode: responseMode }) => {
+      if (responseMode !== "read" && (scenario !== "discord_delta" || syncPhase !== "advance" || !versionSha256)) {
+        return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
+      }
       if (scenario !== "discord_delta" && (syncPhase !== "run" || versionSha256)) {
         return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
       }
@@ -1186,12 +1207,13 @@ export function createE2eMcpServer(options = {}) {
             runId,
             fetchImpl,
             versionSha256,
+            responseMode,
           );
           for (let attempt = 1; scenario === "discord_delta" && attempt < DEPLOY_VERIFY_ATTEMPTS &&
                response.status === 409 && response.payload.error === "worker_version_mismatch"; attempt += 1) {
             await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
             response = await workerRequest(config, operationRoute("trigger_sync", scenario, syncPhase),
-              "POST", runId, fetchImpl, versionSha256);
+              "POST", runId, fetchImpl, versionSha256, responseMode);
           }
           const sanitized = sanitizeOperation(response, runId);
           if (sanitized.ok && syncPhase === "prepare" &&

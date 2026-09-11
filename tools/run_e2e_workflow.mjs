@@ -472,12 +472,18 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
       version_sha256: version,
       sync_phase: "prepare",
     });
-    await requireTool(callTool, "trigger_sync", {
+    const lostUpdate = await toolOutcome(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
       version_sha256: version,
       sync_phase: "advance",
+      response_mode: "discard_after_headers",
     });
+    if (lostUpdate.ok || lostUpdate.error !== "worker_response_discarded" ||
+        lostUpdate.payload.status !== 200 || lostUpdate.payload.response_discarded !== true ||
+        lostUpdate.payload.run_id !== runId) {
+      throw new E2eWorkflowError("delta_response_loss_not_observed");
+    }
     const redeployed = await requireTool(callTool, "deploy_e2e", {
       run_id: runId,
       confirmation: `deploy:ie-event-bot-e2e:${runId}`,

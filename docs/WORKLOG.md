@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-11: Discord差分E2Eの応答本文破棄と再送
+
+- PR #61をupstream developへマージし、fork PR #48で同期した。ローカルdevelopとorigin/developの一致、upstream/developの祖先関係を確認した。
+- 最初のadvanceはHTTP 200ヘッダー受信後にMCP側で本文を読まずcancelする。注入結果を固定flag・エラーで識別し、別のstatus取得によるcheckpoint照合、再deploy、advance再送、同時resumeへ続ける。本文を受け取っていない要求のdirtyはnullとして扱う。
+- ローカルでNode 89件、Python 296件、Ruff、Pyrightが成功した。本文未読、cancelの実行、非200・通信失敗・cancel失敗の区別、入力範囲制限、監査flag、注入未確認時のcleanupを検証した。
+- 実サービス検証はこの時点では未実施。MCP側の意図的な本文破棄を対象とし、実際の回線断、Workerの途中停止、処理完了前の中断は含まない。
+
 ## 2026-09-11: 同時resumeを実サービスで検証
 
 - commit `526bcb0ce2cea9546237f45c0765ac6a378b1db3` の[実行34594293913](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34594293913)が成功した。run `E2E-20260911T113112Z-ae440f60`、artifact `e2e-evidence-34594293913-1` を独立取得して照合した。

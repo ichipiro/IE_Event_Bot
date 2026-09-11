@@ -255,6 +255,11 @@ async function assertSafeAuditPath(path, kind) {
 }
 
 
+function sanitizeExecutionStatus(value) {
+  return ["prepared", "updated", "already_completed"].includes(value) ? value : null;
+}
+
+
 export async function appendAuditEntry(entry) {
   if (!RUN_ID_PATTERN.test(String(entry.run_id ?? ""))) {
     throw new Error("audit_run_id_invalid");
@@ -274,6 +279,7 @@ export async function appendAuditEntry(entry) {
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
+    execution_status: sanitizeExecutionStatus(entry.execution_status),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
   const options = {
@@ -327,6 +333,7 @@ export async function readAuditEntries(runId) {
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
+          execution_status: sanitizeExecutionStatus(entry.execution_status),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
       }
@@ -856,6 +863,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       route: operationRoute(entry.tool, entry.target, entry.sync_phase),
       ok: entry.ok === true,
       status: Number.isInteger(entry.status) ? entry.status : null,
+      execution_status: sanitizeExecutionStatus(entry.execution_status),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
   const allTimestamps = audit
@@ -923,6 +931,7 @@ async function runAudited(auditImpl, entry, operation) {
       phase: "finish",
       ok: result.ok === true,
       status: result.status,
+      execution_status: sanitizeExecutionStatus(result.execution_status),
       error: result.error,
     });
   } catch {

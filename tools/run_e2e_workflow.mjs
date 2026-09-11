@@ -472,11 +472,27 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
       scenario: "discord_delta",
       sync_phase: "advance",
     });
+    const updateReplay = await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
+      sync_phase: "advance",
+    });
+    if (updateReplay.execution_status !== "updated" || updateReplay.dirty !== true) {
+      throw new E2eWorkflowError("delta_update_replay_failed");
+    }
     await requireTool(callTool, "trigger_sync", {
       run_id: runId,
       scenario: "discord_delta",
       sync_phase: "resume",
     });
+    const completedReplay = await requireTool(callTool, "trigger_sync", {
+      run_id: runId,
+      scenario: "discord_delta",
+      sync_phase: "resume",
+    });
+    if (completedReplay.execution_status !== "already_completed" || completedReplay.dirty !== false) {
+      throw new E2eWorkflowError("delta_completed_replay_failed");
+    }
     await requireTool(callTool, "assert_external_state", {
       run_id: runId,
       service: "discord_delta",

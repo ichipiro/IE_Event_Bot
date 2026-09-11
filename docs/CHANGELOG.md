@@ -4,7 +4,7 @@
 
 ## 2026-09-12
 
-- 通常ポーリングから所有2件をGoogle・Notionへ反映する `discord_batch_google` を追加した。固定ID・対応ID・作成着手記録・部分失敗回収と、専用手動workflowをローカル検証した。
+- 通常ポーリングから所有2件をGoogle・Notionへ反映する `discord_batch_google` を追加した。固定ID・対応ID・作成着手記録・部分失敗回収と、専用手動workflowをローカル検証した。[実行34619150601](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34619150601)で3サービス各2件の適用・残件・読戻し・全資源回収を実サービス確認した。
 
 - 固定2件のE2Eを通常ポーリング入口へ接続し、一覧取得後の所有確認・選別・並び順固定と、異常一覧での書込み拒否をローカル検証した。[実行34615847619](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34615847619)で初回・残件の通常ポーリング、Notion反映、KV読戻し、全資源回収を実サービス確認した。
 

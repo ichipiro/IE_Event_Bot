@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-12: Googleを含む通常ポーリングを実サービスで検証
+
+- [実行34619150601](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34619150601)で実装commit `5d4a12bc40950b3e5a844db3355d04602edf119e` を専用Workerへ1回deployした。所有2件の通常ポーリングをGoogle・Notionへ接続し、対応ID・上限1件・別HTTP残件消化・最終読戻しが成功した。
+- artifactの監査7操作、Google/Discord削除204・Notion archive 200各2件、KV回収200、Worker version・run一致、outcome=passed、全資源dirty=falseを独立照合した。prepare / advance各1回、verify各段階1回で、KV読戻し再試行は発生していない。
+- Actionsのローカル検査と専用E2E jobが成功し、JUnit 431件・失敗0を独立照合した。障害注入はローカル検証の範囲であり、通知・実Cron・TTL超過は後続作業である。
+- 最初の実行34619021777はコミット件名の規約修正のため環境承認前に停止した。Approved E2E jobのstepは未開始で、デプロイ・外部書込みは実行していない。コード内容を変えず、修正後のcommitで上記実行を行った。
+
+
 ## 2026-09-12: 通常ポーリングのGoogle反映を追加
 
 - upstream PR #67とfork同期PR #54をマージした。

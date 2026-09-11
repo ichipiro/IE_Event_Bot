@@ -192,6 +192,8 @@ MCPは `trigger_sync(scenario="discord_batch_google", sync_phase="prepare" / "re
 
 `tests/test_e2e_discord_batch_google.py` は対応ID・残件、Google/Notion作成応答の喪失、既存ID衝突、保存失敗、Google削除失敗、所有権/内容/対応ID変更、認証失敗後の成功判定取消しを代替APIで検証する。これらの障害注入はローカル限定で、実際の回線断・Worker停止は追加対象外である。Googleの通常cursor・対応表・全Calendar取得、作成通知、実Cron、TTL超過はこのシナリオへ含めない。
 
+2026-09-12（JST）の[実行34619150601](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34619150601)で `discord_batch_google` が成功した。実装commit `5d4a12bc40950b3e5a844db3355d04602edf119e` に対し、初回・残件の通常ポーリング、Google/Notion対応IDの読戻し、上限1件・残件消化・最終読戻しを確認した。prepare / advanceは各1回、verifyは各段階1回である。artifactの監査7操作、Google/Discord削除204とNotion archive 200各2件、KV回収200、Worker version・run一致、outcome=passed、全資源dirty=false、JUnit 431件・失敗0を独立照合した。KV読戻し再試行は発生していない。回収確認は各API応答とKV delete完了の範囲で、全拠点の削除反映を保証しない。
+
 ## テスト構成
 
 | ファイル | 対象 |

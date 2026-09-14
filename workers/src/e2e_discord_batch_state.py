@@ -5,19 +5,23 @@ import re
 from copy import deepcopy
 from hashlib import sha256
 
-from e2e_discord_kv_state import KEYS, OwnedDiscordKV
+from e2e_discord_kv_state import KEYS, OwnedDiscordKV, _MAX_STATE_BYTES
 
 
 SERVICE = "discord_batch"
 KIND = "discord_batch_sync"
 GOOGLE_SERVICE = "discord_batch_google"
 GOOGLE_KIND = "discord_batch_google_sync"
+NOTIFICATION_SERVICE = "discord_batch_notification"
+NOTIFICATION_KIND = "discord_batch_notification_sync"
 COUNT = 2
 _FIELDS = ("kind", "run_id", "scope_id", "state_scope_sha256", "target_fingerprints")
 _ID_FIELDS = ("discord_event_id", "notion_page_id", "source_sha256")
 
 
 def manifest_service(value: dict) -> str:
+    if value.get("kind") == NOTIFICATION_KIND:
+        return NOTIFICATION_SERVICE
     return GOOGLE_SERVICE if value.get("kind") == GOOGLE_KIND else SERVICE
 
 
@@ -36,6 +40,8 @@ def fixture_fingerprint(slots: list) -> str:
     for owner, slot in zip(owners, slots):
         if "google_event_id" in slot:
             owner["google_event_id"] = slot["google_event_id"]
+        if "message_id" in slot:
+            owner["message_id"] = slot["message_id"]
     return sha256(
         json.dumps(owners, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -45,11 +51,15 @@ def valid_batch_owner(value: dict) -> bool:
     slots = value.get("fixtures")
     targets = value.get("target_fingerprints")
     google = value.get("kind") == GOOGLE_KIND
+    notification = value.get("kind") == NOTIFICATION_KIND
     target_keys = {"guild_id_sha256", "notion_database_id_sha256"}
     attempt_keys = {"discord_event", "notion_page"}
     if google:
         target_keys.add("calendar_id_sha256")
         attempt_keys.add("google_event")
+    if notification:
+        target_keys.update(("channel_id_sha256", "role_id_sha256"))
+        attempt_keys.add("message")
     if not (
         re.fullmatch(r"E2E-\d{8}T\d{6}Z-[0-9a-f]{8}", str(value.get("run_id") or ""))
         and re.fullmatch(r"[0-9a-f]{32}", str(value.get("scope_id") or ""))
@@ -97,7 +107,31 @@ def valid_batch_owner(value: dict) -> bool:
             return False
         if type(slot.get("cleanup_done", False)) is not bool:
             return False
-    for key in ("run_id", *_ID_FIELDS[:2]):
+        if notification:
+            if any(type(slot.get(k, False)) is not bool for k in (
+                "message_cleanup_done", "reaction_deferred", "reaction_done",
+            )):
+                return False
+            if "message_id" in slot and (
+                not isinstance(slot["message_id"], str)
+                or not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", slot["message_id"])
+            ):
+                return False
+            if attempted["message"] and not re.fullmatch(
+                r"[0-9a-f]{64}", str(slot.get("message_content_sha256") or "")
+            ):
+                return False
+            if slot.get("message_id") and not attempted["message"]:
+                return False
+            if slot.get("reaction_done") and not slot.get("message_id"):
+                return False
+            if slot.get("cleanup_done") and attempted["message"] and not slot.get("message_cleanup_done"):
+                return False
+        elif any(k in slot for k in (
+            "message_id", "message_content_sha256", "message_cleanup_done", "reaction_deferred", "reaction_done",
+        )):
+            return False
+    for key in ("run_id", *_ID_FIELDS[:2], "message_id"):
         ids = [slot[key] for slot in slots if slot.get(key)]
         if len(set(ids)) != len(ids):
             return False
@@ -118,6 +152,10 @@ def valid_batch_transition(previous: dict, value: dict) -> bool:
     if not valid_batch_owner(previous):
         return False
     if not value["dirty"]:
+        if previous.get("kind") == NOTIFICATION_KIND and not all(
+            s.get("cleanup_done") for s in previous["fixtures"]
+        ):
+            return False
         expected = {
             **previous["target_fingerprints"],
             "state_scope_sha256": previous["state_scope_sha256"],
@@ -131,7 +169,7 @@ def valid_batch_transition(previous: dict, value: dict) -> bool:
     if any(previous[k] != value[k] for k in _FIELDS):
         return False
     for old, new in zip(previous["fixtures"], value["fixtures"]):
-        if any(old.get(k) and old[k] != new.get(k) for k in _ID_FIELDS):
+        if any(old.get(k) and old[k] != new.get(k) for k in (*_ID_FIELDS, "message_id", "message_content_sha256")):
             return False
         if any(
             v and not new["create_attempted"][k]
@@ -140,7 +178,8 @@ def valid_batch_transition(previous: dict, value: dict) -> bool:
             return False
         if any(
             old.get(k) and not new.get(k)
-            for k in ("cleanup_done", "google_cleanup_done")
+            for k in ("cleanup_done", "google_cleanup_done", "message_cleanup_done",
+                      "reaction_deferred", "reaction_done")
         ):
             return False
     return (
@@ -191,6 +230,35 @@ class BatchDiscordKV(OwnedDiscordKV):
         )
         self.prefix = key_prefix(owner)
 
+    def _check_value(self, key: str, text: str) -> None:
+        if key != KEYS[1] or self.batch_owner.get("kind") != NOTIFICATION_KIND:
+            return super()._check_value(key, text)
+        if len(text.encode("utf-8")) > _MAX_STATE_BYTES:
+            raise ValueError("discord_state_value_too_large")
+        value = json.loads(text)
+        slots = {s["discord_event_id"]: s for s in self.batch_owner["fixtures"]}
+        if not isinstance(value, list) or len(value) > COUNT:
+            raise ValueError("discord_state_value_forbidden")
+        seen = set()
+        for op in value:
+            if (not isinstance(op, dict) or set(op) != {"id", "op", "notification"}
+                    or op.get("id") not in slots or op["id"] in seen
+                    or op.get("op") not in ("upsert", "notify")):
+                raise ValueError("discord_state_value_forbidden")
+            seen.add(op["id"])
+            delivery = op["notification"]
+            if (not isinstance(delivery, dict)
+                    or set(delivery) not in ({"channel_id"}, {"channel_id", "message_id"})
+                    or not isinstance(delivery.get("channel_id"), str)
+                    or sha256(delivery["channel_id"].encode()).hexdigest()
+                    != self.batch_owner["target_fingerprints"]["channel_id_sha256"]):
+                raise ValueError("discord_state_value_forbidden")
+            if "message_id" in delivery and (
+                not delivery["message_id"]
+                or delivery["message_id"] != slots[op["id"]].get("message_id")
+            ):
+                raise ValueError("discord_state_value_forbidden")
+
     async def _check_owner(self, key: str) -> None:
         if key not in KEYS:
             raise ValueError("discord_batch_key_forbidden")
@@ -199,3 +267,5 @@ class BatchDiscordKV(OwnedDiscordKV):
             "event_ids"
         ]:
             raise ValueError("discord_batch_owner_mismatch")
+        # 投稿後のIDをDOから取得し、古いKVの他メッセージ参照を拒否する。
+        self.batch_owner = deepcopy(current)

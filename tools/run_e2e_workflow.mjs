@@ -25,6 +25,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_kv",
   "discord_batch",
   "discord_batch_google",
+  "discord_batch_notification",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -45,6 +46,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-discord-kv-smoke",
   "deploy-and-discord-batch-smoke",
   "deploy-and-discord-batch-google-smoke",
+  "deploy-and-discord-batch-notification-smoke",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -513,8 +515,18 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
         throw new E2eWorkflowError(`${scenario}_verification_mismatch`);
       }
     }
-    if (["discord_batch", "discord_batch_google"].includes(scenario)) {
+    if (scenario === "discord_batch_notification") {
       await verify("batch_pending_verified");
+      const retried = await requireTool(callTool, "trigger_sync", {
+        run_id: runId, scenario, sync_phase: "advance",
+      });
+      if (retried.status !== 200 || retried.dirty !== true || retried.run_id !== runId ||
+          retried.execution_status !== "retry_drained") {
+        throw new E2eWorkflowError(`${scenario}_retry_failed`);
+      }
+    }
+    if (["discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario)) {
+      await verify(scenario === "discord_batch_notification" ? "batch_retry_verified" : "batch_pending_verified");
       const advanced = await requireTool(callTool, "trigger_sync", {
         run_id: runId, scenario, sync_phase: "advance",
       });
@@ -549,6 +561,11 @@ export async function runDeployAndDiscordStateSmoke(callTool, runId, options = {
 
 export async function runDeployAndDiscordKvSmoke(callTool, runId, options = {}) {
   return runDiscordKvSmoke(callTool, runId, "discord_kv", "kv_verified", options);
+}
+
+
+export async function runDeployAndDiscordBatchNotificationSmoke(callTool, runId, options = {}) {
+  return runDiscordKvSmoke(callTool, runId, "discord_batch_notification", "batch_verified", options);
 }
 
 
@@ -883,6 +900,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "discord_kv",
             "discord_batch",
             "discord_batch_google",
+            "discord_batch_notification",
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
@@ -1039,6 +1057,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-delta-smoke") {
       await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-discord-batch-notification-smoke") {
+      await runDeployAndDiscordBatchNotificationSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-discord-batch-google-smoke") {

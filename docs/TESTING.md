@@ -384,7 +384,7 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 
 ローカルでは [test_e2e_google_sync_probe.py](../tests/test_e2e_google_sync_probe.py) の26ケースで全段階、認証・version・設定拒否、古いKV、所有差替え、ID衝突、作成応答喪失、外部作成失敗後の再送拒否、回収再試行、再検証失敗、一覧反映遅延時の取得済みIDによる回収、外部削除後のKV回収失敗からの再試行、JS null/undefinedのKV欠損値、部分反映からの同じIDへのqueue再試行、注入欠落・回復失敗・要件巻戻し・回復後再検証失敗の拒否を確認した。Google・Notion・Discord APIと対象の疎通確認は代替している。2026-09-15（JST）の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、所有2件の繰越・消化・更新・削除、各段階の別HTTP読戻し、回収が成功した。prepare 1回・advance 3回・verify 4回で再試行はなく、最長phaseは36.058秒だった。監査22行・11操作、manifest、run・version・commit一致、JUnit 602件・失敗0、`passed`・全資源 `dirty=false` を独立照合した。回収の保証範囲はAPI応答とKV delete完了であり、全拠点への削除伝播完了ではない。任意の外部予定への適用、実Cron、通知、Notion外部DB、部分失敗からの任意位置の自動再開はこのシナリオの対象外である。
 
-追加したretry_pending / retriedは固定注入モデルであり、Discordの実障害・回線断の観測ではない。注入はE2E呼出し内のcallbackだけを使い、モジュール共有状態を書き換えない。通常dispatchの想定500、残件、cursor保護を確認した場合だけシナリオHTTPを200とし、想定外の失敗は回収へ進む。新しい6段階版の実環境検証は未実施。
+追加したretry_pending / retriedは固定注入モデルであり、Discordの実障害・回線断の観測ではない。注入はE2E呼出し内のcallbackだけを使い、モジュール共有状態を書き換えない。通常dispatchの想定500、残件、cursor保護を確認した場合だけシナリオHTTPを200とし、想定外の失敗は回収へ進む。6段階版は[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)で成功した。prepare 1回・advance 5回・verify 6回、読戻し再試行なし。注入段階27.218秒・queue回復26.944秒で、通常dispatchの想定500、cursor/最終成功時刻保護、queue回復の固定stageを確認した。監査30行・15操作とmanifest、run・version・commit、JUnit 610件・失敗0、通常とalwaysの回収、passed・全資源dirty=falseを独立照合した。
 
 ### 分割後の状態障害E2Eの実行結果
 

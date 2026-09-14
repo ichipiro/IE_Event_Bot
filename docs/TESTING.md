@@ -100,6 +100,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-discord-delta-smoke` | 専用 Worker を deploy し、Discord一覧のrun所有1件で新規作成・変更なし・更新・キャンセル・削除を共通差分処理へ通し、Notion pageの反映とarchiveを検証後に両資源をcleanupする |
 | `deploy-and-discord-state-smoke` | 専用Workerの通常StateStoreで固定2キーを保存し、別HTTPで読戻しとversionを照合後、所有キーを回収する |
 | `deploy-and-sync-lock-smoke` | 通常同期の共通ロック競合・成功/例外後の解放、所有結果KVの読戻し・回収を検証する |
+| `deploy-and-sync-faults-smoke` | 固定KV障害モデル7ケースと10秒TTL超過、結果読戻し・回収を検証する。外部同期は代替runner |
 | `deploy-and-discord-kv-smoke` | 所有Discord event 1件を通常差分処理でNotionとKVへ反映し、別HTTPで読み直して外部資源と固定2キーを回収する |
 | `deploy-and-discord-batch-smoke` | 所有Discord event 2件を上限1件ずつNotionへ反映し、KVの残件を別HTTPで読み直して消化・回収する |
 | `deploy-and-discord-batch-google-smoke` | 所有2件を通常ポーリングからGoogle・Notionへ反映し、対応ID・KV残件・全資源回収を確認する |
@@ -287,3 +288,43 @@ prepareの1 HTTP内で、手動Discord同期・CronのDiscord同期分岐と共�
 `tests/test_e2e_sync_lock_probe.py` は実DOロジックと代替KVを使い、6 round、別HTTP読戻し、認証・version・設定拒否、所有情報・hashの差し替え拒否、古いKV、保存・回収・ロック解放失敗、タイムアウト、clean後の再利用拒否を検証する。MCP・workflowでは固定経路、応答不一致の拒否、失敗後の回収、version・outcome照合を検証する。これらの代替APIテストはローカル検証である。実KV・DOの確認は次の専用実行と区別する。別Workerリクエスト間の競合、実Cron配信、外部API適用中の競合、TTL超過は未検証である。
 
 2026-09-14（JST）の[実行34834547224](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34834547224)で、fork revision `f0a342e1965bbd086d4ff2ed3834673a3475a7cc` を専用Workerへ1回deployし、`sync_lock` を実KV・DOで検証した。6 roundの競合拒否・結果保護・成功/固定例外後の解放、別HTTPでの結果8キーのhashと未作成キーの読戻し、固定18キーの回収が成功した。artifactの監査10行・完了5操作とmanifestを独立照合し、6 round・読戻し・KV回収の各200、run内と `always()` のcleanup成功、Worker version・run一致、`outcome=passed`、全資源 `dirty=false`、JUnit 510件・失敗0を確認した。prepare / verifyは各1回で、KV読戻し再試行は発生していない。同期本体は検査用runnerであり、Discord・Google・Notionへの同期と実Cron配信は実行していない。KV回収はdelete完了の確認であり、全拠点への削除伝播を保証しない。
+
+
+## 状態障害とTTL超過のE2E
+
+`e2e_sync_fault_probe.py` の `sync_faults` は `POST /admin/e2e/sync-faults`、`/verify`、`/cleanup` を使う。`E2E_SYNC_FAULTS_ENABLED=true`、認証、POST、KV・DO、状態scope、ロック有効・KVクールダウン無効を必須とする。prepare / verifyはrun IDと稼働version tagを照合し、cleanupは同run・同対象を確認する。通常入口・実Cronは有効化しない。
+
+固定イベント2件と通常の `_apply_discord_event_diff`、通常StateStoreを使う。外部適用は成功・失敗と呼出し回数だけを返す代替runnerで、外部APIを呼ばない。書込みは所有KVに実行するが、prepare中の読取りは直前の書込みを保持するメモリと固定の古い値で制御する。Cloudflare側の伝播遅延を発生させた検証ではない。KVは強整合・複数キーのトランザクションを提供しないため、この区別を保つ（[Cloudflare KVの整合性](https://developers.cloudflare.com/kv/concepts/how-kv-works/)）。
+
+| 固定ケース | 確認する現行挙動 |
+| --- | --- |
+| 古いsnapshot | 成功済みイベントを1回再適用する |
+| 古いqueueの再出現 | 成功済みイベントを1回再適用する |
+| 古い空queueと最新snapshot | 初回の通常処理が保存した残件をsnapshotから復元し、再試行後に2件とも適用する |
+| queue保存前の失敗 | 成功した1件を再適用し、2件へ計3回適用する |
+| queue保存後の失敗 | 保存済み残件から続行し、2件へ計3回適用する |
+| snapshot保存前の失敗 | 保存済み残件から続行し、2件へ計3回適用する |
+| snapshot保存後の失敗 | 保存済み残件だけを続行し、2件へ計2回適用する |
+
+保存失敗は各ケース1回だけ、最初の適用成功後に注入する。保存後の失敗はKV putが返った直後の固定例外であり、実サービスの応答喪失ではない。同じキーへの再書込みは1.05秒以上離す。`passed` は上記の期待挙動の確認であり、重複適用の解決を意味しない。`stale_queue_loss` は修正後の残件回復を必須とし、初回失敗後の再適用と次イベントの適用、`pending_lost=false` を照合する。実環境の確認は [E2E-PLAN.md](E2E-PLAN.md) に残す。
+
+TTLケースは手動Discord同期の共通処理を10秒TTLで保持する。DOの時計が期限に達するまで最大65回・0.2秒間隔で待ち、新実行がロックを取った後に旧実行を完了させる。旧実行が409 `sync_lock_lost` となり、結果を書かず、新ownerを解放しないことを確認する。新実行の成功・結果保存・解放まで確認し、失敗時も全taskのfinally完了を待つ。TTLを短くする引数はE2E内部だけから渡し、通常の120秒設定は変更しない。HTTP内の全処理は50秒を上限にする。
+
+通常入口には段階間の期限・所有者確認を追加した。Discord同期後の結果保存、Google取得後の適用開始、適用後のcursor保存、Discord開始、最終時刻・結果保存の前でDOの時刻とownerを確認し、不一致・期限切れ・確認不能なら409で停止する。これは確認とKV書込みの原子的な保護ではなく、同期本体内のqueue保存、実行済み外部書込み、進行中の外部API処理を取り消さない。TTL以内の完了、全書込みの排他、一度限りの反映は保証しない。
+
+DO所有manifestはrun・scope・対象・各ケースの証拠hashを保持する。verifyは8ケースの証拠と状態hashを別HTTPで実KVから読み、未作成キーの不在も照合する。失敗した再検証は以前の成功を無効化する。cleanupは固定48候補キーを削除し、制御DO `e2e:sync-fault-control` の所有ロック解放も読戻した後だけcleanとする。失敗時はdirtyを保持し、再回収できる。globalロックの強制解放は行わない。
+
+MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "resume")` と `cleanup_run(service="sync_faults")` を使う。手動workflow `deploy-and-sync-faults-smoke` は1回deploy・1回prepareと有限のverify待機、version・段階・outcomeの照合、通常と `always()` のcleanup、マスク済み監査収集へ接続する。
+
+ローカルでは実DOロジック・代替KVを使い、8ケース、所有者・hash変更の拒否、認証・version・設定拒否、部分保存・読戻し・回収・解放失敗を検証する。TTL単体テストはDOの時計を進め、手動・Cron分岐・全体同期の旧結果拒否と新owner保護、Google適用後のcursor保護、壊れた時計・statusの拒否を確認する。2026-09-14時点で新シナリオの実KV・DO実行は未実施である。
+
+
+## 古いqueueによる残件喪失の対策
+
+`discord_retry_state.py` は未処理のupsert・delete・notifyをsnapshotの指紋JSON内の `_pending_sync` にも記録する。通知先と投稿済みmessage IDも保持する。保存は従来どおりqueueを先に書き、続いて観測指紋と残件情報を同じsnapshot値へ書く。次回はqueueを優先し、snapshotだけに残る操作を補完する。同じIDは重複させず、どちらかがupsertなら未適用の可能性を優先し、通知だけの再試行へ縮めない。投稿済みmessage IDはIDのない古い値で消さず、通知先・message IDの矛盾は処理前に拒否する。
+
+比較前に残件情報を指紋から分離するため、通知待ちだけでイベント更新と判定しない。削除待ちはsnapshotに記録を残すが、観測イベントには数えない。成功後は該当する残件情報を除く。既存の文字列指紋とqueue形式は引き続き読める。旧形式snapshotに残件情報がなくqueueも古い場合、失われた操作はこの変更だけでは再構成できない。
+
+`tests/test_discord_stale_queue.py` は、別イベントの失敗queueで上書きされる条件を作成・更新・削除で再現し、件数上限の残件と通知待ちも含めて回復を確認する。通知では同じmessageへリアクションを再試行し、再投稿しない。古いsnapshotと新しいqueueの組合せ、通知先の矛盾、壊れた残件、処理順も検証する。E2EのKV・DO checkpointは埋込残件にも所有権検査を行い、batch適用中のqueueが期待値から変われば外部書込み前に拒否する。
+
+この対策は、片方に保持された残件をもう片方の古い値で捨てないためのものである。両キーが残件作成前の古い値なら未知の操作を復元できず、古い残件の再出現や外部成功後の保存失敗では再適用され得る。KVの複数キーの原子性、一度限りの外部反映、TTL超過中の全書込みの排他を追加保証するものではない。新形式を読まない旧版へ戻す場合は、稼働中の残件を回収・完了させてから状態を確認する。

@@ -2,6 +2,8 @@
 
 import json
 
+from discord_retry_state import split_snapshot
+
 
 _DELTA_RESUME_REVISIONS = {"delta_prepared": 1, "delta_updated": 3}
 
@@ -45,8 +47,12 @@ def valid_delta_checkpoint(value, event_id: str) -> bool:
             return False
         if not isinstance(event, dict) or str(event.get("id") or "") != event_id:
             return False
+    try:
+        _, snapshot_ops = split_snapshot(snapshot)
+    except (ValueError, RuntimeError):
+        return False
     return isinstance(queue, list) and len(queue) <= 1 and all(
         isinstance(op, dict) and set(op) == {"id", "op"}
         and op["id"] == event_id and op["op"] in ("upsert", "delete")
-        for op in queue
+        for op in [*queue, *snapshot_ops]
     )

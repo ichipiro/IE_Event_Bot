@@ -7,6 +7,7 @@ from hashlib import sha256
 from types import SimpleNamespace
 from uuid import uuid4
 
+from discord_retry_state import split_snapshot
 from state import StateStore
 
 
@@ -84,6 +85,12 @@ class OwnedDiscordKV:
                     event = json.loads(fingerprint) if isinstance(fingerprint, str) else None
                     if not isinstance(event, dict) or str(event.get("id") or "") != event_id:
                         valid = False
+            if valid:
+                try:
+                    _, pending = split_snapshot(value)
+                    self._check_value(KEYS[1], json.dumps(pending))
+                except (ValueError, RuntimeError):
+                    valid = False
         else:
             valid = isinstance(value, list) and len(value) <= len(ids) and all(
                 isinstance(op, dict) and set(op) == {"id", "op"}

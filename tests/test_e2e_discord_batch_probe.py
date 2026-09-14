@@ -234,7 +234,7 @@ def test_stale_second_kv_read_cannot_reapply_first_event(monkeypatch):
     monkeypatch.setattr(env.STATE_KV, "get", stale)
     before = len(calls)
     status, result = request(env, "/advance")
-    assert status == 409 and result["error"] == "discord_batch_apply_failed"
+    assert status == 409 and result["error"] == "discord_batch_queue_changed"
     assert len(pages) == 1
     assert not any(
         method in ("POST", "PATCH") and "/pages" in path

@@ -1,4 +1,5 @@
 import json
+import math
 import time
 from hmac import compare_digest
 from inspect import isawaitable
@@ -60,6 +61,10 @@ def _gcal_webhook_token_status(env, request) -> int:
     ):
         return 401
     return 0
+
+
+class SyncLockLost(Exception):
+    """同期の途中でロック期限または所有者を失った。"""
 
 
 class Default(WorkerEntrypoint):
@@ -404,6 +409,7 @@ class Default(WorkerEntrypoint):
         google_applier=None,
         google_fetcher=None,
         discord_runner=None,
+        lock_ttl_seconds=None,
     ):
         """
         同期処理の中核ディスパッチ。
@@ -439,7 +445,9 @@ class Default(WorkerEntrypoint):
         lock_owner = None
         # Durable Object ロック要求(別の実行がまだ進行中なら失敗)
         if self._durable_lock_enabled():
-            acquired = await self._acquire_sync_lock(source=source)
+            acquired = await self._acquire_sync_lock(source=source, **(
+                {"ttl_seconds": lock_ttl_seconds} if lock_ttl_seconds is not None else {}
+            ))
             if not acquired.get("ok"):
                 return _json_response(
                     {
@@ -455,6 +463,7 @@ class Default(WorkerEntrypoint):
             mode = self._sync_all_mode()
             # Google 差分取得
             google_result = await (google_fetcher or run_google_delta_fetch)(self.env, state, commit_cursor=False)
+            await self._require_sync_owner(lock_owner)
             apply_result = {"ok": True, "skipped": True}
             if google_result.get("ok"):
                 selected_applier = google_applier or apply_google_events
@@ -469,13 +478,16 @@ class Default(WorkerEntrypoint):
             - state 利用可能
             この3つがそろったときだけ、次回カーソルを保存する。
             """
+            await self._require_sync_owner(lock_owner)
             if google_result.get("ok") and apply_result.get("ok") and state.enabled():
                 next_cursor = str(google_result.get("next_updated_min") or "")
                 if next_cursor:
                     await state.set_sync_updated_min(next_cursor)
+            await self._require_sync_owner(lock_owner)
             discord_result = {"ok": True, "skipped": True}
             if self._sync_all_include_discord_notion():
                 discord_result = await (discord_runner or run_discord_notion_poll_sync)(self.env, state)
+            await self._require_sync_owner(lock_owner)
             # 全体成功判定
             ok = (
                 bool(google_result.get("ok"))
@@ -485,6 +497,7 @@ class Default(WorkerEntrypoint):
             # 成功時に最終同期時刻を保存
             if ok and state.enabled():
                 await state.set_sync_last_epoch_now()
+            await self._require_sync_owner(lock_owner)
             if state.enabled():
                 await state.set_last_result(
                     "sync_all",
@@ -507,16 +520,20 @@ class Default(WorkerEntrypoint):
                 },
                 status=200 if ok else 500,
             )
+        except SyncLockLost:
+            return _json_response({"ok": False, "error": "sync_lock_lost"}, status=409)
         # ロック解除
         finally:
             if lock_owner:
                 await self._release_sync_lock(lock_owner)
 
-    async def _run_discord_sync(self, state, *, source: str, poll_runner=None) -> tuple[dict, int]:
+    async def _run_discord_sync(self, state, *, source: str, poll_runner=None, lock_ttl_seconds=None) -> tuple[dict, int]:
         """Discord単独同期を全体同期と同じロックで保護し、結果保存まで待つ。"""
         owner = None
         if self._durable_lock_enabled():
-            acquired = await self._acquire_sync_lock(source=source)
+            acquired = await self._acquire_sync_lock(source=source, **(
+                {"ttl_seconds": lock_ttl_seconds} if lock_ttl_seconds is not None else {}
+            ))
             if not acquired.get("ok"):
                 if acquired.get("locked"):
                     return {"ok": False, "error": "sync_in_progress"}, 409
@@ -524,11 +541,14 @@ class Default(WorkerEntrypoint):
             owner = acquired.get("owner")
         try:
             result = _detail_dict(await (poll_runner or run_discord_notion_poll_sync)(self.env, state))
+            await self._require_sync_owner(owner)
             if source == "cron-discord-notion":
                 result["path"] = "/sync/discord-notion"
             if state.enabled():
                 await state.set_last_result("sync_discord_notion", result)
             return result, 200 if result.get("ok") else 500
+        except SyncLockLost:
+            return {"ok": False, "error": "sync_lock_lost"}, 409
         finally:
             if owner:
                 await self._release_sync_lock(owner)
@@ -556,7 +576,7 @@ class Default(WorkerEntrypoint):
         """Durable Object ロック有効/無効。"""
         return _bool_env(getattr(self.env, "SYNC_DO_LOCK_ENABLED", "true"), default=True)
 
-    async def _acquire_sync_lock(self, source: str):
+    async def _acquire_sync_lock(self, source: str, *, ttl_seconds=None):
         """
         SyncCoordinator Durable Object で排他ロックを取得する。
         失敗時は `ok: false` を返し、呼び出し側で skip させる。
@@ -578,7 +598,7 @@ class Default(WorkerEntrypoint):
                 {
                     "action": "acquire",
                     "owner": owner,
-                    "ttl_seconds": self._sync_lock_ttl_seconds(),
+                    "ttl_seconds": self._sync_lock_ttl_seconds() if ttl_seconds is None else max(10.0, float(ttl_seconds)),
                 },
             )
             stage = "decode_rpc"
@@ -604,6 +624,23 @@ class Default(WorkerEntrypoint):
                 "stage": stage,
                 "error_type": error_type,
             }
+
+    async def _require_sync_owner(self, owner: str | None):
+        """段階間でDOの時刻・所有者を確認する。KV書込みとの原子性はない。"""
+        if not owner:
+            return
+        status = await self._sync_lock_status()
+        lock = status.get("lock")
+        if status.get("ok") is not True or not isinstance(lock, dict):
+            raise SyncLockLost()
+        try:
+            expires = float(lock["expires_at"])
+            now = float(lock["now"])
+        except (KeyError, TypeError, ValueError):
+            raise SyncLockLost() from None
+        if (lock.get("owner") != owner or not math.isfinite(expires)
+                or not math.isfinite(now) or expires <= now):
+            raise SyncLockLost()
 
     async def _release_sync_lock(self, owner: str):
         """取得済みロックを解放する。解放失敗は握りつぶす。"""

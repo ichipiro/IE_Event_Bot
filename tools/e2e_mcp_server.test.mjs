@@ -79,6 +79,7 @@ function jsonResponse(payload, status = 200) {
 for (const [scenario, verifiedStage, path] of [
   ["discord_state", "state_verified", "/admin/e2e/discord-state"],
   ["sync_lock", "lock_verified", "/admin/e2e/sync-lock"],
+  ["sync_faults", "fault_verified", "/admin/e2e/sync-faults"],
   ["discord_kv", "kv_verified", "/admin/e2e/discord-kv"],
 ]) {
 test(`${scenario}の保存と読戻しを別要求へ分け、同runだけを回収する`, async () => {

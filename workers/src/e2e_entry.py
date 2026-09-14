@@ -1,3 +1,4 @@
+from e2e_google_sync_probe import run_google_sync_probe
 import re
 import json
 from hashlib import sha256
@@ -128,6 +129,13 @@ _SYNC_LOCK_PHASES = {
     "/admin/e2e/sync-lock/verify": "verify",
     "/admin/e2e/sync-lock/cleanup": "cleanup",
 }
+_GOOGLE_SYNC_PHASES = {
+    "/admin/e2e/google-sync": "prepare",
+    "/admin/e2e/google-sync/advance": "advance",
+    "/admin/e2e/google-sync/verify": "verify",
+    "/admin/e2e/google-sync/cleanup": "cleanup",
+}
+
 _SYNC_FAULT_PHASES = {
     "/admin/e2e/sync-faults": "prepare",
     "/admin/e2e/sync-faults/advance": "advance",
@@ -465,6 +473,7 @@ class Default(ApplicationDefault):
             _DISCORD_DELTA_ADVANCE_PATH,
         )
         sync_fault_route = path in _SYNC_FAULT_PHASES
+        google_sync_route = path in _GOOGLE_SYNC_PHASES
         sync_lock_route = path in _SYNC_LOCK_PHASES
         discord_state_route = path in _DISCORD_STATE_PHASES
         discord_kv_route = path in _DISCORD_KV_PHASES
@@ -515,6 +524,7 @@ class Default(ApplicationDefault):
                 discord_state_route,
                 sync_lock_route,
                 sync_fault_route,
+                google_sync_route,
                 discord_kv_route,
                 discord_batch_route,
                 discord_route,
@@ -543,6 +553,8 @@ class Default(ApplicationDefault):
         if discord_batch_route and not _e2e_discord_batch_enabled(self.env, google=discord_batch_google_route, notification=discord_batch_notification_route):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_kv_route and not _e2e_discord_kv_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if google_sync_route and str(getattr(self.env, "E2E_GOOGLE_SYNC_ENABLED", "false")).lower() != "true":
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if sync_fault_route and str(getattr(self.env, "E2E_SYNC_FAULTS_ENABLED", "false")).lower() != "true":
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -588,6 +600,7 @@ class Default(ApplicationDefault):
                 scenario_manifests = {
                     "sync_lock": await state.get_e2e_manifest("sync_lock"),
                     "sync_faults": await state.get_e2e_manifest("sync_faults"),
+                    "google_sync": await state.get_e2e_manifest("google_sync"),
                     "discord_state": await state.get_e2e_manifest("discord_state"),
                     "discord_kv": await state.get_e2e_manifest("discord_kv"),
                     "discord_batch": await state.get_e2e_manifest("discord_batch"),
@@ -677,6 +690,7 @@ class Default(ApplicationDefault):
                         "discord_batch": _e2e_discord_batch_enabled(self.env),
                         "discord_batch_google": _e2e_discord_batch_enabled(self.env, google=True),
                         "discord_batch_notification": _e2e_discord_batch_enabled(self.env, notification=True),
+                        "google_sync": str(getattr(self.env, "E2E_GOOGLE_SYNC_ENABLED", "false")).lower() == "true",
                         "sync_faults": str(getattr(self.env, "E2E_SYNC_FAULTS_ENABLED", "false")).lower() == "true",
                         "sync_lock": str(getattr(self.env, "E2E_SYNC_LOCK_ENABLED", "false")).lower() == "true",
                         "qa_notification": _e2e_qa_notification_enabled(self.env),
@@ -706,6 +720,7 @@ class Default(ApplicationDefault):
                             "discord_batch_notification",
                             "sync_lock",
                             "sync_faults",
+                            "google_sync",
                             "discord_google",
                             "discord_notion",
                             "discord_delta",
@@ -729,8 +744,8 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
-        kv_phase = (_SYNC_FAULT_PHASES | _SYNC_LOCK_PHASES | _DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES).get(path)
-        if (sync_fault_route or sync_lock_route or discord_state_route or discord_kv_route or discord_batch_route) and kv_phase != "cleanup" and (
+        kv_phase = (_GOOGLE_SYNC_PHASES | _SYNC_FAULT_PHASES | _SYNC_LOCK_PHASES | _DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES).get(path)
+        if (google_sync_route or sync_fault_route or sync_lock_route or discord_state_route or discord_kv_route or discord_batch_route) and kv_phase != "cleanup" and (
             expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
         ):
             return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
@@ -744,6 +759,27 @@ class Default(ApplicationDefault):
                 or _worker_version_summary(self.env).get("id_sha256") != expected_version_id
             ):
                 return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
+        if google_sync_route:
+            async def invoke(probe_env, probe_state, fetcher):
+                from google_apply_sync import apply_google_events
+
+                async def fetch_owned(_env, state, *, commit_cursor):
+                    return await fetcher(probe_env, state, commit_cursor=False)
+
+                async def apply_owned(_env, state, events):
+                    return await apply_google_events(probe_env, state, events)
+
+                return await self._run_sync_dispatch(
+                    None, probe_state, "e2e-google-sync",
+                    google_fetcher=fetch_owned, google_applier=apply_owned,
+                )
+
+            try:
+                result = await run_google_sync_probe(self.env, StateStore(self.env), run_id, _GOOGLE_SYNC_PHASES[path], invoke)
+            except Exception:
+                result = {"ok": False, "dirty": True, "error": "google_sync_failed"}
+            result["run_id"] = run_id
+            return _json_response(result, status=200 if result.get("ok") else 409 if result.get("dirty") else 503)
         if sync_fault_route:
             try:
                 result = await run_sync_fault_probe(

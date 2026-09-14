@@ -91,6 +91,8 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 
 ## E2E GitHub Actions 境界
 
+`google_sync` は通常Google取得・適用を専用ルートから呼び、全Calendarの取得結果のうちrun由来の固定ID・markerが一致する2件だけを適用する。Notion外部DBと通常通知先を隠し、認証tokenはrequest内で使用する。DOへ外部作成着手を先に保存し、回収は同run・対象fingerprint・外部資源の所有確認を必須とする。Calendar削除後の最小tombstoneは固定IDと削除着手記録が一致する場合だけ扱う。MCPとartifactは既存の固定形式によるマスクを通す。通常HTTP同期と実Cronの有効化は行わない。
+
 - E2E workflow は手動起動だけを許可し、既定の `preflight` は read-only とする。
 - Secret を使う job は required reviewer 付きの `e2e` Environment を参照し、`GITHUB_TOKEN` は `contents: read` に限定する。
 - Worker URLとfingerprintはActionsログへの露出を防ぐため、GitHub Environment secretからだけ渡す。

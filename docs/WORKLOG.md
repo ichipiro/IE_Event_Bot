@@ -1,5 +1,35 @@
 # 作業履歴
 
+## 2026-09-15: 通常Google同期E2Eの再実行が成功
+
+- 修正版 `24c9e53609bfd5a4fc3d832ab3bbd64f8b91ddca` の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、Local validation成功とEnvironment承認後に専用Workerを1回deployした。run IDは `E2E-20260914T152925Z-e16dcc4a`。
+- 所有Google予定2件の全ページ取得・通常dispatch・Notion/Discord適用、上限1件の繰越、残件消化、説明更新、削除・archive、各段階のcursor・対応表・queue・外部資源の別HTTP読戻しが成功した。prepare 1回・advance 3回・verify 4回で、読戻し再試行はなかった。最長phaseはprepareの36.058秒だった。
+- 監査22行・完了11操作とmanifest、実行commit・clean checkout、run ID・version tag・deploy/最終version fingerprint、JUnit 602件・失敗0を独立照合した。run内と `always()` のcleanup成功、`passed`・全資源 `dirty=false` を確認した。
+- 修正後のローカルPython 602件、Ruff、Pyright、E2E設定・秘密情報形式・workflow検査、E2E Wrangler dry-runも成功した。通常名前空間の状態、任意予定の全件適用、実Cron、外部API障害からの途中再開は検証対象外。実行時点でPR・マージ・本番デプロイは未実施。
+
+## 2026-09-15: 通常Google同期E2Eの初回失敗とKV欠損値の修正
+
+- `ddbc8c8f112819c4b3234ba01eeedf705c3d934e` の[実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)で専用Workerを1回deployした。prepareは約17.7秒で409 `google_sync_failed` となり、後続段階へ進まなかった。実行時の例外種別は未確定である。
+- run内と `always()` のcleanup成功、`failed_clean`・全資源 `dirty=false` を確認した。監査8行・完了4操作とmanifest、run ID `E2E-20260914T152309Z-cd452e5b`、version・commit・clean checkout、JUnit 600件・失敗0を独立照合した。
+- KV欠損のJS null/undefinedをhash対象にすると同じ固定エラーになることを2テストで再現した。通常StateStoreと同様に欠損値へ正規化し、対象21テストの成功を確認した。作成完了とdispatch応答の安全な段階記録も追加した。実環境での修正確認は再実行で行う。
+
+## 2026-09-15: 通常Google同期E2Eの所有・回収と手動workflowを接続
+
+- `google_sync` の所有2件、run別KV6キー、DO所有・段階検査を実装した。通常dispatch・全ページ取得・適用を通し、繰越・消化・説明更新・削除を別HTTPで進め、cursor・対応表・queue・外部資源を読み戻す。
+- 作成前の着手記録、応答喪失時のmarker再発見、所有不一致・ID衝突の拒否、回収再試行、未完了phaseの再送拒否、再検証失敗時の成功取消しを追加した。通常Workerの同期処理・設定・Cronは変更していない。
+- 外部削除後にKV回収が失敗すると、最小tombstoneを所有確認できず再回収できない条件を1テストで再現した。削除着手をDOへ先に保存してからDELETEするよう修正し、再現テストの成功を確認した。一覧への反映が遅れても作成API由来の対応IDで読戻し・回収するケースも追加した。
+- MCP固定ルート、`deploy-and-google-sync-smoke`、段階ごとの有限verify待機、version照合、通常と `always()` の回収・マスク済み監査へ接続した。
+- Python全600件、Node全176件、Ruff、Pyright、E2E設定・秘密情報形式・workflow検査、通常/E2E Wrangler dry-runが成功した。Wranglerには空の専用envファイルを明示し、ローカル機密ファイルの自動読込みを避けた。
+- 実サービスE2E・PR・マージ・デプロイは未実施である。既存の未コミットの保証範囲テスト・文書変更を保持した。
+
+## 2026-09-14: 状態障害の保証範囲と通常Google同期の接続を検証
+
+- `test_sync_guarantee_boundaries.py` に8ケースを追加し、両キーが古い場合・旧形式の削除待ち喪失、重複適用・通知、投稿応答と状態保存の失敗、owner確認後の保存競合を固定注入で再現した。通常処理の制限を保証範囲表へ整理し、E2E計画項目3の境界確定を完了にした。
+- 初期の喪失モデルでは空値の同値保存が省略され、後で新しいqueueを読むと再試行できた。別イベントの失敗残件でqueueを更新する条件へ修正し、元の削除待ちが実際に失われることを確認した。
+- `test_google_sync_pipeline.py` に通常dispatch・全ページ取得・通常適用・状態保存を通す3ケースを追加した。件数上限・残件・対応表・更新・取消・照会例外の再試行・取得失敗時のcursor保護を代替APIで確認した。
+- 検証: Python全581件、Ruff全体、`.venv` 有効化後のPyright（エラー0）、変更文書の相対リンク10件、`git diff --check` が成功した。型検査で指摘された新規テストのpayload検査追加後、対象3件とRuffを再確認した。
+- アプリケーションの挙動は変更していない。実サービスE2E、実サービス用Googleシナリオの所有・回収・workflow接続、PR・マージ・デプロイは今回未実施。
+
 ## 2026-09-14: PlantUMLを手動実行のみに変更
 
 - ローカルに保持していた `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の手動化変更を公開対象に含めた。`push`・`pull_request` を削除し、`workflow_dispatch` を保持した。

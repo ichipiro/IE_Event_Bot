@@ -1,5 +1,24 @@
 # 作業履歴
 
+## 2026-09-14: 古いqueueによる未処理操作の喪失を対策
+
+- 作成・更新・削除・件数上限の繰越・通知待ちの5ケースで、古いqueueの読取り後に残件が失われることを失敗テストで確認してから修正した。snapshotの各イベント指紋にも `_pending_sync` を保存し、見えているqueueを優先してsnapshot側だけに残った操作を補完する。既存のKVキーとDOの責務は維持した。
+- 投稿済みmessage IDを保持し、異なる通知先・message IDの競合は停止する。削除待ちはsnapshotに残して復元するが、観測済みイベントの比較からは除外する。旧形式の読取り互換と処理順を維持した。
+- E2Eのsnapshot所有権検査を埋込み残件にも適用した。通知シナリオでは適用時のqueueも期待値と照合し、古い読取りから予定外の外部処理へ進むことを拒否する。`stale_queue_loss` は残件回復と `pending_lost=false` を必須条件に変更した。
+- Python 563件、Node 163件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、Bash構文検査が成功した。秘密ファイルを含まないコピーで通常・E2E両設定のWrangler dry-runが成功した。
+- 時計とsleepを置換しないローカル実行は28.96秒でprepare・verify・cleanupが成功した。外部通信を遮断し、KV・DO storage・Workers runtimeは代替実装である。実CloudflareのE2E、PR・マージ、Release・本番デプロイは未実施。
+- 両方のキーが残件生成前の値を返す場合、残件情報のない旧snapshotと古いqueueの組合せ、再適用・重複配信は保証範囲外として文書化した。開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
+## 2026-09-14: 状態障害・TTL超過の検査と旧結果保存の拒否
+
+- `sync_faults` を追加し、古いsnapshot / queueの固定3ケース、外部適用の代替runner成功後のqueue / snapshot保存前後失敗4ケース、手動同期の10秒TTL超過1ケースを検証できるようにした。prepare中の読取りは注入モデル、書込みと別HTTPのverifyは所有KVを使う。
+- TTL超過後に旧実行が成功結果を保存する不具合を7テストで再現し、全7件の失敗を確認してから修正した。通常の手動・Cron分岐・全体同期は段階間でDOの期限・ownerを再確認し、失効・確認不能なら409で停止する。Google適用後のcursor・後続同期も止める。同期本体内部の書込み、DO確認とKV書込み間の競合、外部処理の取消しは保証しない。
+- 古い空queueと最新snapshotによる未処理1件の喪失を固定モデルで再現した。古い値・保存失敗による再適用も確認した。これらは解決済みとせず、`passed` は既知の限界を含む期待挙動の確認であることを計画・課題・テスト文書へ明記した。
+- run・scope・対象と8ケースの証拠hashをDOで所有し、48候補KVキーを限定する。認証・version照合、MCP、`deploy-and-sync-faults-smoke`、有限verify待機、失敗時と `always()` の回収へ接続した。回収と制御ロック解放を確認後にcleanとし、失敗時はdirtyを維持する。
+- Python 546件、Node 163件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、Bash構文検査が成功した。秘密ファイルを含まないコピーで固定Wrangler 4.127.1の通常・E2E両設定のdry-runが成功した。
+- 時計とsleepを置換しないローカル実行も21.60秒でprepare・verify・cleanupが成功した。外部通信を遮断し、KV・DO storage・Workers runtimeは代替実装であり、実Cloudflareの証拠ではない。新シナリオの実KV・DO実行、PR・マージ、Release・本番デプロイは未実施。
+- 開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
 ## 2026-09-14: 通常同期の共通ロック競合を実KV・DOで検証
 
 - upstream [PR #72](https://github.com/ichipiro/IE_Event_Bot/pull/72)とfork同期[PR #58](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/58)のマージ後、fork `develop` の `f0a342e1965bbd086d4ff2ed3834673a3475a7cc` で[実行34834547224](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34834547224)を実行した。Local validation成功後、Environmentのrequired reviewer承認を通して専用Workerを1回deployした。

@@ -4,12 +4,14 @@ from hashlib import sha256
 from urllib.parse import quote
 from uuid import uuid4
 
+from discord_retry_state import snapshot_with_pending
 from discord_notion_sync import (
     run_discord_notion_poll_sync,
     _fingerprint,
     _sync_discord_event_upsert,
 )
 from e2e_discord_batch_state import (
+    BatchQueueChanged,
     SERVICE,
     KIND,
     COUNT,
@@ -201,7 +203,7 @@ async def _read_state(env, store, manifest, pending: bool, google=None, notifica
         queue = notification.queue(pending)
     if (
         await state.get_discord_snapshot()
-        != {str(e["id"]): _fingerprint(e) for e in events}
+        != snapshot_with_pending({str(e["id"]): _fingerprint(e) for e in events}, {}, queue)
         or await state.get_json("sync:discord_notion_queue") != queue
     ):
         raise BatchError("discord_batch_not_ready")
@@ -302,7 +304,10 @@ async def _apply_batch(env, store, manifest, index, google=None, notification=No
             raise BatchError("discord_notification_phase_mismatch")
         return await notification.notify(scoped_env, event, delivery=delivery)
 
-    state = BatchDiscordKV(store, manifest).state()
+    expected_queue = [] if index == 0 else (
+        notification.queue(True) if notification else [{"op": "upsert", "id": event_id}]
+    )
+    state = BatchDiscordKV(store, manifest, expected_queue=expected_queue).state()
     scoped_env = google.env if google else _DeltaEnv(env)
     if notification:
         scoped_env = notification.env
@@ -577,7 +582,7 @@ async def run_discord_batch_probe(
         ] = 200
         await _save(store, manifest)
         return {"ok": True, "dirty": True, "stage": manifest["stage"]}
-    except (BatchError, GoogleBatchError, NotificationError) as error:
+    except (BatchError, GoogleBatchError, NotificationError, BatchQueueChanged) as error:
         code = str(error)
         if code == "discord_batch_not_ready":
             code = f"{service}_not_ready"

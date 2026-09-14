@@ -163,7 +163,7 @@ def test_delta_cleanup_retains_dirty_then_checks_run_and_target(monkeypatch):
     assert failed["dirty"] is True
     dirty_manifest = run(state.get_e2e_manifest("discord_delta"))
     assert isinstance(dirty_manifest, dict)
-    assert dirty_manifest["delta_checkpoint"]["snapshot"] == {}
+    assert json.loads(dirty_manifest["delta_checkpoint"]["snapshot"][DISCORD_EVENT_ID])["_pending_sync"] == {"id": DISCORD_EVENT_ID, "op": "delete"}
     assert dirty_manifest["delta_checkpoint"]["queue"] == [{"id": DISCORD_EVENT_ID, "op": "delete"}]
     count = len(calls)
     blocked = run(probe.run_discord_delta_probe(env, state, RUN_ID))
@@ -293,7 +293,7 @@ def test_delta_source_read_error_never_triggers_deletion_diff(monkeypatch):
     assert "delta_delete_diff" not in result["stages"]
 
 
-def test_delta_delete_failure_retries_from_queue_after_snapshot_is_empty(monkeypatch):
+def test_delta_delete_failure_retains_retry_in_snapshot_and_queue(monkeypatch):
     env = probe._DeltaEnv(make_env())
     state = probe._DeltaState(DISCORD_EVENT_ID)
     state.snapshot = {DISCORD_EVENT_ID: json.dumps({"status": "4"})}
@@ -306,7 +306,7 @@ def test_delta_delete_failure_retries_from_queue_after_snapshot_is_empty(monkeyp
     monkeypatch.setattr(discord_notion_sync, "_sync_discord_event_delete", delete)
     first = run(discord_notion_sync._apply_discord_event_diff(env, state, []))
     assert first["ok"] is False
-    assert state.snapshot == {}
+    assert json.loads(state.snapshot[DISCORD_EVENT_ID])["_pending_sync"] == {"id": DISCORD_EVENT_ID, "op": "delete"}
     assert state.queue == [{"op": "delete", "id": DISCORD_EVENT_ID}]
     second = run(discord_notion_sync._apply_discord_event_diff(env, state, []))
     assert second["ok"] is True

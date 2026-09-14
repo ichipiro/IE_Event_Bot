@@ -22,6 +22,7 @@ from e2e_discord_delta_probe import (
     resume_discord_delta_probe,
 )
 from e2e_sync_lock_probe import run_sync_lock_probe
+from e2e_sync_fault_probe import run_sync_fault_probe
 from e2e_discord_kv_state import run_discord_state_probe
 from e2e_discord_kv_probe import run_discord_kv_probe
 from e2e_discord_batch_probe import run_discord_batch_probe
@@ -127,6 +128,7 @@ _SYNC_LOCK_PHASES = {
     "/admin/e2e/sync-lock/verify": "verify",
     "/admin/e2e/sync-lock/cleanup": "cleanup",
 }
+_SYNC_FAULT_PHASES = {path.replace("sync-lock", "sync-faults"): phase for path, phase in _SYNC_LOCK_PHASES.items()}
 _DISCORD_STATE_PHASES = {
     "/admin/e2e/discord-state": "prepare",
     "/admin/e2e/discord-state/verify": "verify",
@@ -457,6 +459,7 @@ class Default(ApplicationDefault):
             _DISCORD_DELTA_PREPARE_PATH, _DISCORD_DELTA_RESUME_PATH,
             _DISCORD_DELTA_ADVANCE_PATH,
         )
+        sync_fault_route = path in _SYNC_FAULT_PHASES
         sync_lock_route = path in _SYNC_LOCK_PHASES
         discord_state_route = path in _DISCORD_STATE_PHASES
         discord_kv_route = path in _DISCORD_KV_PHASES
@@ -506,6 +509,7 @@ class Default(ApplicationDefault):
                 discord_delta_route,
                 discord_state_route,
                 sync_lock_route,
+                sync_fault_route,
                 discord_kv_route,
                 discord_batch_route,
                 discord_route,
@@ -534,6 +538,8 @@ class Default(ApplicationDefault):
         if discord_batch_route and not _e2e_discord_batch_enabled(self.env, google=discord_batch_google_route, notification=discord_batch_notification_route):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_kv_route and not _e2e_discord_kv_enabled(self.env):
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
+        if sync_fault_route and str(getattr(self.env, "E2E_SYNC_FAULTS_ENABLED", "false")).lower() != "true":
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if sync_lock_route and str(getattr(self.env, "E2E_SYNC_LOCK_ENABLED", "false")).lower() != "true":
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -576,6 +582,7 @@ class Default(ApplicationDefault):
                 }
                 scenario_manifests = {
                     "sync_lock": await state.get_e2e_manifest("sync_lock"),
+                    "sync_faults": await state.get_e2e_manifest("sync_faults"),
                     "discord_state": await state.get_e2e_manifest("discord_state"),
                     "discord_kv": await state.get_e2e_manifest("discord_kv"),
                     "discord_batch": await state.get_e2e_manifest("discord_batch"),
@@ -665,6 +672,7 @@ class Default(ApplicationDefault):
                         "discord_batch": _e2e_discord_batch_enabled(self.env),
                         "discord_batch_google": _e2e_discord_batch_enabled(self.env, google=True),
                         "discord_batch_notification": _e2e_discord_batch_enabled(self.env, notification=True),
+                        "sync_faults": str(getattr(self.env, "E2E_SYNC_FAULTS_ENABLED", "false")).lower() == "true",
                         "sync_lock": str(getattr(self.env, "E2E_SYNC_LOCK_ENABLED", "false")).lower() == "true",
                         "qa_notification": _e2e_qa_notification_enabled(self.env),
                         "reminder": _e2e_reminder_enabled(self.env),
@@ -692,6 +700,7 @@ class Default(ApplicationDefault):
                             "discord_batch_google",
                             "discord_batch_notification",
                             "sync_lock",
+                            "sync_faults",
                             "discord_google",
                             "discord_notion",
                             "discord_delta",
@@ -715,8 +724,8 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
-        kv_phase = (_SYNC_LOCK_PHASES | _DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES).get(path)
-        if (sync_lock_route or discord_state_route or discord_kv_route or discord_batch_route) and kv_phase != "cleanup" and (
+        kv_phase = (_SYNC_FAULT_PHASES | _SYNC_LOCK_PHASES | _DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES).get(path)
+        if (sync_fault_route or sync_lock_route or discord_state_route or discord_kv_route or discord_batch_route) and kv_phase != "cleanup" and (
             expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
         ):
             return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
@@ -730,6 +739,15 @@ class Default(ApplicationDefault):
                 or _worker_version_summary(self.env).get("id_sha256") != expected_version_id
             ):
                 return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
+        if sync_fault_route:
+            try:
+                result = await run_sync_fault_probe(
+                    self.env, StateStore(self.env), run_id, _SYNC_FAULT_PHASES[path], self._invoke_lock_probe,
+                )
+            except Exception:
+                result = {"ok": False, "dirty": True, "error": "sync_faults_probe_failed"}
+            result["run_id"] = run_id
+            return _json_response(result, status=200 if result.get("ok") else 409 if result.get("dirty") else 503)
         if sync_lock_route:
             try:
                 result = await run_sync_lock_probe(
@@ -1030,7 +1048,7 @@ class Default(ApplicationDefault):
             status = 500
         return _json_response(result, status=status)
 
-    async def _invoke_lock_probe(self, source, state, body):
+    async def _invoke_lock_probe(self, source, state, body, *, lock_ttl_seconds=None):
         """通常の手動・Cron分岐の共通処理を使い、同期本体だけを隔離する。"""
         async def poll(env, state):
             return await body()
@@ -1046,13 +1064,14 @@ class Default(ApplicationDefault):
             response = await self._run_sync_dispatch(
                 None, state, source="manual", google_fetcher=google_fetch,
                 google_applier=no_external_apply, discord_runner=no_external_apply,
+                lock_ttl_seconds=lock_ttl_seconds,
             )
             return json.loads(await response.text()), int(response.status)
         if source not in ("manual", "cron"):
             raise ValueError("sync_lock_source_invalid")
         return await self._run_discord_sync(
             state, source="cron-discord-notion" if source == "cron" else "manual-discord-notion",
-            poll_runner=poll,
+            poll_runner=poll, lock_ttl_seconds=lock_ttl_seconds,
         )
 
     async def scheduled(self, controller, env, ctx):

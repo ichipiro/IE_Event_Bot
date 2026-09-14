@@ -189,3 +189,22 @@ def test_storage_failure_does_not_fall_back_to_shared_kv(monkeypatch):
     with pytest.raises(RuntimeError, match="durable_object_required"):
         run(StateStore(env).put_e2e_delta_checkpoint(owner, checkpoint(2)))
     assert env.STATE_KV.put_calls == []
+
+
+@pytest.mark.parametrize('mutation', ['foreign_event', 'notification'])
+def test_checkpoint_rejects_unowned_embedded_retry(mutation):
+    from discord_retry_state import PENDING_FIELD
+
+    env, store, owner, _ = setup_state()
+    run(store.put_e2e_delta_checkpoint(owner, checkpoint()))
+    value = checkpoint(2)
+    op: dict = {'id': DISCORD_EVENT_ID, 'op': 'delete'}
+    if mutation == 'foreign_event':
+        op['id'] = 'other'
+    else:
+        op['notification'] = {'channel_id': 'unowned'}
+    value['snapshot'] = {DISCORD_EVENT_ID: json.dumps({'id': DISCORD_EVENT_ID, PENDING_FIELD: op})}
+    before = deepcopy(env.SYNC_COORDINATOR.stub.durable_object.ctx.storage.data)
+    with pytest.raises(RuntimeError, match='e2e_delta_checkpoint_write_failed'):
+        run(store.put_e2e_delta_checkpoint(owner, value))
+    assert env.SYNC_COORDINATOR.stub.durable_object.ctx.storage.data == before

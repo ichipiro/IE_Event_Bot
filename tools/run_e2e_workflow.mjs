@@ -26,6 +26,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_batch",
   "discord_batch_google",
   "discord_batch_notification",
+  "sync_lock",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -47,6 +48,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-discord-batch-smoke",
   "deploy-and-discord-batch-google-smoke",
   "deploy-and-discord-batch-notification-smoke",
+  "deploy-and-sync-lock-smoke",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -555,6 +557,10 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
 }
 
 
+export async function runDeployAndSyncLockSmoke(callTool, runId, options = {}) {
+  return runDiscordKvSmoke(callTool, runId, "sync_lock", "lock_verified", options);
+}
+
 export async function runDeployAndDiscordStateSmoke(callTool, runId, options = {}) {
   return runDiscordKvSmoke(callTool, runId, "discord_state", "state_verified", options);
 }
@@ -901,6 +907,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "discord_batch",
             "discord_batch_google",
             "discord_batch_notification",
+            "sync_lock",
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
@@ -1057,6 +1064,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-delta-smoke") {
       await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-sync-lock-smoke") {
+      await runDeployAndSyncLockSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-discord-batch-notification-smoke") {

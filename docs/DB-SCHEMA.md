@@ -113,3 +113,6 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 
 
 `discord_batch_notification` は `e2e:manifest:discord_batch_notification` と `e2e:discord_batch_notification:<run_id>:<scope_id>:` の固定2KVキーを使う。対象fingerprintへchannelとroleを追加する。各fixtureは `create_attempted.message`、`message_content_sha256`、取得後の `message_id`、`reaction_deferred`、`reaction_done`、`message_cleanup_done` を保持する。DOは取得済みID・本文hash・通知先の差し替えと完了フラグの巻戻しを拒否し、未回収messageがあるclean化を拒否する。KV adapterは所有event ID・通知先hash・DO記録済みmessage IDだけを受け入れる。snapshot / queueをDOへ複製せず、clean後はmessage IDもfixture fingerprintへまとめる。
+
+
+`sync_lock` はDOの `e2e:manifest:sync_lock` にrun・scope・接続対象fingerprint・段階・6 roundの結果hashを保持する。KVは `e2e:sync_lock:<run_id>:<scope_id>:<round>:` 配下の `result:sync_discord_notion`、`result:sync_all`、`sync:last_epoch` だけを許可する。DOは所有情報と既存hashの差し替え、段階の巻戻し、clean後の同run再利用を拒否する。回収時は6×3キーを列挙なしで削除し、clean後はhash一覧とscope実値を取り除く。`e2e:sync-lock-control` という別名の既存 `SyncCoordinator` オブジェクトはE2E制御ロックだけを保持し、終了時に所有ownerを指定して解放する。binding・migrationの追加はない。

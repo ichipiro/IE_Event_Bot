@@ -17,6 +17,7 @@ import {
   runDeployAndDiscordNotionSmoke,
   runDeployAndDiscordDeltaSmoke,
   runDeployAndDiscordStateSmoke,
+  runDeployAndSyncLockSmoke,
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
   runDeployAndDiscordBatchGoogleSmoke,
@@ -1189,5 +1190,33 @@ for (const failure of ["unexpected_success", "missing_flag", "wrong_status", "wr
     assert.deepEqual(calls.map((call) => call.name),
       ["deploy_e2e", "preflight", "trigger_sync", "trigger_sync", "cleanup_run"]);
     assert.equal(calls.at(-1).args.confirmation, `cleanup:discord_delta:${RUN_ID}`);
+  });
+}
+
+for (const failure of [null, "prepare", "verify", "version", "outcome"]) {
+  test(`通常同期ロックworkflow: ${failure ?? "success"}と必須cleanup`, async () => {
+    const overrides = {
+      read_status: async () => ({ ok: true,
+        worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
+        scenarios: { sync_lock: { present: true, dirty: true, run_id: RUN_ID, stage: "lock_verified" } },
+      }),
+      trigger_sync: async (args) => ({
+        ok: !(args.sync_phase === (failure === "verify" ? "resume" : failure)),
+        run_id: RUN_ID, status: 200, dirty: true, error: "sync_lock_probe_failed",
+      }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
+    };
+    const { calls, callTool } = stateWorkflowFixture(overrides, "sync_lock");
+    if (failure) {
+      await assert.rejects(runDeployAndSyncLockSmoke(callTool, RUN_ID), /sync_lock_/);
+    } else {
+      assert.deepEqual(await runDeployAndSyncLockSmoke(callTool, RUN_ID), { ok: true, scenarios: ["sync_lock"] });
+    }
+    assert.equal(calls.filter((call) => call.name === "deploy_e2e").length, 1);
+    assert.equal(calls.filter((call) => call.args.sync_phase === "prepare").length, 1);
+    assert.equal(calls.filter((call) => call.name === "cleanup_run" && call.args.service === "sync_lock").length, 1);
+    assert.deepEqual(touchedServicesFromAudit([
+      { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "sync_lock" },
+    ], RUN_ID), ["sync_lock"]);
   });
 }

@@ -9,9 +9,11 @@ from e2e_discord_batch_state import valid_batch_transition
 from e2e_discord_fixture_state import valid_fixture_transition
 from e2e_discord_delta_state import delta_owner_matches, delta_ready_to_resume, valid_delta_checkpoint
 from e2e_discord_kv_state import valid_transition
+from e2e_sync_lock_probe import valid_lock_transition
 
 
 _E2E_MANIFEST_KINDS = {
+    "sync_lock": "sync_lock_contention",
     "discord_state": "discord_kv_state",
     "discord_kv": "discord_kv_sync",
     "discord_batch": "discord_batch_sync",
@@ -800,6 +802,10 @@ class SyncCoordinator(DurableObject):
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 if not valid_transition(previous, manifest):
                     return {"ok": False, "error": "discord_state_owner_mismatch"}, 409
+            if service == "sync_lock":
+                previous = _decode_json_record(await self.ctx.storage.get(storage_key))
+                if not valid_lock_transition(previous, manifest):
+                    return {"ok": False, "error": "sync_lock_owner_mismatch"}, 409
             if service == "discord_delta":
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 checkpoint = previous.get("delta_checkpoint")

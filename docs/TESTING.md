@@ -99,6 +99,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-discord-delta-recovery` | 明示した `recovery_run_id` をversion tagにして修正版をdeployし、そのrunのDiscord差分資源だけをcleanupする。新規fixtureは作成しない |
 | `deploy-and-discord-delta-smoke` | 専用 Worker を deploy し、Discord一覧のrun所有1件で新規作成・変更なし・更新・キャンセル・削除を共通差分処理へ通し、Notion pageの反映とarchiveを検証後に両資源をcleanupする |
 | `deploy-and-discord-state-smoke` | 専用Workerの通常StateStoreで固定2キーを保存し、別HTTPで読戻しとversionを照合後、所有キーを回収する |
+| `deploy-and-sync-lock-smoke` | 通常同期の共通ロック競合・成功/例外後の解放、所有結果KVの読戻し・回収を検証する |
 | `deploy-and-discord-kv-smoke` | 所有Discord event 1件を通常差分処理でNotionとKVへ反映し、別HTTPで読み直して外部資源と固定2キーを回収する |
 | `deploy-and-discord-batch-smoke` | 所有Discord event 2件を上限1件ずつNotionへ反映し、KVの残件を別HTTPで読み直して消化・回収する |
 | `deploy-and-discord-batch-google-smoke` | 所有2件を通常ポーリングからGoogle・Notionへ反映し、対応ID・KV残件・全資源回収を確認する |
@@ -271,3 +272,16 @@ MCPは `trigger_sync(scenario="discord_batch_notification", sync_phase="prepare"
 `tests/test_e2e_discord_batch_notification.py` は、別HTTPでの通知再試行と繰越、投稿応答・DO保存・KV保存の失敗、回収失敗と再回収、所有権や本文の変更、古いqueueの再読込、認可・version・gate、再検証失敗後の成功取消しを代替APIで検証する。初回の失敗はE2E runnerの固定注入であり、Discord側の障害を発生させる試験ではない。実Cron・TTL超過は未検証で、項目10の追加対象外は維持する。
 
 2026-09-14（JST）の[実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)で実サービス検証が成功した。fork revision `b95be41d1e7c31f5d707168650f644caa10968c7` を専用Workerへ1回deployし、通知2件、投稿済みmessageへのリアクションだけの再試行、上限1件・別HTTP残件処理・最終読戻しを確認した。prepare 1回、advance 2回、verify各段階1回で、KV読戻し再試行は発生していない。artifactの監査18行・完了9操作とmanifestを独立照合し、`prepared` → `retry_drained` → `drained`、通知削除204・削除後GET 404、Discordイベント削除204・Notion archive 200各2件、KV回収200、2回のcleanup成功、Worker version・run一致、`outcome=passed`、全資源 `dirty=false`、JUnit 487件・失敗0を確認した。回収の確認範囲は各API応答・通知削除後のGET・KV delete完了であり、KV全拠点への削除反映は保証しない。
+
+
+### 通常同期の共通ロック競合
+
+`sync_lock` は `POST /admin/e2e/sync-lock`、`/verify`、`/cleanup` を使う。手動モードは `deploy-and-sync-lock-smoke`。専用Workerの `E2E_SYNC_LOCK_ENABLED=true`、`E2E_STATE_SCOPE`、KV・DO binding、DOロック有効・クールダウン無効を必要とする。全経路で認証とPOSTを要求し、prepare / verifyはrunとversion tagを照合する。E2E Workerの通常書込みrouteと実Cronは既存どおり無効である。
+
+prepareの1 HTTP内で、手動Discord同期・CronのDiscord同期分岐と共通の `_run_discord_sync`、全体同期の `_run_sync_dispatch` を呼ぶ。各経路を保持側とし、正常完了と同期本体の固定例外の計6 roundを実行する。保持側が実際にglobalロックを取得して本体へ到達した時点で待機させ、3経路すべてを競合側として呼ぶ。単独同期の409、全体同期の `in_progress_skip`（200）、競合側の本体未実行・結果KVへのアクセスなし、保持ownerの維持を確認する。保持側の成功・例外後の解放と、例外後に同経路が成功できることを確認する。各roundの待機は10秒、round全体20秒、HTTP内の処理全体45秒を上限とし、失敗時も保持taskの終了とfinallyを待つ。
+
+同期本体は検査用runnerへ差し替え、Discord・Google・Notionへ通信しない。結果保存は通常StateStoreを通し、run・scope・round別KVへ隔離する。6 round×固定3キーだけを許可し、正常経路が実際に保存するのは合計8キーである。DOには結果本文の代わりにSHA-256を保持する。別HTTPのverifyはKVから読み直し、期待したキーのhashと、それ以外の未作成を確認する。古い値の固定409だけをworkflowが最大25回・3秒間隔で待ち、prepareは再送しない。
+
+制御用DO `e2e:sync-lock-control` のロックが同シナリオの並行prepare / verify / cleanupを拒否する。通常同期が取得するglobalロックとは別であり、その取得・解放を置き換えない。cleanupはglobalロックが残っていれば回収を止め、他ownerを強制解放しない。固定18キーを回収し、制御ロックの解放も読み戻した後でcleanにする。検証成功前に回収した場合は `failed_clean`、成功後だけ `passed` とする。workflowの `always()` cleanupと監査・manifest収集にも接続する。
+
+`tests/test_e2e_sync_lock_probe.py` は実DOロジックと代替KVを使い、6 round、別HTTP読戻し、認証・version・設定拒否、所有情報・hashの差し替え拒否、古いKV、保存・回収・ロック解放失敗、タイムアウト、clean後の再利用拒否を検証する。MCP・workflowでは固定経路、応答不一致の拒否、失敗後の回収、version・outcome照合を検証する。これはローカル検証であり、専用環境での実KV・DO動作、別Workerリクエスト間の競合、実Cron配信、外部API適用中の競合、TTL超過を証明しない。

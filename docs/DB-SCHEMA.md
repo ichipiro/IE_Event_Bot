@@ -97,6 +97,10 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 - 削除は、Google の `cancelled`、Discord の消失、Notion のアーカイブとして各サービス固有の表現へ変換する。
 - キューに残った項目は未処理または再試行対象であり、完了データとして扱わない。
 
+## 通常Google同期E2Eの状態
+
+通常Google同期E2Eの `google_sync` はDOの `e2e:manifest:google_sync` にrun・scope・対象fingerprint、2件の固定Google ID・作成着手・発見済みの下流ID、生成fixture、段階、cursor期待値、KV hashを保持する。KVは `e2e:google_sync:<run_id>:<scope_id>:` 配下の `sync:updated_min`、`map:gcal_notion`、`map:gcal_discord`、`sync:google_apply_queue`、`sync:last_epoch`、`result:sync_all` の6キーだけを許可する。通常StateStoreの形式を保持し、通常キーへの書込みと認証cacheを隔離する。DOはrun・対象・固定IDの差替え、着手済みflagの巻戻し、検証前のadvance、clean後の同run再実行を拒否する。clean後はfixture・実ID・cursor・状態hashを削除し、対象fingerprintと結果を保持する。`e2e:google-sync-control` は既存クラスの別名で、binding・migrationの追加はない。
+
 ## スキーマ変更の手順
 
 1. 読み取り元と書き込み先の全モジュールを確認する。

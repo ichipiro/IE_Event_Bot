@@ -19,6 +19,7 @@ import {
   runDeployAndDiscordStateSmoke,
   runDeployAndSyncLockSmoke,
   runDeployAndSyncFaultsSmoke,
+  runDeployAndGoogleSyncSmoke,
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
   runDeployAndDiscordBatchGoogleSmoke,
@@ -1257,5 +1258,37 @@ for (const failure of [null, "prepare", "advance", "early_done", "late_done", "v
     assert.deepEqual(touchedServicesFromAudit([
       { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "sync_faults" },
     ], RUN_ID), ["sync_faults"]);
+  });
+}
+
+for (const failure of [null, "advance", "verify", "version", "outcome", "phase"]) {
+  test(`通常Google同期workflow: ${failure ?? "success"}と回収`, async () => {
+    let index = 0;
+    const steps = ["pending", "drained", "updated", "deleted"];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async (args) => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: args.sync_phase !== (failure === "verify" ? "resume" : failure),
+          status: 200, dirty: true, run_id: RUN_ID, error: "google_sync_failed",
+          execution_status: failure === "phase" ? "deleted" : steps[index] };
+      },
+      read_status: async () => ({ ok: true,
+        worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`google_sync_${steps[index]}`]: 200 } } },
+      }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID), /google_sync_/);
+    } else {
+      assert.deepEqual(await runDeployAndGoogleSyncSmoke(callTool, RUN_ID), { ok: true, scenarios: ["google_sync"] });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare", "resume", "advance", "resume", "advance", "resume", "advance", "resume"]);
+    }
+    assert.equal(calls.filter(c => c.args.sync_phase === "prepare").length, 1);
+    assert.equal(calls.filter(c => c.name === "cleanup_run" && c.args.service === "google_sync").length, 1);
+    if (failure === "advance") { assert.equal(index, 1); }
+    assert.deepEqual(touchedServicesFromAudit([{ run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "google_sync" }], RUN_ID), ["google_sync"]);
   });
 }

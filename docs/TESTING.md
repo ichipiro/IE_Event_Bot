@@ -60,7 +60,7 @@ bash -n tools/configure_github_e2e_environment.sh
 
 `tests/test_discord_notification_retry.py` は同じ通常ポーリングとStateStoreを使い、一覧取得・同期先・Discord APIを代替する。上限超過、同期失敗後の通知、投稿失敗、リアクション失敗、通知待ちのイベント変更・削除、完了イベントの保護、通知の件数上限、通知先変更・無効化、旧queue互換、不正な通知状態での書込み拒否を確認する。最初の4件の再現テストが修正前に失敗し、修正後は22件すべて成功した。
 
-投稿成功後のmessage IDを保存し、リアクションだけの再試行では再投稿しない。Discordの[Create Reaction](https://docs.discord.com/developers/resources/message#create-reaction)は対象messageへのPUTで成功時204を返す。ローカルテストはこのAPI境界を代替しており、実サービス配信は未検証である。投稿応答の喪失、KV保存失敗・古い値の参照を含めた一度だけの配信は保証しない。既存の `discord_batch` / `discord_batch_google` は通知先を隠す。通知の所有・回収と専用workflowへの接続は `discord_batch_notification` でローカル検証する。
+投稿成功後のmessage IDを保存し、リアクションだけの再試行では再投稿しない。Discordの[Create Reaction](https://docs.discord.com/developers/resources/message#create-reaction)は対象messageへのPUTで成功時204を返す。ローカルテストはこのAPI境界を代替する。実サービス配信と同じmessageへの再試行は、末尾の専用シナリオで確認した。投稿応答の喪失、KV保存失敗・古い値の参照を含めた一度だけの配信は保証しない。既存の `discord_batch` / `discord_batch_google` は通知先を隠す。通知の所有・回収と専用workflowへの接続は `discord_batch_notification` で検証する。
 
 `tests/test_discord_sync_lock.py` は手動・Cronと全体同期の共通ロック、競合時の最終結果保護、適用・結果保存の例外とキャンセル後の解放、取得エラー時の停止、明示無効時の互換性を確認する。並行HTTPの検証では、1件が適用中の間にもう1件が409で拒否されることを確認する。
 
@@ -268,4 +268,6 @@ MCPは `trigger_sync(scenario="discord_batch_notification", sync_phase="prepare"
 
 投稿前にDOへ着手と本文SHA-256、投稿後にmessage IDを保存する。本文に含まれるrun固有のイベント名・channel・role・本文hashを検証する。投稿応答またはID保存が失敗した場合は再投稿せず、cleanupで直近50件から完全一致するイベント名の行を検索する。候補が複数、候補不明、本文や通知先が不一致なら削除せずdirtyを残す。検索範囲外も未回収扱いになる。
 
-`tests/test_e2e_discord_batch_notification.py` は、別HTTPでの通知再試行と繰越、投稿応答・DO保存・KV保存の失敗、回収失敗と再回収、所有権や本文の変更、古いqueueの再読込、認可・version・gate、再検証失敗後の成功取消しを代替APIで検証する。初回の失敗はE2E runnerの固定注入であり、Discord側の障害を発生させる試験ではない。実サービス配信・実Cron・TTL超過は未検証で、項目10の追加対象外は維持する。
+`tests/test_e2e_discord_batch_notification.py` は、別HTTPでの通知再試行と繰越、投稿応答・DO保存・KV保存の失敗、回収失敗と再回収、所有権や本文の変更、古いqueueの再読込、認可・version・gate、再検証失敗後の成功取消しを代替APIで検証する。初回の失敗はE2E runnerの固定注入であり、Discord側の障害を発生させる試験ではない。実Cron・TTL超過は未検証で、項目10の追加対象外は維持する。
+
+2026-09-14（JST）の[実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)で実サービス検証が成功した。fork revision `b95be41d1e7c31f5d707168650f644caa10968c7` を専用Workerへ1回deployし、通知2件、投稿済みmessageへのリアクションだけの再試行、上限1件・別HTTP残件処理・最終読戻しを確認した。prepare 1回、advance 2回、verify各段階1回で、KV読戻し再試行は発生していない。artifactの監査18行・完了9操作とmanifestを独立照合し、`prepared` → `retry_drained` → `drained`、通知削除204・削除後GET 404、Discordイベント削除204・Notion archive 200各2件、KV回収200、2回のcleanup成功、Worker version・run一致、`outcome=passed`、全資源 `dirty=false`、JUnit 487件・失敗0を確認した。回収の確認範囲は各API応答・通知削除後のGET・KV delete完了であり、KV全拠点への削除反映は保証しない。

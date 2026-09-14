@@ -387,3 +387,23 @@ def test_cleanup_retries_after_external_deletes_and_kv_failure(monkeypatch):
     monkeypatch.setattr(test.env.STATE_KV, "delete", original)
     assert test.call("cleanup")[0] == 200
     assert test.owner()["outcome"] == "failed_clean"
+
+
+@pytest.mark.parametrize("missing", ["jsnull", "jsundefined"])
+def test_worker_absent_values_are_not_hashed(monkeypatch, missing):
+    test = Scenario(monkeypatch)
+    original = test.env.STATE_KV.get
+
+    class AbsentValue:
+        def __str__(self):
+            return missing
+
+    async def get(key):
+        value = await original(key)
+        return AbsentValue() if value is None else value
+
+    monkeypatch.setattr(test.env.STATE_KV, "get", get)
+    status, payload = test.call("prepare")
+    assert status == 200, payload
+    assert test.call("verify")[0] == 200
+    assert test.call("cleanup")[0] == 200

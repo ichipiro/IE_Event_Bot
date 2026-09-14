@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-15: 通常Google同期E2Eの初回失敗とKV欠損値の修正
+
+- `ddbc8c8f112819c4b3234ba01eeedf705c3d934e` の[実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)で専用Workerを1回deployした。prepareは約17.7秒で409 `google_sync_failed` となり、後続段階へ進まなかった。実行時の例外種別は未確定である。
+- run内と `always()` のcleanup成功、`failed_clean`・全資源 `dirty=false` を確認した。監査8行・完了4操作とmanifest、run ID `E2E-20260914T152309Z-cd452e5b`、version・commit・clean checkout、JUnit 600件・失敗0を独立照合した。
+- KV欠損のJS null/undefinedをhash対象にすると同じ固定エラーになることを2テストで再現した。通常StateStoreと同様に欠損値へ正規化し、対象21テストの成功を確認した。作成完了とdispatch応答の安全な段階記録も追加した。実環境での修正確認は再実行で行う。
+
 ## 2026-09-15: 通常Google同期E2Eの所有・回収と手動workflowを接続
 
 - `google_sync` の所有2件、run別KV6キー、DO所有・段階検査を実装した。通常dispatch・全ページ取得・適用を通し、繰越・消化・説明更新・削除を別HTTPで進め、cursor・対応表・queue・外部資源を読み戻す。

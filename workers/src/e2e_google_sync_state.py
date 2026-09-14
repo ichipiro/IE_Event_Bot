@@ -170,6 +170,10 @@ class GoogleKV:
     async def get(self, key):
         await self.check(key)
         value = await self.store.env.STATE_KV.get(self.prefix + key)
+        # Python WorkersのJS null/undefinedも、通常StateStoreと同じ欠損値にする。
+        value = None if value is None else str(value)
+        if value in ("jsnull", "jsundefined"):
+            value = None
         if (None if value is None else digest(value)) != self.hashes.get(key):
             raise GoogleStateError("google_sync_not_ready")
         return value

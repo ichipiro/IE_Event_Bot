@@ -200,6 +200,7 @@ async def _apply(env, store, owner, token, invoke):
         return result
 
     response = await invoke(probe_env, kv.state(), fetcher)
+    owner["stages"]["google_sync_dispatch"] = int(response.status)
     payload = json.loads(await response.text())
     if response.status != 200 or payload.get("ok") is not True:
         raise GoogleStateError("google_sync_apply_failed")
@@ -498,6 +499,8 @@ async def _phase(env, store, run_id, phase, invoke):
             )
             if status != 200 or not _source_owned(event, slot):
                 raise GoogleStateError("google_sync_source_create_failed")
+        owner["stages"]["google_sync_sources_created"] = 200
+        await _save(store, owner)
         await _apply(env, store, owner, token, invoke)
     elif phase == "verify":
         if owner["stage"] not in ("ready", "verified"):

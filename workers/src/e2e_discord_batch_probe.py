@@ -15,6 +15,8 @@ from e2e_discord_batch_state import (
     COUNT,
     GOOGLE_SERVICE,
     GOOGLE_KIND,
+    NOTIFICATION_SERVICE,
+    NOTIFICATION_KIND,
     manifest_service,
     google_event_id,
     BatchDiscordKV,
@@ -44,6 +46,7 @@ from e2e_notion_probe import (
 
 
 from e2e_discord_batch_google import GoogleBatch, GoogleBatchError
+from e2e_discord_batch_notification import NotificationBatch, NotificationError
 
 
 class BatchError(Exception):
@@ -160,7 +163,7 @@ async def _create_sources(env, store, manifest):
     manifest["stages"]["batch_sources_created"] = 200
 
 
-async def _read_state(env, store, manifest, pending: bool, google=None):
+async def _read_state(env, store, manifest, pending: bool, google=None, notification=None):
     stages, retries = {}, {}
     events = [
         await _read_source(env, slot, stages, retries) for slot in manifest["fixtures"]
@@ -193,6 +196,9 @@ async def _read_state(env, store, manifest, pending: bool, google=None):
         if pending
         else []
     )
+    if notification:
+        await notification.read_state(pending)
+        queue = notification.queue(pending)
     if (
         await state.get_discord_snapshot()
         != {str(e["id"]): _fingerprint(e) for e in events}
@@ -202,8 +208,8 @@ async def _read_state(env, store, manifest, pending: bool, google=None):
     return events
 
 
-async def _apply_batch(env, store, manifest, index, google=None):
-    slot = manifest["fixtures"][index]
+async def _apply_batch(env, store, manifest, index, google=None, notification=None):
+    slot = manifest["fixtures"][max(index, 0)]
     event_id = slot["discord_event_id"]
 
     async def select_owned(events):
@@ -240,7 +246,7 @@ async def _apply_batch(env, store, manifest, index, google=None):
 
     async def create_owned(scoped_env, event, token):
         # KVの再読込が古くても、今回許可した1件以外の外部書込みは拒否する。
-        if str(event.get("id") or "") != event_id:
+        if index < 0 or str(event.get("id") or "") != event_id:
             return False
         await check_batch_owner(store, manifest)
 
@@ -291,15 +297,24 @@ async def _apply_batch(env, store, manifest, index, google=None):
     async def reject_delete(scoped_env, event_id, token):
         return False
 
+    async def notify_owned(scoped_env, event, *, delivery):
+        if notification is None or str(event.get("id") or "") != event_id:
+            raise BatchError("discord_notification_phase_mismatch")
+        return await notification.notify(scoped_env, event, delivery=delivery)
+
     state = BatchDiscordKV(store, manifest).state()
+    scoped_env = google.env if google else _DeltaEnv(env)
+    if notification:
+        scoped_env = notification.env
     result = await run_discord_notion_poll_sync(
-        google.env if google else _DeltaEnv(env),
+        scoped_env,
         state,
         event_selector=select_owned,
         upsert_runner=create_owned,
         delete_runner=reject_delete,
+        notify_runner=notify_owned if notification else None,
     )
-    expected = {
+    expected: dict[str, object] = {
         "created": COUNT if index == 0 else 0,
         "updated": 0,
         "deleted": 0,
@@ -307,16 +322,26 @@ async def _apply_batch(env, store, manifest, index, google=None):
         "pending_changes": 1 if index == 0 else 0,
         "error_count": 0,
     }
-    if result.get("ok") is not True or any(
+    deferred = notification is not None and index == 0
+    if notification:
+        expected["pending_changes"] = 2 if deferred else 1 if index < 0 else 0
+        expected["error_count"] = 1 if deferred else 0
+        expected["errors"] = [f"create_notify_failed:{event_id}"] if deferred else []
+        if deferred and not slot.get("reaction_deferred"):
+            raise BatchError("discord_notification_failure_not_injected")
+    if result.get("ok") is not (not deferred) or any(
         result.get(k) != v for k, v in expected.items()
     ):
         raise BatchError("discord_batch_apply_failed")
+    if index < 0:
+        manifest["stages"]["notification_retry_applied"] = 200
+        return
     manifest["stages"][
         "batch_first_limit" if index == 0 else "batch_remaining_applied"
     ] = 200
 
 
-async def _cleanup(env, store, manifest, google=None):
+async def _cleanup(env, store, manifest, google=None, notification=None):
     manifest["stage"] = "batch_cleanup"
     await _save(store, manifest)
     failed = False
@@ -327,6 +352,12 @@ async def _cleanup(env, store, manifest, google=None):
             slot["cleanup_done"] = True
             await _save(store, manifest)
             continue
+        message_ok = True
+        if notification:
+            try:
+                message_ok = await notification.cleanup(slot, index)
+            except NotificationError:
+                message_ok = False
         google_ok = True
         if google:
             stages = {}
@@ -339,7 +370,7 @@ async def _cleanup(env, store, manifest, google=None):
         for key in ("discord_event_id", "notion_page_id"):
             if result.get(key):
                 slot[key] = result[key]
-        slot["cleanup_done"] = result["ok"] is True and google_ok
+        slot["cleanup_done"] = result["ok"] is True and google_ok and message_ok
         failed |= not slot["cleanup_done"]
         for key, status in result["stages"].items():
             manifest["stages"][f"batch_{index}_{key}"] = status
@@ -372,7 +403,7 @@ async def _cleanup(env, store, manifest, google=None):
 async def run_discord_batch_probe(
     env, store, run_id: str, phase: str, *, service=SERVICE
 ) -> dict:
-    if service not in (SERVICE, GOOGLE_SERVICE):
+    if service not in (SERVICE, GOOGLE_SERVICE, NOTIFICATION_SERVICE):
         return {"ok": False, "error": "discord_batch_service_invalid"}
     scope = _env_text(env, "E2E_STATE_SCOPE")
     if not scope or not store.enabled() or not store.e2e_manifest_enabled():
@@ -384,9 +415,19 @@ async def run_discord_batch_probe(
         targets["calendar_id_sha256"] = sha256(
             _env_text(env, "GOOGLE_CALENDAR_ID").encode()
         ).hexdigest()
+    if service == NOTIFICATION_SERVICE:
+        targets.update({
+            "channel_id_sha256": sha256(_env_text(env, "EVENT_CREATE_CHANNEL_ID").encode()).hexdigest(),
+            "role_id_sha256": sha256(_env_text(env, "EVENT_CREATE_ROLE_ID").encode()).hexdigest(),
+        })
     scope_sha = sha256(scope.encode()).hexdigest()
     manifest = await store.get_e2e_manifest(service)
     google = None
+    kind = KIND
+    if service == GOOGLE_SERVICE:
+        kind = GOOGLE_KIND
+    elif service == NOTIFICATION_SERVICE:
+        kind = NOTIFICATION_KIND
     if phase == "prepare":
         if manifest and (
             manifest.get("dirty") or manifest.get("last_run_id") == run_id
@@ -406,6 +447,11 @@ async def run_discord_batch_probe(
                 await google.verify_target(stages)
             except GoogleBatchError as exc:
                 return {"ok": False, "error": str(exc)}
+        if service == NOTIFICATION_SERVICE:
+            try:
+                await NotificationBatch.verify_target(env, stages)
+            except NotificationError as exc:
+                return {"ok": False, "error": str(exc)}
         error = await _verify_guild(
             env, _env_text(env, "DISCORD_GUILD_ID"), stages, retries
         )
@@ -422,7 +468,7 @@ async def run_discord_batch_probe(
         if error:
             return {"ok": False, "error": error}
         manifest = {
-            "kind": GOOGLE_KIND if google else KIND,
+            "kind": kind,
             "version": 1,
             "dirty": True,
             "run_id": run_id,
@@ -444,6 +490,9 @@ async def run_discord_batch_probe(
             for slot in manifest["fixtures"]:
                 slot["google_event_id"] = google_event_id(slot["run_id"])
                 slot["create_attempted"]["google_event"] = False
+        if service == NOTIFICATION_SERVICE:
+            for slot in manifest["fixtures"]:
+                slot["create_attempted"]["message"] = False
         await _save(store, manifest)
     elif not manifest or not manifest.get("dirty"):
         if (
@@ -464,6 +513,7 @@ async def run_discord_batch_probe(
     ):
         return {"ok": False, "dirty": True, "error": "discord_batch_owner_mismatch"}
     await check_batch_owner(store, manifest)
+    notification = NotificationBatch(env, store, manifest) if service == NOTIFICATION_SERVICE else None
     try:
         if phase == "verify":
             manifest["verification_passed"] = False
@@ -475,29 +525,35 @@ async def run_discord_batch_probe(
         if service == GOOGLE_SERVICE and google is None:
             google = await GoogleBatch.connect(env)
         if phase == "cleanup":
-            return await _cleanup(env, store, manifest, google)
+            return await _cleanup(env, store, manifest, google, notification)
         if phase == "prepare":
             await _create_sources(env, store, manifest)
             manifest["stage"] = "batch_first_applying"
             await _save(store, manifest)
-            await _apply_batch(env, store, manifest, 0, google)
+            await _apply_batch(env, store, manifest, 0, google, notification)
             manifest["stage"] = "batch_pending"
             await _save(store, manifest)
             return {"ok": True, "dirty": True, "status": "prepared"}
         if phase == "advance":
-            if manifest["stage"] != "batch_pending_verified":
+            if manifest["stage"] not in ("batch_pending_verified", "batch_retry_verified"):
                 raise BatchError("discord_batch_advance_forbidden")
-            await _read_state(env, store, manifest, True, google)
+            if not notification and manifest["stage"] != "batch_pending_verified":
+                raise BatchError("discord_batch_advance_forbidden")
+            await _read_state(env, store, manifest, True, google, notification)
             manifest["stage"] = "batch_applying"
             await _save(store, manifest)
-            await _apply_batch(env, store, manifest, 1, google)
-            manifest["stage"] = "batch_drained"
+            retry = notification is not None and not manifest["fixtures"][0].get("reaction_done")
+            await _apply_batch(env, store, manifest, -1 if retry else 1, google, notification)
+            manifest["stage"] = "batch_retry_drained" if retry else "batch_drained"
             await _save(store, manifest)
-            return {"ok": True, "dirty": True, "status": "drained"}
+            return {"ok": True, "dirty": True, "status": "retry_drained" if retry else "drained"}
         pending = manifest["stage"] in (
             "batch_pending",
             "batch_pending_verifying",
             "batch_pending_verified",
+            "batch_retry_drained",
+            "batch_retry_verifying",
+            "batch_retry_verified",
         )
         if phase != "verify" or (
             not pending
@@ -505,18 +561,23 @@ async def run_discord_batch_probe(
             not in ("batch_drained", "batch_verifying", "batch_verified")
         ):
             raise BatchError("discord_batch_verify_forbidden")
-        manifest["stage"] = "batch_pending_verifying" if pending else "batch_verifying"
+        retried = notification is not None and pending and bool(manifest["fixtures"][0].get("reaction_done"))
+        verifying_stage = "batch_pending_verifying" if pending else "batch_verifying"
+        verified_stage = "batch_pending_verified" if pending else "batch_verified"
+        if retried:
+            verifying_stage, verified_stage = "batch_retry_verifying", "batch_retry_verified"
+        manifest["stage"] = verifying_stage
         manifest["verification_passed"] = False
         await _save(store, manifest)
-        await _read_state(env, store, manifest, pending, google)
-        manifest["stage"] = "batch_pending_verified" if pending else "batch_verified"
+        await _read_state(env, store, manifest, pending, google, notification)
+        manifest["stage"] = verified_stage
         manifest["verification_passed"] = not pending
         manifest["stages"][
             "batch_pending_readback" if pending else "batch_final_readback"
         ] = 200
         await _save(store, manifest)
         return {"ok": True, "dirty": True, "stage": manifest["stage"]}
-    except (BatchError, GoogleBatchError) as error:
+    except (BatchError, GoogleBatchError, NotificationError) as error:
         code = str(error)
         if code == "discord_batch_not_ready":
             code = f"{service}_not_ready"

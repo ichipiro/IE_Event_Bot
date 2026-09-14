@@ -248,6 +248,54 @@ for (const phase of ["prepare", "resume", "advance"]) {
 
 
 
+test("通知シナリオはretry_drainedと中間読戻しを監査し所有対象を回収する", async () => {
+  const calls = [], audit = [];
+  let advances = 0;
+  const scenario = "discord_batch_notification";
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, headers: options.headers });
+      if (url.endsWith("/advance")) { advances += 1; }
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !url.endsWith("/cleanup"),
+        status: url.endsWith("/advance") ? (advances === 1 ? "retry_drained" : "drained") : "prepared",
+        stage: ["batch_pending_verified", "batch_retry_verified", "batch_verified"][advances] });
+    },
+  }, async (client) => {
+    for (const phase of ["prepare", "resume", "advance", "resume", "advance", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario, sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      if (phase === "advance") { assert.equal(result.execution_status, advances === 1 ? "retry_drained" : "drained"); }
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: scenario, confirmation: `cleanup:${scenario}:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  const root = "/admin/e2e/discord-batch-notification";
+  assert.deepEqual(calls.map((c) => c.path), [root, root + "/verify", root + "/advance",
+    root + "/verify", root + "/advance", root + "/verify", root + "/cleanup"]);
+  assert.ok(calls.slice(0, 6).every((c) => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+  assert.ok(audit.some((a) => a.sync_phase === "advance" && a.execution_status === "retry_drained"));
+});
+
+
+for (const phase of ["prepare", "resume", "advance"]) {
+  test(`通知シナリオの${phase}は不正な応答を成功にしない`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse({
+      ok: true, dirty: true, run_id: RUN_ID, status: "wrong", stage: "wrong",
+    }) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch_notification", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "discord_batch_notification_not_ready");
+    });
+  });
+}
+
+
 test("E2E Worker URLを固定host以外へ向けられない", () => {
   const production = loadE2eEnvironment({
     ...ENV,

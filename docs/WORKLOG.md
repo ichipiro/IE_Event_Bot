@@ -1,5 +1,22 @@
 # 作業履歴
 
+## 2026-09-14: 通常ポーリングの通知所有・再試行E2Eを接続
+
+- `discord_batch_notification` を追加した。所有2件を上限1件で通常ポーリングへ渡し、1件目の投稿後にリアクション処理をAPI呼出し前で1回だけ失敗させる。別HTTPで同じmessageへ再試行し、残り1件の通知へ進む。
+- 投稿前の着手・本文hash、投稿後のmessage ID、リアクションと回収の完了をDOに保持する。snapshot / queueはrun・scope別の通常KVへ保存し、所有外のID・通知先と古いqueueによる再適用を拒否する。
+- 所有messageの削除・GET 404、event・page・KVの回収まで接続した。投稿応答・DO保存・KV保存の失敗、曖昧な検索、通知先や本文変更、部分回収失敗では所有記録を保持する。検索は直近50件に限定し、所有が解決しなければdirtyを残す。
+- MCP固定経路、専用手動モード、各段階の読戻し、監査に基づく `always()` cleanupへ接続した。通常通知の既定処理、既存Googleシナリオ、追加対象外の項目10は維持した。
+- Python 487件（新規通知E2E 34件）、Node 145件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、Bash構文、Markdown相対リンク、`git diff --check` が成功した。秘密ファイルを含めない作業用コピーで固定Wrangler 4.127.1の通常・E2E両設定のdry-runが成功し、コピーを回収した。
+- 実サービスへの通知・デプロイ、GitHub Actions実行、PR・マージは未実施。固定注入はDiscord側の実障害を再現するものではない。開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
+## 2026-09-12: 通常Discord同期の作成通知繰越・再試行を修正
+
+- upstream PR #68をmerge commit `2abc35331ce50051f69ddca3947c94a52cea945e`、fork同期PR #55を `510143f38111ece77987816baac88bef8f8eb370` でマージした。両PRのCI 4件成功を確認した。
+- 件数上限の繰越・同期失敗後の通知漏れ、投稿・リアクション失敗時の再試行漏れを4件の失敗テストで再現した。queueに通知先と投稿済みmessage IDを保持し、通知だけの再試行を追加した。
+- 通知待ちの完了イベントが一覧から消えたときの同期先保護を追加テストで確認し、保留通知だけを取り除くよう修正した。変更・削除・件数上限・通知先変更・旧queue互換も含め、新規22件が成功した。
+- Python 453件、Node 133件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、秘密ファイルを含めないコピーでの通常・E2E設定のWrangler dry-runが成功した。
+- 実サービスへの通知は未実施である。所有メッセージの記録・回収と専用workflow接続を次の作業に残す。投稿結果を取得できない場合やKV保存失敗・古い値の参照による重複配信は保証範囲外で、項目10の追加対象外指定は維持する。
+
 ## 2026-09-12: Googleを含む通常ポーリングを実サービスで検証
 
 - [実行34619150601](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34619150601)で実装commit `5d4a12bc40950b3e5a844db3355d04602edf119e` を専用Workerへ1回deployした。所有2件の通常ポーリングをGoogle・Notionへ接続し、対応ID・上限1件・別HTTP残件消化・最終読戻しが成功した。

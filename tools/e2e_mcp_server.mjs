@@ -297,7 +297,7 @@ function versionEvidence(value) {
 
 
 function sanitizeExecutionStatus(value) {
-  return ["partial", "prepared", "updated", "drained", "retry_drained", "already_completed"].includes(value) ? value : null;
+  return ["partial", "prepared", "pending", "updated", "drained", "deleted", "retry_pending", "retried", "retry_drained", "already_completed"].includes(value) ? value : null;
 }
 
 
@@ -1267,7 +1267,7 @@ export function createE2eMcpServer(options = {}) {
             return { ...sanitized, ok: false, error: `${scenario}_not_ready` };
           }
           if (sanitized.ok && scenario === "google_sync" &&
-              (response.payload.dirty !== true || !["pending", "drained", "updated", "deleted"].includes(response.payload.status) ||
+              (response.payload.dirty !== true || !["pending", "drained", "updated", "deleted", "retry_pending", "retried"].includes(response.payload.status) ||
                (syncPhase === "resume" && response.payload.stage !== `google_${response.payload.status}_verified`))) {
             return { ...sanitized, ok: false, error: "google_sync_not_ready" };
           }

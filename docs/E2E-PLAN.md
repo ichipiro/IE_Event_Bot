@@ -45,7 +45,10 @@
 - [x] 通常dispatch → Google全ページ取得 → 通常適用 → 状態保存を接続したローカル検証を追加する。複数件・上限繰越・対応表・更新・削除・照会例外の再試行・取得失敗時のcursor保護を代替APIで確認した。
 - [x] `google_sync` に所有2件、run別KV・DO所有記録、繰越・消化・更新・削除の段階処理、別HTTP読戻し、回収、MCP・手動workflowを実装し、ローカル検証する。
 - [x] run別KVのcursor・対応表・queueを別HTTP間で共有し、全Calendar取得から所有2件のNotion・Discord反映、上限繰越・消化・更新・削除・cursor更新・回収を実サービスで検証する（[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)）。
-- [ ] 通常の共有名前空間と任意イベント全件への適用、外部APIの部分失敗・途中再試行を実サービスで検証する。
+- [x] Discord作成・更新失敗の成功誤判定を再現・修正し、部分反映・残件保存・cursor保護・次回のqueue処理をローカル検証する。
+- [x] 所有予定へのDiscord失敗の固定注入と、次のHTTPでのqueueだけの再試行を既存E2E・MCP・手動workflowへ接続する。
+- [ ] 上記の部分失敗・再試行モデルを実API反映と実KV・DOで検証する。
+- [ ] 通常の共有名前空間と任意イベント全件への適用、外部APIの実障害・途中再試行を実サービスで検証する。
 
 実サービス用の接続実装と所有2件の実環境検証が完了した。[初回実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)はprepareで失敗して全資源を回収した。KV欠損値の正規化漏れをローカルで再現・修正した後の再実行は、全段階・回収が成功し `passed`・全資源 `dirty=false` となった。全Calendarを取得しても適用対象は所有2件へ限定する。任意イベントの全件適用、外部APIの全失敗分岐・途中再試行は引き続き未検証である。
 

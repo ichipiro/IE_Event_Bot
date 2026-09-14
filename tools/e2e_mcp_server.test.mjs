@@ -1748,3 +1748,20 @@ for (const invalid of ["stage", "dirty", "run"]) {
     });
   });
 }
+
+for (const status of ["pending", "deleted", "retry_pending", "retried"]) {
+  test(`通常Google同期の${status}を監査へ保持する`, async () => {
+    const audit = [];
+    await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+      fetchImpl: async () => jsonResponse({ ok: true, dirty: true, run_id: RUN_ID,
+        status, stage: `google_${status}_verified` }),
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "resume",
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.execution_status, status);
+    });
+    assert.equal(audit.find(entry => entry.phase === "finish").execution_status, status);
+  });
+}

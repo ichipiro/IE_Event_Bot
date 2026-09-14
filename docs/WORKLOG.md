@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-15: Google→Discord部分失敗の残件保存とE2E再試行
+
+- Discord APIの作成・更新失敗がNoneを返すとGoogle同期が成功扱いになり、cursorが進んで残件を保存しないことを2テストで再現した。同期有効時のID未取得を失敗とし、通常queueへ保存するよう修正した。Discord無効時の互換性も確認した。
+- 既存の所有2件E2Eへretry_pending・retriedを追加した。Notion更新後のDiscord失敗をrequest内callbackで固定注入し、通常dispatchの500、残件1件、cursor・最終成功時刻の不変、部分反映を読戻す。次のHTTPでは入力を空にしてqueueだけを同じIDへ適用する。
+- 注入欠落・回復失敗・再試行要件の巻戻し・再検証失敗を拒否し、未完了回収をfailed_cleanとする。MCP監査に6段階のstatusを保持し、workflowで注入証拠を必須とした。実環境の追加段階は未実行。
+- Python全610件、Node全181件、Ruff・Pyrightが成功。実Discord障害・回線断の観測、削除失敗、Notion ID書戻し失敗、応答喪失時の重複作成は修正の保証範囲外。
+
 ## 2026-09-15: 通常Google同期E2Eの再実行が成功
 
 - 修正版 `24c9e53609bfd5a4fc3d832ab3bbd64f8b91ddca` の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、Local validation成功とEnvironment承認後に専用Workerを1回deployした。run IDは `E2E-20260914T152925Z-e16dcc4a`。

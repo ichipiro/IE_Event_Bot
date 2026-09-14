@@ -4,6 +4,8 @@
 
 ## 2026-09-15
 
+- Google→Discord作成・更新失敗の残件保存修正と、固定部分失敗・queue再試行の6段階E2Eを記録した。実障害観測と固定注入の境界を明記した。
+
 - 修正後の[通常Google同期E2E](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で所有2件の繰越・消化・更新・削除、別HTTP読戻し、全資源回収が成功した。監査・manifest・version・commitを照合し、実サービスで確認した範囲を計画と検証文書へ反映した。
 - 通常Google同期E2Eの初回prepare失敗・全資源回収と、KV欠損値のローカル再現・修正を記録した。
 - 通常Google同期E2Eの所有2件・run別KV・DO段階管理・繰越消化・更新・削除・別HTTP読戻し・回収、MCPと手動workflowを追加した。ローカル検証と実サービス未実施を区別した。

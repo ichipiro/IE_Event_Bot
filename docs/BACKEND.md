@@ -159,3 +159,8 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 
 
 `discord_batch_notification` は通常ポーリングの作成通知を所有2件へ接続する。通知runnerと送信・リアクション関数の差し替え口を使い、E2Eの投稿前後にDO所有記録と読戻しを行う。通常の呼出しではこれらを指定せず既存処理を使う。1件目は投稿後のリアクションをAPI呼出し前に1回だけ失敗させ、次のHTTPで同じmessageに再試行してから2件目へ進む。snapshot / queueはrun・scope別KV、message ID・投稿着手・回収完了はDOへ置く。専用route・MCP・手動workflowを接続済みで、検証手順と実サービス未検証の境界は [TESTING.md](TESTING.md) に記録する。
+
+
+### 通常同期ロックの専用E2E
+
+`e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。

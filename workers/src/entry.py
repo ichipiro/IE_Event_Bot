@@ -402,6 +402,8 @@ class Default(WorkerEntrypoint):
         source: str,
         *,
         google_applier=None,
+        google_fetcher=None,
+        discord_runner=None,
     ):
         """
         同期処理の中核ディスパッチ。
@@ -414,6 +416,8 @@ class Default(WorkerEntrypoint):
 
         google_applier は所有資源限定 E2E だけが差し替える。通常経路では
         production の apply_google_events を使用する。
+        google_fetcher / discord_runner はロックE2Eの同期本体を隔離する。
+        通常経路では省略し、既存の取得・ポーリングを呼ぶ。
         """
         # 同期間隔を取得
         sync_interval = self._sync_interval_seconds()
@@ -450,7 +454,7 @@ class Default(WorkerEntrypoint):
         try:
             mode = self._sync_all_mode()
             # Google 差分取得
-            google_result = await run_google_delta_fetch(self.env, state, commit_cursor=False)
+            google_result = await (google_fetcher or run_google_delta_fetch)(self.env, state, commit_cursor=False)
             apply_result = {"ok": True, "skipped": True}
             if google_result.get("ok"):
                 selected_applier = google_applier or apply_google_events
@@ -471,7 +475,7 @@ class Default(WorkerEntrypoint):
                     await state.set_sync_updated_min(next_cursor)
             discord_result = {"ok": True, "skipped": True}
             if self._sync_all_include_discord_notion():
-                discord_result = await run_discord_notion_poll_sync(self.env, state)
+                discord_result = await (discord_runner or run_discord_notion_poll_sync)(self.env, state)
             # 全体成功判定
             ok = (
                 bool(google_result.get("ok"))
@@ -508,7 +512,7 @@ class Default(WorkerEntrypoint):
             if lock_owner:
                 await self._release_sync_lock(lock_owner)
 
-    async def _run_discord_sync(self, state, *, source: str) -> tuple[dict, int]:
+    async def _run_discord_sync(self, state, *, source: str, poll_runner=None) -> tuple[dict, int]:
         """Discord単独同期を全体同期と同じロックで保護し、結果保存まで待つ。"""
         owner = None
         if self._durable_lock_enabled():
@@ -519,7 +523,7 @@ class Default(WorkerEntrypoint):
                 return {"ok": False, "error": "sync_lock_unavailable"}, 503
             owner = acquired.get("owner")
         try:
-            result = _detail_dict(await run_discord_notion_poll_sync(self.env, state))
+            result = _detail_dict(await (poll_runner or run_discord_notion_poll_sync)(self.env, state))
             if source == "cron-discord-notion":
                 result["path"] = "/sync/discord-notion"
             if state.enabled():

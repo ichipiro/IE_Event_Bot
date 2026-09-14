@@ -89,6 +89,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-discord-kv-smoke") == 3, "discord_kv_mode_contract_changed")
     _expect(errors, text.count("deploy-and-discord-batch-smoke") == 3, "discord_batch_mode_contract_changed")
     _expect(errors, text.count("deploy-and-discord-batch-google-smoke") == 3, "discord_batch_google_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-sync-lock-smoke") == 3, "sync_lock_mode_contract_changed")
     _expect(errors, text.count("deploy-and-discord-batch-notification-smoke") == 3, "discord_batch_notification_mode_contract_changed")
     _expect(
         errors,
@@ -177,6 +178,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "inputs.mode == 'deploy-and-discord-kv-smoke'" in cleanup_block, "cleanup_discord_kv_mode_guard_missing")
     _expect(errors, "inputs.mode == 'deploy-and-discord-batch-smoke'" in cleanup_block, "cleanup_discord_batch_mode_guard_missing")
     _expect(errors, "inputs.mode == 'deploy-and-discord-batch-google-smoke'" in cleanup_block, "cleanup_discord_batch_google_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-sync-lock-smoke'" in cleanup_block, "cleanup_sync_lock_mode_guard_missing")
     _expect(errors, "inputs.mode == 'deploy-and-discord-batch-notification-smoke'" in cleanup_block, "cleanup_discord_batch_notification_mode_guard_missing")
     evidence_block = _step_block(text, "Collect redacted evidence")
     _expect(errors, bool(deploy_block), "deploy_step_missing")

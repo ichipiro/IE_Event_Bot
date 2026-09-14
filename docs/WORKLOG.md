@@ -1,5 +1,14 @@
 # 作業履歴
 
+## 2026-09-14: 通常同期の共通ロック競合を実KV・DOで検証
+
+- upstream [PR #72](https://github.com/ichipiro/IE_Event_Bot/pull/72)とfork同期[PR #58](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/58)のマージ後、fork `develop` の `f0a342e1965bbd086d4ff2ed3834673a3475a7cc` で[実行34834547224](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34834547224)を実行した。Local validation成功後、Environmentのrequired reviewer承認を通して専用Workerを1回deployした。
+- `sync_lock` の6 roundで、手動・CronのDiscord同期分岐・全体同期の共通ロック処理を通す競合拒否、結果KV保護、成功・固定例外後の解放と再実行を実KV・DOで確認した。結果8キーのhashと未作成キーの別HTTP読戻し、固定18キーの回収も成功した。
+- artifact `e2e-evidence-34834547224-1` の監査10行・完了5操作をmanifestと独立照合した。run ID `E2E-20260914T104430Z-8bced83f`、Worker version tag、deployと最終version fingerprint、対象commitが一致し、実行checkoutはcleanだった。
+- 6 round、結果読戻し、KV回収の各200、run内と `always()` のcleanup成功、`outcome=passed`、全資源 `dirty=false` を確認した。prepare / verifyは各1回で、KV読戻し再試行は発生していない。artifactのfingerprint構造と、生URL・認証情報・生owner/資源IDの不在を確認した。
+- Actions両jobが成功し、JUnit artifactの510件・失敗0・エラー0・skip 0を独立照合した。競合は1 HTTP内の共通処理の並行呼出しであり、同期本体は検査用runnerである。別Workerリクエスト間の競合、実Cron配信、外部API適用中の競合、TTL超過は検証していない。Release・本番デプロイは実施していない。
+- E2E計画・検証文書・課題・文書変更履歴へ結果を反映した。開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
 ## 2026-09-14: 通常同期の共通ロック競合E2Eを実装
 
 - `sync_lock` を追加した。手動・CronのDiscord同期分岐と全体同期の共通処理で、各経路を保持側とする成功・固定例外の6 roundを実行する。保持中に3経路を競合側として呼び、本体未実行・結果KVアクセスなし・owner維持、保持側の解放と例外後の成功を確認する。

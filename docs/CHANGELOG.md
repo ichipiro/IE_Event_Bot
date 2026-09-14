@@ -4,6 +4,8 @@
 
 ## 2026-09-14
 
+- [実行34834547224](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34834547224)で通常同期の共通ロック競合6 round、実KVの結果読戻し・回収、version一致を確認し、E2E計画と検証結果を更新した。
+
 - 通常同期の共通ロックを使う `sync_lock` E2E、結果KVの所有・回収、専用workflowと検証境界を記録した。ローカル検証済みと、実KV・DO・実Cronの未検証範囲を区別した。
 
 - [実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)の通知2件・同一messageへのリアクション再試行・全所有資源回収・version一致を独立照合し、E2E計画、検証文書、課題、作業履歴へ記録した。

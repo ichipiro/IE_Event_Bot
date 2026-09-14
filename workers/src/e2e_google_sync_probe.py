@@ -24,6 +24,7 @@ from e2e_google_sync_state import (
     GoogleStateError,
     digest,
     source_id,
+    final_step,
 )
 from e2e_notion_probe import (
     _EVENT_SCHEMA,
@@ -169,7 +170,7 @@ async def _apply(env, store, owner, token, invoke):
             slot = owned.get(event.get("id")) if isinstance(event, dict) else None
             if slot:
                 # 削除応答ではid・statusだけになる。固定IDと削除着手の両方を必須にする。
-                deleted = owner["step"] == 3 and slot is owner["fixtures"][0]
+                deleted = owner["step"] >= 3 and slot is owner["fixtures"][0]
                 if (
                     event.get("id") in selected
                     or (
@@ -187,7 +188,7 @@ async def _apply(env, store, owner, token, invoke):
         required = (
             set(owned)
             if owner["step"] < 2
-            else {owner["fixtures"][0]["google_event_id"]}
+            else {owner["fixtures"][int(owner["step"] >= 4)]["google_event_id"]}
         )
         if not required <= set(selected):
             raise GoogleStateError("google_sync_source_not_visible")
@@ -196,18 +197,63 @@ async def _apply(env, store, owner, token, invoke):
             for s in owner["fixtures"]
             if s["google_event_id"] in selected
         ]
+        if owner["step"] == 4:
+            result["items"] = [selected[owner["fixtures"][1]["google_event_id"]]]
+        elif owner["step"] == 5:
+            # 新規取得との重複からの回復ではなく、保存済みqueueだけを消化する。
+            result["items"] = []
         # 全Calendarの最大updatedをcursorに採用する通常挙動を保持する。
         return result
 
-    response = await invoke(probe_env, kv.state(), fetcher)
+    injected = 0
+
+    async def fail_discord(_env, event, page, fallback_page, mapping):
+        nonlocal injected
+        slot = owner["fixtures"][1]
+        if injected or not _source_owned(event, slot) or not page:
+            raise GoogleStateError("google_sync_injection_mismatch")
+        injected += 1
+        owner["stages"]["google_sync_discord_failure_injected"] = 200
+        await _save(store, owner)
+        # 通常Discord APIラッパーが非成功応答で返すNoneを固定注入する。
+        return None
+
+    response = await invoke(
+        probe_env, kv.state(), fetcher, fail_discord if owner["step"] == 4 else None
+    )
     owner["stages"]["google_sync_dispatch"] = int(response.status)
     payload = json.loads(await response.text())
-    if response.status != 200 or payload.get("ok") is not True:
+    failing = owner["step"] == 4
+    if response.status != (500 if failing else 200) or payload.get("ok") is not (
+        not failing
+    ):
         raise GoogleStateError("google_sync_apply_failed")
-    expected_pending = 1 if owner["step"] == 0 else 0
+    expected_pending = 1 if owner["step"] in (0, 4) else 0
     if payload.get("google_apply", {}).get("pending_events") != expected_pending:
         raise GoogleStateError("google_sync_pending_mismatch")
-    owner["expected_cursor"] = payload.get("google", {}).get("next_updated_min")
+    if failing:
+        event_id = owner["fixtures"][1]["google_event_id"]
+        applied = payload.get("google_apply", {})
+        if (
+            injected != 1
+            or payload.get("google", {}).get("ok") is not True
+            or applied.get("ok") is not False
+            or applied.get("processed") != 1
+            or applied.get("error_count") != 1
+            or applied.get("errors") != [f"discord_sync_failed:{event_id}"]
+            or any(
+                kv.hashes.get(k) != owner["hashes"].get(k) for k in (KEYS[0], KEYS[4])
+            )
+        ):
+            raise GoogleStateError("google_sync_partial_failure_mismatch")
+        owner["stages"]["google_sync_partial_failure_dispatch"] = 500
+        owner["stages"]["google_sync_cursor_and_last_success_preserved"] = 200
+    else:
+        owner["expected_cursor"] = payload.get("google", {}).get("next_updated_min")
+        if owner["step"] == 5:
+            if payload.get("google_apply", {}).get("processed") != 1:
+                raise GoogleStateError("google_sync_queue_retry_mismatch")
+            owner["stages"]["google_sync_retry_queue_only"] = 200
     if not isinstance(owner["expected_cursor"], str) or not owner["expected_cursor"]:
         raise GoogleStateError("google_sync_cursor_missing")
     owner["hashes"] = kv.hashes
@@ -239,14 +285,26 @@ async def _verify(env, store, owner, token):
     if values[KEYS[0]] != owner.get("expected_cursor"):
         raise GoogleStateError("google_sync_cursor_mismatch")
     queue = json.loads(values[KEYS[3]] or "[]")
-    expected = [owner["fixtures"][1]["google_event_id"]] if owner["step"] == 0 else []
+    expected = (
+        [owner["fixtures"][1]["google_event_id"]] if owner["step"] in (0, 4) else []
+    )
     if [e["id"] for e in queue] != expected:
         raise GoogleStateError("google_sync_queue_mismatch")
+    if owner["step"] == 4 and (
+        not _source_owned(queue[0], owner["fixtures"][1])
+        or queue[0].get("description") != owner["fixtures"][1]["source"]["description"]
+    ):
+        raise GoogleStateError("google_sync_queue_mismatch")
+    result = json.loads(values[KEYS[5]] or "{}").get("payload", {})
+    if any(
+        result.get(k) is not (owner["step"] != 4) for k in ("ok", "google_apply_ok")
+    ):
+        raise GoogleStateError("google_sync_result_mismatch")
     notion_map = json.loads(values[KEYS[1]] or "{}")["internal"]
     discord_map = json.loads(values[KEYS[2]] or "{}")
     for index, slot in enumerate(owner["fixtures"]):
         absent = (owner["step"] == 0 and index == 1) or (
-            owner["step"] == 3 and index == 0
+            owner["step"] >= 3 and index == 0
         )
         if absent:
             if (
@@ -303,8 +361,17 @@ async def _verify(env, store, owner, token):
                         guild_id=env.DISCORD_GUILD_ID,
                         run_id=slot["run_id"],
                     )
-                    or slot["source"]["description"]
+                    or (
+                        slot["retry_previous_description"]
+                        if owner["step"] == 4 and index == 1
+                        else slot["source"]["description"]
+                    )
                     not in str(event.get("description") or "")
+                    or (
+                        owner["step"] == 4
+                        and index == 1
+                        and "E2E retry update" in str(event.get("description") or "")
+                    )
                 )
             ):
                 raise GoogleStateError("google_sync_discord_mismatch")
@@ -313,7 +380,7 @@ async def _verify(env, store, owner, token):
             _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]),
             token,
         )
-        if owner["step"] == 3 and index == 0:
+        if owner["step"] >= 3 and index == 0:
             if status not in (404, 410) and not (
                 status == 200 and event.get("status") == "cancelled"
             ):
@@ -470,6 +537,7 @@ async def _phase(env, store, run_id, phase, invoke):
             "target_fingerprints": _targets(env),
             "dirty": True,
             "step": 0,
+            "retry_enabled": True,
             "stage": "working",
             "hashes": {},
             "fixtures": slots,
@@ -512,16 +580,20 @@ async def _phase(env, store, run_id, phase, invoke):
         owner["stage"] = "verified"
         await _save(store, owner)
     elif phase == "advance":
-        if owner["stage"] != "verified" or owner["step"] >= 3:
+        if owner["stage"] != "verified" or owner["step"] >= final_step(owner):
             raise GoogleStateError("google_sync_phase_invalid")
         await _verify(env, store, owner, token)
         owner["step"] += 1
         owner["stage"] = "working"
         await _save(store, owner)
-        slot = owner["fixtures"][0]
+        slot = owner["fixtures"][int(owner["step"] >= 4)]
         path = _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"])
-        if owner["step"] == 2:
-            slot["source"]["description"] += "\nE2E updated"
+        if owner["step"] in (2, 4):
+            if owner["step"] == 4:
+                slot["retry_previous_description"] = slot["source"]["description"]
+            slot["source"]["description"] += (
+                "\nE2E updated" if owner["step"] == 2 else "\nE2E retry update"
+            )
             await _save(store, owner)
             status, event = await _google_request(
                 "PATCH",
@@ -544,7 +616,7 @@ async def _phase(env, store, run_id, phase, invoke):
         owner["passed"] = (
             owner.get("passed", False)
             if owner["stage"] == "cleanup"
-            else owner["stage"] == "verified" and owner["step"] == 3
+            else owner["stage"] == "verified" and owner["step"] == final_step(owner)
         )
         owner["stage"] = "cleanup"
         await _save(store, owner)

@@ -176,3 +176,5 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 
 
 通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。
+
+Google→Discordの作成・更新で同期が有効なのにIDを得られない場合は、失敗した予定を通常queueへ保存する。通常dispatchは500となりcursor・最終成功時刻を進めない。専用Google E2EはNotion更新後のDiscord失敗をcallbackで固定注入し、次のHTTPでは保存queueだけを同じIDへ適用して回復を確認する。

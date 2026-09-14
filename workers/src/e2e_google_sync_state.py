@@ -19,7 +19,7 @@ KEYS = (
     "sync:last_epoch",
     "result:sync_all",
 )
-STEPS = ("pending", "drained", "updated", "deleted")
+STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
 OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints")
 
 
@@ -29,6 +29,11 @@ def digest(value):
 
 def source_id(run_id, index):
     return "e2e" + digest(f"google-sync:{run_id}:{index}")
+
+
+def final_step(owner):
+    # 旧4段階のdirty manifestも、更新後に所有確認して回収できる。
+    return len(STEPS) - 1 if owner.get("retry_enabled") is True else 3
 
 
 def valid_google_transition(previous, value):
@@ -56,7 +61,8 @@ def valid_google_transition(previous, value):
             and set(hashes) <= set(KEYS)
             and all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in hashes.values())
             and type(value.get("step")) is int
-            and 0 <= value["step"] < len(STEPS)
+            and type(value.get("retry_enabled", False)) is bool
+            and 0 <= value["step"] <= final_step(value)
             and value.get("stage") in ("working", "ready", "verified", "cleanup")
         ):
             return False
@@ -97,6 +103,8 @@ def valid_google_transition(previous, value):
             )
         if any(previous.get(k) != value.get(k) for k in OWNER_FIELDS):
             return False
+        if previous.get("retry_enabled", False) != value.get("retry_enabled", False):
+            return False
         if previous["stage"] != "working" and hashes != previous["hashes"]:
             return False
         if previous["stage"] != "working" and value.get(
@@ -121,7 +129,8 @@ def valid_google_transition(previous, value):
             return value["step"] == previous["step"] and value.get("passed", False) == (
                 previous.get("passed", False)
                 if previous["stage"] == "cleanup"
-                else previous["stage"] == "verified" and previous["step"] == 3
+                else previous["stage"] == "verified"
+                and previous["step"] == final_step(previous)
             )
         if previous["stage"] == "cleanup":
             return False

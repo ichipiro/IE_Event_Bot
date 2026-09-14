@@ -361,6 +361,8 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 
 3ケースは通常経路の接続確認である。実サービス用の所有・回収は以下のシナリオへ実装した。全Calendarの実取得、外部DB、全APIの部分失敗、古いqueueと新しい同一イベントの競合、実KV伝播は未検証で、[E2E-PLAN.md](E2E-PLAN.md) 項目4は継続中である。
 
+通常Discord APIの作成・更新失敗でNoneが返ると、従来はGoogle適用が成功扱いになっていた。追加2ケースで失敗を再現し、Discord同期有効時にIDを得られなければ残件へ保存するよう修正した。cursorと最終成功時刻の維持、空の新規取得からの残件回復、既存Notion IDの再利用、Discord同期無効時の互換性をローカルで確認した。削除失敗、Notion ID書戻し失敗、応答喪失後の重複作成はこの修正の保証に含めない。
+
 ### 通常Google同期の専用E2E
 
 `e2e_google_sync_probe.py` の `google_sync` は、`POST /admin/e2e/google-sync` と `/advance`・`/verify`・`/cleanup` を使う。`E2E_GOOGLE_SYNC_ENABLED=true`、内部認証、run ID、稼働version tagとの一致、KV・DO、専用Calendar・Notion内部DB・Discord guild、共通ロック有効・クールダウン無効を必須とする。cleanupは同run・同対象を確認するが、稼働version tagへの一致を要求しない。
@@ -372,14 +374,17 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 | advance → drained | 前段階の検証済み状態を再確認し、上限2件で残件を消化。重複取得された予定の更新は通常処理に従う |
 | advance → updated | 先頭の所有Google予定の説明を更新し、通常差分取得・適用からNotion・Discordへの反映を確認 |
 | advance → deleted | 同じ所有Google予定を削除し、通常取得のcancelledからNotion archive・Discord削除・対応表除去を確認 |
+| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後にDiscord失敗を1回固定注入し、通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
+| advance → retried | 通常取得後の入力を空にして保存queueだけを通常適用へ渡し、同じNotion/Discord IDへの反映・残件0・成功結果を確認 |
 | cleanup | Google予定・Notionページ・Discord予定の所有を再確認して回収し、run別KVの固定6キーを削除 |
 
 各advanceの前にverifyを必須とする。専用制御DOロックはphase全体を保護し、通常dispatchは既存の共通同期ロックを使用する。1 HTTPは50秒を上限とする。書込み前に `working` を保存し、途中失敗したphaseは再送せずcleanupへ進む。所有IDが未保存でもrun markerで一意に再発見し、曖昧・所有不一致ならdirtyを維持する。ID衝突で作成していない既存予定は回収しない。検証の再実行が失敗した場合も成功判定を取り消す。
 
-MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 3回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
+MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 5回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
 
-ローカルでは [test_e2e_google_sync_probe.py](../tests/test_e2e_google_sync_probe.py) の21ケースで全段階、認証・version・設定拒否、古いKV、所有差替え、ID衝突、作成応答喪失、外部作成失敗後の再送拒否、回収再試行、再検証失敗、一覧反映遅延時の取得済みIDによる回収、外部削除後のKV回収失敗からの再試行、JS null/undefinedのKV欠損値を確認した。Google・Notion・Discord APIと対象の疎通確認は代替している。2026-09-15（JST）の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、所有2件の繰越・消化・更新・削除、各段階の別HTTP読戻し、回収が成功した。prepare 1回・advance 3回・verify 4回で再試行はなく、最長phaseは36.058秒だった。監査22行・11操作、manifest、run・version・commit一致、JUnit 602件・失敗0、`passed`・全資源 `dirty=false` を独立照合した。回収の保証範囲はAPI応答とKV delete完了であり、全拠点への削除伝播完了ではない。任意の外部予定への適用、実Cron、通知、Notion外部DB、部分失敗からの任意位置の自動再開はこのシナリオの対象外である。
+ローカルでは [test_e2e_google_sync_probe.py](../tests/test_e2e_google_sync_probe.py) の26ケースで全段階、認証・version・設定拒否、古いKV、所有差替え、ID衝突、作成応答喪失、外部作成失敗後の再送拒否、回収再試行、再検証失敗、一覧反映遅延時の取得済みIDによる回収、外部削除後のKV回収失敗からの再試行、JS null/undefinedのKV欠損値、部分反映からの同じIDへのqueue再試行、注入欠落・回復失敗・要件巻戻し・回復後再検証失敗の拒否を確認した。Google・Notion・Discord APIと対象の疎通確認は代替している。2026-09-15（JST）の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、所有2件の繰越・消化・更新・削除、各段階の別HTTP読戻し、回収が成功した。prepare 1回・advance 3回・verify 4回で再試行はなく、最長phaseは36.058秒だった。監査22行・11操作、manifest、run・version・commit一致、JUnit 602件・失敗0、`passed`・全資源 `dirty=false` を独立照合した。回収の保証範囲はAPI応答とKV delete完了であり、全拠点への削除伝播完了ではない。任意の外部予定への適用、実Cron、通知、Notion外部DB、部分失敗からの任意位置の自動再開はこのシナリオの対象外である。
 
+追加したretry_pending / retriedは固定注入モデルであり、Discordの実障害・回線断の観測ではない。注入はE2E呼出し内のcallbackだけを使い、モジュール共有状態を書き換えない。通常dispatchの想定500、残件、cursor保護を確認した場合だけシナリオHTTPを200とし、想定外の失敗は回収へ進む。6段階版は[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)で成功した。prepare 1回・advance 5回・verify 6回、読戻し再試行なし。注入段階27.218秒・queue回復26.944秒で、通常dispatchの想定500、cursor/最終成功時刻保護、queue回復の固定stageを確認した。監査30行・15操作とmanifest、run・version・commit、JUnit 610件・失敗0、通常とalwaysの回収、passed・全資源dirty=falseを独立照合した。
 
 ### 分割後の状態障害E2Eの実行結果
 

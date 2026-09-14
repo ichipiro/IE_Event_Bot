@@ -200,6 +200,10 @@ def test_all_phases_and_cleanup_preserve_unrelated_state(monkeypatch):
         ("verify", "updated"),
         ("advance", "deleted"),
         ("verify", "deleted"),
+        ("advance", "retry_pending"),
+        ("verify", "retry_pending"),
+        ("advance", "retried"),
+        ("verify", "retried"),
     ):
         status, payload = test.call(phase)
         assert status == 200 and payload["status"] == expected, payload
@@ -407,3 +411,90 @@ def test_worker_absent_values_are_not_hashed(monkeypatch, missing):
     assert status == 200, payload
     assert test.call("verify")[0] == 200
     assert test.call("cleanup")[0] == 200
+
+
+def advance_to(test, step):
+    assert test.call("prepare")[0] == 200
+    assert test.call("verify")[0] == 200
+    for _ in range(step):
+        status, payload = test.call("advance")
+        assert status == 200, payload
+        status, payload = test.call("verify")
+        assert status == 200, payload
+
+
+def test_partial_failure_then_queue_only_retry_reuses_owned_ids(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    before = test.owner()
+    ids = [
+        (s.get("notion_page_id"), s.get("discord_event_id")) for s in before["fixtures"]
+    ]
+    status, payload = test.call("advance")
+    assert status == 200 and payload["status"] == "retry_pending"
+    owner = test.owner()
+    assert owner["hashes"][KEYS[0]] == before["hashes"][KEYS[0]]
+    assert owner["hashes"][KEYS[4]] == before["hashes"][KEYS[4]]
+    assert owner["stages"]["google_sync_dispatch"] == 500
+    assert owner["stages"]["google_sync_discord_failure_injected"] == 200
+    assert test.call("advance")[0] == 409  # 読戻し前に再試行しない。
+    assert test.call("verify")[0] == 200
+    assert test.call("advance")[0] == 200
+    assert test.call("verify")[0] == 200
+    assert ids == [
+        (s.get("notion_page_id"), s.get("discord_event_id"))
+        for s in test.owner()["fixtures"]
+    ]
+    assert len(test.pages) == 2 and len(test.discord) == 1
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "passed"
+
+
+def test_missing_failure_injection_cannot_pass(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    original = google_apply_sync.apply_google_events
+
+    async def skip_injection(env, state, events, **kwargs):
+        return await original(env, state, events)
+
+    monkeypatch.setattr(google_apply_sync, "apply_google_events", skip_injection)
+    assert test.call("advance")[0] == 409
+    assert test.call("advance")[0] == 409
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_retry_failure_is_not_accepted_as_injected_failure(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 4)
+
+    async def failed(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(google_apply_sync, "_discord_update_event", failed)
+    assert test.call("advance")[0] == 409
+    assert test.call("verify")[0] == 409
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_do_rejects_removing_retry_requirement(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    owner = test.owner()
+    owner["retry_enabled"] = False
+    with pytest.raises(RuntimeError, match="e2e_manifest_write_failed"):
+        asyncio.run(test.store.put_e2e_manifest(SERVICE, owner))
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_failed_reverify_after_retry_revokes_success(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 5)
+    prefix = GoogleKV(test.store, test.owner()).prefix
+    test.env.STATE_KV.data[prefix + KEYS[5]] = "{}"
+    assert test.call("verify")[0] == 409
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"

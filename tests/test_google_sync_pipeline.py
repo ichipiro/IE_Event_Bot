@@ -188,3 +188,62 @@ def test_second_page_error_does_not_apply_or_advance_cursor(monkeypatch):
     assert not pipeline.pages and not pipeline.discord
     assert pipeline.kv.data[CURSOR] == previous[CURSOR]
     assert QUEUE not in pipeline.kv.data and "map:gcal_notion" not in pipeline.kv.data
+
+
+def test_discord_create_failure_keeps_partial_notion_and_retries(monkeypatch):
+    pipeline = Pipeline(monkeypatch)
+    original = apply._discord_api_request
+
+    async def failed(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(apply, "_discord_api_request", failed)
+    source = event("first")
+    pipeline.kv.data[CURSOR] = "2099-01-01T11:00:00Z"
+    status, result = pipeline.run((200, {"items": [source]}))
+    assert status == 500 and result["google_apply"]["pending_events"] == 1
+    assert pipeline.kv.data[CURSOR] == "2099-01-01T11:00:00Z"
+    assert set(pipeline.pages) == {"page-first"} and not pipeline.discord
+    assert json.loads(pipeline.kv.data[QUEUE]) == [source]
+    assert json.loads(pipeline.kv.data["result:sync_all"])["payload"]["google_apply_ok"] is False
+    monkeypatch.setattr(apply, "_discord_api_request", original)
+    assert pipeline.run((200, {"items": []}))[0] == 200
+    assert set(pipeline.pages) == {"page-first"}
+    assert set(pipeline.discord) == {"discord-first"}
+    assert json.loads(pipeline.kv.data[QUEUE]) == []
+
+
+def test_discord_update_failure_preserves_cursor_and_last_success(monkeypatch):
+    pipeline = Pipeline(monkeypatch)
+    source = event("first", description="before")
+    assert pipeline.run((200, {"items": [source]}))[0] == 200
+    before = dict(pipeline.kv.data)
+    last_epoch = asyncio.run(StateStore(pipeline.worker.env).get_sync_last_epoch())
+    original = apply._discord_api_request
+
+    async def failed(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(apply, "_discord_api_request", failed)
+    changed = event("first", description="after", updated="2099-01-01T12:05:00Z")
+    status, result = pipeline.run((200, {"items": [changed]}))
+    assert status == 500 and result["google_apply"]["pending_events"] == 1
+    assert pipeline.kv.data[CURSOR] == before[CURSOR]
+    assert asyncio.run(StateStore(pipeline.worker.env).get_sync_last_epoch()) == last_epoch
+    assert pipeline.pages["page-first"]["content"] == "after"
+    assert "after" not in pipeline.discord["discord-first"]["description"]
+    assert json.loads(pipeline.kv.data[QUEUE]) == [changed]
+    monkeypatch.setattr(apply, "_discord_api_request", original)
+    assert pipeline.run((200, {"items": []}))[0] == 200
+    assert "after" in pipeline.discord["discord-first"]["description"]
+    assert len(pipeline.pages) == len(pipeline.discord) == 1
+    assert json.loads(pipeline.kv.data[QUEUE]) == []
+
+
+def test_disabled_discord_sync_remains_successful(monkeypatch):
+    pipeline = Pipeline(monkeypatch)
+    pipeline.worker.env.DISCORD_SYNC_ENABLED = "false"
+    status, result = pipeline.run((200, {"items": [event("first")]}))
+    assert status == 200 and result["google_apply"]["pending_events"] == 0
+    assert set(pipeline.pages) == {"page-first"}
+    assert not pipeline.discord_calls

@@ -1261,10 +1261,10 @@ for (const failure of [null, "prepare", "advance", "early_done", "late_done", "v
   });
 }
 
-for (const failure of [null, "advance", "verify", "version", "outcome", "phase"]) {
+for (const failure of [null, "advance", "verify", "version", "outcome", "phase", "injection"]) {
   test(`通常Google同期workflow: ${failure ?? "success"}と回収`, async () => {
     let index = 0;
-    const steps = ["pending", "drained", "updated", "deleted"];
+    const steps = ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     const { calls, callTool } = stateWorkflowFixture({
       trigger_sync: async (args) => {
         if (args.sync_phase === "advance") { index += 1; }
@@ -1275,7 +1275,8 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase"]
       read_status: async () => ({ ok: true,
         worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
         scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
-          stages: { [`google_sync_${steps[index]}`]: 200 } } },
+          stages: { [`google_sync_${steps[index]}`]: 200,
+            google_sync_discord_failure_injected: failure === "injection" ? undefined : 200 } } },
       }),
       assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
     }, "google_sync");
@@ -1284,7 +1285,7 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase"]
     } else {
       assert.deepEqual(await runDeployAndGoogleSyncSmoke(callTool, RUN_ID), { ok: true, scenarios: ["google_sync"] });
       assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
-        ["prepare", "resume", "advance", "resume", "advance", "resume", "advance", "resume"]);
+        ["prepare", "resume", ...Array(5).fill(["advance", "resume"]).flat()]);
     }
     assert.equal(calls.filter(c => c.args.sync_phase === "prepare").length, 1);
     assert.equal(calls.filter(c => c.name === "cleanup_run" && c.args.service === "google_sync").length, 1);

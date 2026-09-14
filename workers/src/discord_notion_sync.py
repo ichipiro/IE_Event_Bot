@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from workers import fetch as _runtime_fetch
 
+from discord_retry_state import merge_retry_ops, snapshot_with_pending, split_snapshot
 from google_auth import get_google_access_token
 
 _DISCORD_GET_ATTEMPTS = 4
@@ -943,6 +944,8 @@ async def _apply_discord_event_diff(
     if not isinstance(previous_snapshot, dict):
         previous_snapshot = {}
 
+    previous_snapshot, snapshot_ops = split_snapshot(previous_snapshot)
+
     had_error = False
     errors = []
     google_token = None
@@ -978,6 +981,8 @@ async def _apply_discord_event_diff(
         raw_queue = await state.get_json(queue_key, [])
         if isinstance(raw_queue, list):
             queued_ops = raw_queue
+
+    queued_ops = merge_retry_ops(snapshot_ops, queued_ops)
 
     # 変更対象IDを重複なくまとめる
     merged_ids = []
@@ -1080,7 +1085,9 @@ async def _apply_discord_event_diff(
     if state.enabled():
         # queue保存に失敗したときは旧snapshotから差分を再検出できるようにする。
         await state.put_json_if_changed(queue_key, retry_ops + remaining_ops)
-        await state.set_discord_snapshot(current_snapshot)
+        await state.set_discord_snapshot(
+            snapshot_with_pending(current_snapshot, previous_snapshot, retry_ops + remaining_ops)
+        )
 
     return {
         "ok": not had_error,

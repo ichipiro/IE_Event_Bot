@@ -18,6 +18,7 @@ import {
   runDeployAndDiscordDeltaSmoke,
   runDeployAndDiscordStateSmoke,
   runDeployAndSyncLockSmoke,
+  runDeployAndSyncFaultsSmoke,
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
   runDeployAndDiscordBatchGoogleSmoke,
@@ -1218,5 +1219,33 @@ for (const failure of [null, "prepare", "verify", "version", "outcome"]) {
     assert.deepEqual(touchedServicesFromAudit([
       { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "sync_lock" },
     ], RUN_ID), ["sync_lock"]);
+  });
+}
+
+for (const failure of [null, "prepare", "verify", "version", "outcome"]) {
+  test(`状態障害workflow: ${failure ?? "success"}と必須cleanup`, async () => {
+    const overrides = {
+      read_status: async () => ({ ok: true,
+        worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
+        scenarios: { sync_faults: { present: true, dirty: true, run_id: RUN_ID, stage: "fault_verified" } },
+      }),
+      trigger_sync: async (args) => ({
+        ok: !(args.sync_phase === (failure === "verify" ? "resume" : failure)),
+        run_id: RUN_ID, status: 200, dirty: true, error: "sync_faults_probe_failed",
+      }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
+    };
+    const { calls, callTool } = stateWorkflowFixture(overrides, "sync_faults");
+    if (failure) {
+      await assert.rejects(runDeployAndSyncFaultsSmoke(callTool, RUN_ID), /sync_faults_/);
+    } else {
+      assert.deepEqual(await runDeployAndSyncFaultsSmoke(callTool, RUN_ID), { ok: true, scenarios: ["sync_faults"] });
+    }
+    assert.equal(calls.filter((call) => call.name === "deploy_e2e").length, 1);
+    assert.equal(calls.filter((call) => call.args.sync_phase === "prepare").length, 1);
+    assert.equal(calls.filter((call) => call.name === "cleanup_run" && call.args.service === "sync_faults").length, 1);
+    assert.deepEqual(touchedServicesFromAudit([
+      { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "sync_faults" },
+    ], RUN_ID), ["sync_faults"]);
   });
 }

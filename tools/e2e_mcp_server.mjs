@@ -293,7 +293,7 @@ function versionEvidence(value) {
 
 
 function sanitizeExecutionStatus(value) {
-  return ["prepared", "updated", "drained", "retry_drained", "already_completed"].includes(value) ? value : null;
+  return ["partial", "prepared", "updated", "drained", "retry_drained", "already_completed"].includes(value) ? value : null;
 }
 
 
@@ -894,7 +894,7 @@ function operationRoute(tool, target, syncPhase = "run") {
     if (["sync_faults", "sync_lock", "discord_state", "discord_kv", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(target) && syncPhase === "resume") {
       return `${SCENARIO_ROUTES[target]}/verify`;
     }
-    if (["discord_batch", "discord_batch_google", "discord_batch_notification"].includes(target) && syncPhase === "advance") {
+    if (["sync_faults", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(target) && syncPhase === "advance") {
       return `${SCENARIO_ROUTES[target]}/advance`;
     }
     if (target === "discord_delta" && ["prepare", "advance", "resume"].includes(syncPhase)) {
@@ -1227,8 +1227,8 @@ export function createE2eMcpServer(options = {}) {
       if (responseMode !== "read" && (scenario !== "discord_delta" || syncPhase !== "advance" || !versionSha256)) {
         return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
       }
-      if ((["sync_faults", "sync_lock", "discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
-          (["discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && versionSha256) ||
+      if ((["sync_lock", "discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
+          (["sync_faults", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && versionSha256) ||
           (!["sync_faults", "sync_lock", "discord_delta", "discord_state", "discord_kv", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
         return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
       }
@@ -1264,7 +1264,7 @@ export function createE2eMcpServer(options = {}) {
           }
           if (sanitized.ok && ["sync_lock", "sync_faults"].includes(scenario) &&
               (response.payload.dirty !== true || (syncPhase === "resume"
-                ? response.payload.stage !== (scenario === "sync_lock" ? "lock_verified" : "fault_verified") : response.payload.status !== "prepared"))) {
+                ? response.payload.stage !== (scenario === "sync_lock" ? "lock_verified" : "fault_verified") : !(scenario === "sync_faults" ? ["partial", "prepared"] : ["prepared"]).includes(response.payload.status)))) {
             return { ...sanitized, ok: false, error: `${scenario}_not_ready` };
           }
           if (sanitized.ok && scenario === "discord_kv" &&

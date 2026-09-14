@@ -128,7 +128,12 @@ _SYNC_LOCK_PHASES = {
     "/admin/e2e/sync-lock/verify": "verify",
     "/admin/e2e/sync-lock/cleanup": "cleanup",
 }
-_SYNC_FAULT_PHASES = {path.replace("sync-lock", "sync-faults"): phase for path, phase in _SYNC_LOCK_PHASES.items()}
+_SYNC_FAULT_PHASES = {
+    "/admin/e2e/sync-faults": "prepare",
+    "/admin/e2e/sync-faults/advance": "advance",
+    "/admin/e2e/sync-faults/verify": "verify",
+    "/admin/e2e/sync-faults/cleanup": "cleanup",
+}
 _DISCORD_STATE_PHASES = {
     "/admin/e2e/discord-state": "prepare",
     "/admin/e2e/discord-state/verify": "verify",

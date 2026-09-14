@@ -292,7 +292,7 @@ prepareの1 HTTP内で、手動Discord同期・CronのDiscord同期分岐と共�
 
 ## 状態障害とTTL超過のE2E
 
-`e2e_sync_fault_probe.py` の `sync_faults` は `POST /admin/e2e/sync-faults`、`/verify`、`/cleanup` を使う。`E2E_SYNC_FAULTS_ENABLED=true`、認証、POST、KV・DO、状態scope、ロック有効・KVクールダウン無効を必須とする。prepare / verifyはrun IDと稼働version tagを照合し、cleanupは同run・同対象を確認する。通常入口・実Cronは有効化しない。
+`e2e_sync_fault_probe.py` の `sync_faults` は `POST /admin/e2e/sync-faults`、`/advance`、`/verify`、`/cleanup` を使う。`E2E_SYNC_FAULTS_ENABLED=true`、認証、POST、KV・DO、状態scope、ロック有効・KVクールダウン無効を必須とする。prepare / advance / verifyはrun IDと稼働version tagを照合し、cleanupは同run・同対象を確認する。通常入口・実Cronは有効化しない。
 
 固定イベント2件と通常の `_apply_discord_event_diff`、通常StateStoreを使う。外部適用は成功・失敗と呼出し回数だけを返す代替runnerで、外部APIを呼ばない。書込みは所有KVに実行するが、prepare中の読取りは直前の書込みを保持するメモリと固定の古い値で制御する。Cloudflare側の伝播遅延を発生させた検証ではない。KVは強整合・複数キーのトランザクションを提供しないため、この区別を保つ（[Cloudflare KVの整合性](https://developers.cloudflare.com/kv/concepts/how-kv-works/)）。
 
@@ -308,15 +308,19 @@ prepareの1 HTTP内で、手動Discord同期・CronのDiscord同期分岐と共�
 
 保存失敗は各ケース1回だけ、最初の適用成功後に注入する。保存後の失敗はKV putが返った直後の固定例外であり、実サービスの応答喪失ではない。同じキーへの再書込みは1.05秒以上離す。`passed` は上記の期待挙動の確認であり、重複適用の解決を意味しない。`stale_queue_loss` は修正後の残件回復を必須とし、初回失敗後の再適用と次イベントの適用、`pending_lost=false` を照合する。実環境の確認は [E2E-PLAN.md](E2E-PLAN.md) に残す。
 
-TTLケースは手動Discord同期の共通処理を10秒TTLで保持する。DOの時計が期限に達するまで最大65回・0.2秒間隔で待ち、新実行がロックを取った後に旧実行を完了させる。旧実行が409 `sync_lock_lost` となり、結果を書かず、新ownerを解放しないことを確認する。新実行の成功・結果保存・解放まで確認し、失敗時も全taskのfinally完了を待つ。TTLを短くする引数はE2E内部だけから渡し、通常の120秒設定は変更しない。HTTP内の全処理は50秒を上限にする。
+TTLケースは手動Discord同期の共通処理を10秒TTLで保持する。DOの時計が期限に達するまで最大65回・0.2秒間隔で待ち、新実行がロックを取った後に旧実行を完了させる。旧実行が409 `sync_lock_lost` となり、結果を書かず、新ownerを解放しないことを確認する。新実行の成功・結果保存・解放まで確認し、失敗時も全taskのfinally完了を待つ。TTLを短くする引数はE2E内部だけから渡し、通常の120秒設定は変更しない。各HTTPのphase処理は50秒を上限にする。上限到達は `sync_faults_phase_timeout` として返す。
 
 通常入口には段階間の期限・所有者確認を追加した。Discord同期後の結果保存、Google取得後の適用開始、適用後のcursor保存、Discord開始、最終時刻・結果保存の前でDOの時刻とownerを確認し、不一致・期限切れ・確認不能なら409で停止する。これは確認とKV書込みの原子的な保護ではなく、同期本体内のqueue保存、実行済み外部書込み、進行中の外部API処理を取り消さない。TTL以内の完了、全書込みの排他、一度限りの反映は保証しない。
 
 DO所有manifestはrun・scope・対象・各ケースの証拠hashを保持する。verifyは8ケースの証拠と状態hashを別HTTPで実KVから読み、未作成キーの不在も照合する。失敗した再検証は以前の成功を無効化する。cleanupは固定48候補キーを削除し、制御DO `e2e:sync-fault-control` の所有ロック解放も読戻した後だけcleanとする。失敗時はdirtyを保持し、再回収できる。globalロックの強制解放は行わない。
 
-MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "resume")` と `cleanup_run(service="sync_faults")` を使う。手動workflow `deploy-and-sync-faults-smoke` は1回deploy・1回prepareと有限のverify待機、version・段階・outcomeの照合、通常と `always()` のcleanup、マスク済み監査収集へ接続する。
+MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / "resume")` と `cleanup_run(service="sync_faults")` を使う。手動workflow `deploy-and-sync-faults-smoke` は1回deploy・1回prepare・7回advanceと有限のverify待機、version・段階・outcomeの照合、通常と `always()` のcleanup、マスク済み監査収集へ接続する。
 
-ローカルでは実DOロジック・代替KVを使い、8ケース、所有者・hash変更の拒否、認証・version・設定拒否、部分保存・読戻し・回収・解放失敗を検証する。TTL単体テストはDOの時計を進め、手動・Cron分岐・全体同期の旧結果拒否と新owner保護、Google適用後のcursor保護、壊れた時計・statusの拒否を確認する。2026-09-14時点で新シナリオの実KV・DO実行は未実施である。
+ローカルでは実DOロジック・代替KVを使い、8ケース、所有者・hash変更の拒否、認証・version・設定拒否、部分保存・読戻し・回収・解放失敗を検証する。TTL単体テストはDOの時計を進め、手動・Cron分岐・全体同期の旧結果拒否と新owner保護、Google適用後のcursor保護、壊れた時計・statusの拒否を確認する。2026-09-14の[実行34839754885](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34839754885)は `76ac4c8` を専用Workerへdeployし、KV障害7ケースのprepare処理を完了したが、約51.4秒で409 `sync_faults_probe_failed` となった。TTLケースと別HTTP読戻しは未完了である。50秒のphase上限への到達が疑われるが、旧エラー分類だけでは例外種別を確定できない。run内と `always()` のcleanupは200、対象manifestは `failed_clean`・`dirty=false`、全資源clean、version・run・commit一致をartifactで確認した。分割後は[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)で実KV・DO検証が成功した。
+
+分割後はprepareが先頭ケースを1件だけ実行し、advanceが残りを固定順に1件ずつ進める。途中は `partial`、8件完了後だけ `prepared` を返す。DOには着手前の `fault_testing`、確定後の `fault_partial` / `fault_prepared` と証拠hashを保存する。書込み途中の失敗は `fault_testing` に留まり、advanceで再実行・スキップせず回収する。途中でverifyを要求しても不完全として拒否し、確定済みの進捗は壊さない。workflowは書込みを再送せず、7回のadvanceと最後の完了応答を確認してからverifyへ進む。旧版のdirty記録も同run・同対象のcleanupで回収できる。
+
+分割・途中タイムアウト・所有者とversionの不一致・ケース飛越しをローカル検証する。合算60秒の固定遅延モデルで、各ケースを別要求へ分けたときだけ50秒予算内に収まることも確認する。これは実Cloudflareの処理時間の証明ではない。
 
 
 ## 古いqueueによる残件喪失の対策
@@ -328,3 +332,12 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "resume")` �
 `tests/test_discord_stale_queue.py` は、別イベントの失敗queueで上書きされる条件を作成・更新・削除で再現し、件数上限の残件と通知待ちも含めて回復を確認する。通知では同じmessageへリアクションを再試行し、再投稿しない。古いsnapshotと新しいqueueの組合せ、通知先の矛盾、壊れた残件、処理順も検証する。E2EのKV・DO checkpointは埋込残件にも所有権検査を行い、batch適用中のqueueが期待値から変われば外部書込み前に拒否する。
 
 この対策は、片方に保持された残件をもう片方の古い値で捨てないためのものである。両キーが残件作成前の古い値なら未知の操作を復元できず、古い残件の再出現や外部成功後の保存失敗では再適用され得る。KVの複数キーの原子性、一度限りの外部反映、TTL超過中の全書込みの排他を追加保証するものではない。新形式を読まない旧版へ戻す場合は、稼働中の残件を回収・完了させてから状態を確認する。
+
+
+### 分割後の状態障害E2Eの実行結果
+
+2026-09-14、fork作業ブランチ `feature/sync-fault-request-split` の `c1740e2f0a5d11dedefe4c06df24f318110ef1f2` を使い、[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)を実行した。Local validation成功とEnvironment承認後、専用Workerを1回deployした。run ID `E2E-20260914T120901Z-7c8d0e77`、Worker version tag、deployと最終version fingerprint、対象commit、実行checkoutのclean状態を照合した。
+
+prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケース、別HTTP読戻しがすべて200となった。ケース要求の最大時間は15.191秒、TTLケースは14.051秒、verifyは13.133秒だった。読戻しの再試行は発生していない。run内と `always()` のcleanupが200、`outcome=passed`、全資源 `dirty=false` を確認した。artifact監査24行・完了12操作とmanifest、JUnit 570件・失敗0・エラー0・skip 0を独立照合した。
+
+古い値・保存失敗は固定注入、外部同期は代替runnerである。実KVの伝播遅延や実サービス障害、重複反映の解消を証明しない。TTLケースは1 HTTP内の手動同期共通処理であり、実Cron・別Workerリクエスト間の競合は対象外。実行時点で修正版は未マージで、本番デプロイは行っていない。

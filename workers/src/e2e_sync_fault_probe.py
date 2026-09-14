@@ -56,15 +56,28 @@ def valid_fault_transition(previous, value):
                 for h in hashes.values()
             )
             and stage
-            in ("fault_testing", "fault_prepared", "fault_verifying", "fault_verified")
+            in (
+                "fault_testing",
+                "fault_partial",
+                "fault_prepared",
+                "fault_verifying",
+                "fault_verified",
+            )
         ):
             return False
-        if stage in ("fault_prepared", "fault_verified") and set(hashes) != set(CASES):
+        if set(hashes) != set(CASES[: len(hashes)]):
+            return False
+        if stage == "fault_partial" and not 0 < len(hashes) < len(CASES):
+            return False
+        if stage in ("fault_prepared", "fault_verifying", "fault_verified") and set(
+            hashes
+        ) != set(CASES):
             return False
     if previous.get("dirty"):
         if value["dirty"]:
             transitions = {
-                "fault_testing": {"fault_testing", "fault_prepared", "fault_verifying"},
+                "fault_testing": {"fault_partial", "fault_prepared"},
+                "fault_partial": {"fault_testing"},
                 "fault_prepared": {"fault_verifying"},
                 "fault_verifying": {"fault_verifying", "fault_verified"},
                 "fault_verified": {"fault_verifying"},
@@ -73,7 +86,11 @@ def valid_fault_transition(previous, value):
             return (
                 all(previous.get(k) == value.get(k) for k in OWNER_FIELDS)
                 and all(hashes.get(k) == h for k, h in old.items())
-                and (previous.get("stage") == "fault_testing" or hashes == old)
+                and (
+                    len(hashes) == len(old) + 1
+                    if previous.get("stage") == "fault_testing"
+                    else hashes == old
+                )
                 and stage in transitions.get(previous.get("stage"), set())
             )
         return (
@@ -333,6 +350,24 @@ async def _ttl_case(kv, invoke):
     }
 
 
+async def _next_case(store, owner, invoke):
+    """1 HTTPで1ケースだけ実行し、確定済み証拠に続く位置へ進める。"""
+    case = CASES[len(owner["hashes"])]
+    kv = FaultKV(store, owner, case)
+    evidence = await (
+        _ttl_case(kv, invoke) if case.startswith("ttl_") else _kv_case(kv)
+    )
+    evidence["state_hashes"] = {k: _digest(v) for k, v in kv.latest.items()}
+    text = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+    await kv.put("evidence", text)
+    owner["hashes"][case] = _digest(text)
+    owner["stages"][case] = 200
+    complete = len(owner["hashes"]) == len(CASES)
+    owner["stage"] = "fault_prepared" if complete else "fault_partial"
+    await store.put_e2e_manifest(SERVICE, owner)
+    return {"ok": True, "dirty": True, "status": "prepared" if complete else "partial"}
+
+
 async def _phase(env, store, run_id, phase, invoke):
     target = {"state_scope_sha256": _digest(str(env.E2E_STATE_SCOPE))}
     owner = await store.get_e2e_manifest(SERVICE)
@@ -353,21 +388,7 @@ async def _phase(env, store, run_id, phase, invoke):
             "stages": {},
         }
         await store.put_e2e_manifest(SERVICE, owner)
-        for case in CASES:
-            kv = FaultKV(store, owner, case)
-            evidence = await (
-                _ttl_case(kv, invoke) if case.startswith("ttl_") else _kv_case(kv)
-            )
-            # 通常状態も含めたhashを保存し、別HTTPで全固定キーを実KVから照合する。
-            evidence["state_hashes"] = {k: _digest(v) for k, v in kv.latest.items()}
-            text = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
-            await kv.put("evidence", text)
-            owner["hashes"][case] = _digest(text)
-            owner["stages"][case] = 200
-            await store.put_e2e_manifest(SERVICE, owner)
-        owner["stage"] = "fault_prepared"
-        await store.put_e2e_manifest(SERVICE, owner)
-        return {"ok": True, "dirty": True, "status": "prepared"}
+        return await _next_case(store, owner, invoke)
     if not owner or not owner.get("dirty"):
         if (
             phase == "cleanup"
@@ -381,11 +402,18 @@ async def _phase(env, store, run_id, phase, invoke):
         raise ProbeError("sync_faults_owner_mismatch")
     if (await _lock_state(store)).get("owner"):
         raise ProbeError("sync_faults_lock_busy")
-    if phase == "verify":
-        owner["stage"] = "fault_verifying"
+    if phase == "advance":
+        if owner.get("stage") != "fault_partial":
+            raise ProbeError("sync_faults_advance_forbidden")
+        # 着手を先に記録する。書込み途中の失敗は再実行せず回収する。
+        owner["stage"] = "fault_testing"
         await store.put_e2e_manifest(SERVICE, owner)
+        return await _next_case(store, owner, invoke)
+    if phase == "verify":
         if set(owner["hashes"]) != set(CASES):
             raise ProbeError("sync_faults_incomplete")
+        owner["stage"] = "fault_verifying"
+        await store.put_e2e_manifest(SERVICE, owner)
         for case in CASES:
             kv = FaultKV(store, owner, case)
             await kv.check("evidence")
@@ -429,6 +457,7 @@ async def _phase(env, store, run_id, phase, invoke):
 async def run_sync_fault_probe(env, store, run_id, phase, invoke):
     if not RUN_PATTERN.fullmatch(run_id) or phase not in (
         "prepare",
+        "advance",
         "verify",
         "cleanup",
     ):
@@ -451,6 +480,8 @@ async def run_sync_fault_probe(env, store, run_id, phase, invoke):
     result = {}
     try:
         result = await asyncio.wait_for(_phase(env, store, run_id, phase, invoke), 50)
+    except TimeoutError:
+        result = {"ok": False, "dirty": True, "error": "sync_faults_phase_timeout"}
     except Exception as exc:
         result = {
             "ok": False,

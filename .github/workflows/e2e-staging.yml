@@ -21,6 +21,7 @@ on:
           - deploy-and-discord-batch-notification-smoke
           - deploy-and-sync-lock-smoke
           - deploy-and-sync-faults-smoke
+          - deploy-and-google-sync-smoke
           - deploy-and-discord-delta-recovery
           - deploy-and-google-discord-smoke
           - deploy-and-google-notion-smoke
@@ -149,6 +150,7 @@ jobs:
           inputs.mode == 'deploy-and-discord-batch-notification-smoke' ||
           inputs.mode == 'deploy-and-sync-lock-smoke' ||
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
+          inputs.mode == 'deploy-and-google-sync-smoke' ||
           inputs.mode == 'deploy-and-discord-delta-recovery' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' ||
@@ -183,6 +185,7 @@ jobs:
           inputs.mode == 'deploy-and-discord-batch-notification-smoke' ||
           inputs.mode == 'deploy-and-sync-lock-smoke' ||
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
+          inputs.mode == 'deploy-and-google-sync-smoke' ||
           inputs.mode == 'deploy-and-discord-delta-recovery' ||
           inputs.mode == 'deploy-and-google-discord-smoke' ||
           inputs.mode == 'deploy-and-google-notion-smoke' ||

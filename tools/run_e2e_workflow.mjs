@@ -28,6 +28,7 @@ export const CLEANUP_TARGETS = Object.freeze([
   "discord_batch_notification",
   "sync_lock",
   "sync_faults",
+  "google_sync",
   "google_discord",
   "google_notion",
   "qa_notification",
@@ -51,6 +52,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-discord-batch-notification-smoke",
   "deploy-and-sync-lock-smoke",
   "deploy-and-sync-faults-smoke",
+  "deploy-and-google-sync-smoke",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -576,6 +578,59 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
 }
 
 
+export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {}) {
+  const deployed = await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  if (!/^[0-9a-f]{64}$/.test(String(deployed.version_sha256 ?? ""))) {
+    throw new E2eWorkflowError("google_sync_version_missing");
+  }
+  await runPreflight(callTool, runId, options.preflight);
+  let primaryError = null;
+  try {
+    for (const [index, step] of ["pending", "drained", "updated", "deleted"].entries()) {
+      const written = await requireTool(callTool, "trigger_sync", {
+        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? "prepare" : "advance",
+      });
+      if (written.status !== 200 || !written.dirty || written.run_id !== runId || written.execution_status !== step) {
+        throw new E2eWorkflowError("google_sync_phase_mismatch");
+      }
+      for (let attempt = 1; attempt <= STATE_VERIFY_ATTEMPTS; attempt += 1) {
+        const verified = await toolOutcome(callTool, "trigger_sync", {
+          run_id: runId, scenario: "google_sync", sync_phase: "resume",
+        });
+        if (verified.ok) {
+          if (verified.payload.status !== 200 || !verified.payload.dirty || verified.payload.run_id !== runId || verified.payload.execution_status !== step) {
+            throw new E2eWorkflowError("google_sync_verify_mismatch");
+          }
+          break;
+        }
+        if (verified.error !== "google_sync_not_ready" || verified.payload.status !== 409 ||
+            verified.payload.run_id !== runId || verified.payload.dirty !== true || attempt === STATE_VERIFY_ATTEMPTS) {
+          throw new E2eWorkflowError(verified.error);
+        }
+        await (options.verify?.sleepImpl ?? sleep)(STATE_VERIFY_DELAY_MS);
+      }
+      const status = await requireTool(callTool, "read_status", { run_id: runId });
+      const manifest = status.scenarios?.google_sync;
+      if (!manifest?.present || !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "verified" ||
+          manifest.stages?.[`google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
+          status.worker_version?.id_sha256 !== deployed.version_sha256) {
+        throw new E2eWorkflowError("google_sync_verification_mismatch");
+      }
+    }
+  } catch (error) {
+    primaryError = error;
+  }
+  const cleanup = await cleanupServices(callTool, runId, ["google_sync"], options.cleanup);
+  if (primaryError) { throw primaryError; }
+  if (!cleanup.ok) { throw new E2eWorkflowError("cleanup_run_failed"); }
+  const clean = await requireTool(callTool, "assert_external_state", { run_id: runId, service: "google_sync" });
+  if (clean.manifest?.outcome !== "passed") { throw new E2eWorkflowError("google_sync_outcome_failed"); }
+  return { ok: true, scenarios: ["google_sync"] };
+}
+
+
 export async function runDeployAndSyncFaultsSmoke(callTool, runId, options = {}) {
   return runDiscordKvSmoke(callTool, runId, "sync_faults", "fault_verified", options);
 }
@@ -932,6 +987,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "discord_batch_notification",
             "sync_lock",
             "sync_faults",
+  "google_sync",
             "google_discord",
             "google_notion",
           ].includes(entry.target)) ||
@@ -1088,6 +1144,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-delta-smoke") {
       await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-google-sync-smoke") {
+      await runDeployAndGoogleSyncSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-sync-faults-smoke") {

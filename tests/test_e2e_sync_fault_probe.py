@@ -59,6 +59,15 @@ async def request(
     }
 
 
+async def prepare_all(env):
+    result = await request(env)
+    for _ in probe.CASES[1:]:
+        if result[0] != 200:
+            return result
+        result = await request(env, "/advance")
+    return result
+
+
 def manifest(env):
     value = run(StateStore(env).get_e2e_manifest(probe.SERVICE))
     assert isinstance(value, dict)
@@ -67,7 +76,7 @@ def manifest(env):
 
 def test_all_faults_and_expiry_readback_cleanup(env):
     original = dict(env.STATE_KV.data)
-    assert run(request(env))[0] == 200
+    assert run(prepare_all(env))[0] == 200
     owner = manifest(env)
     assert set(owner["hashes"]) == set(probe.CASES)
     evidence = {
@@ -87,7 +96,7 @@ def test_all_faults_and_expiry_readback_cleanup(env):
     assert run(request(env, "/cleanup", version=OTHER))[0] == 200
     assert env.STATE_KV.data == original
     assert manifest(env)["outcome"] == "passed"
-    assert run(request(env))[0] == 409
+    assert run(prepare_all(env))[0] == 409
 
 
 @pytest.mark.parametrize(
@@ -117,12 +126,12 @@ def test_reject_before_effects(env, args, status):
 )
 def test_gates(env, key, value, status):
     setattr(env, key, value)
-    assert run(request(env))[0] == status
+    assert run(prepare_all(env))[0] == status
 
 
 def test_partial_write_failure_is_owned_and_cleanable(env):
     env.STATE_KV.fail_put = True
-    assert run(request(env))[1]["error"] == "sync_faults_probe_failed"
+    assert run(prepare_all(env))[1]["error"] == "sync_faults_probe_failed"
     assert manifest(env)["dirty"] is True
     env.STATE_KV.fail_put = False
     assert run(request(env, "/cleanup"))[0] == 200
@@ -130,7 +139,7 @@ def test_partial_write_failure_is_owned_and_cleanable(env):
 
 
 def test_verify_invalidation_and_cleanup_retry(env):
-    assert run(request(env))[0] == 200
+    assert run(prepare_all(env))[0] == 200
     assert run(request(env, "/verify"))[0] == 200
     key = next(k for k in env.STATE_KV.data if k.startswith("e2e:sync_faults:"))
     env.STATE_KV.data[key] = "stale"
@@ -147,7 +156,7 @@ def test_verify_invalidation_and_cleanup_retry(env):
     "field", ["run_id", "scope_id", "target_fingerprints", "hashes"]
 )
 def test_manifest_owner_and_evidence_immutable(env, field):
-    assert run(request(env))[0] == 200
+    assert run(prepare_all(env))[0] == 200
     owner = manifest(env)
     changed = deepcopy(owner)
     changed[field] = (
@@ -176,7 +185,7 @@ def test_control_lock_rejects_parallel_probe(env):
     store = StateStore(env)
     stub = env.SYNC_COORDINATOR.getByName(probe.CONTROL_NAME)
     run(store._sync_do_rpc(stub, "acquire", {"owner": "other", "ttl_seconds": 300}))
-    assert run(request(env))[1]["error"] == "sync_faults_probe_busy"
+    assert run(prepare_all(env))[1]["error"] == "sync_faults_probe_busy"
     assert run(store.get_e2e_manifest(probe.SERVICE)) is None
 
 
@@ -185,13 +194,13 @@ def test_ttl_failure_awaits_old_finally(env, monkeypatch):
         raise RuntimeError("private diagnostics")
 
     monkeypatch.setattr(probe, "_wait_expired", failure)
-    assert run(request(env))[1]["error"] == "sync_faults_probe_failed"
+    assert run(prepare_all(env))[1]["error"] == "sync_faults_probe_failed"
     assert not run(probe._lock_state(StateStore(env))).get("owner")
     assert run(request(env, "/cleanup"))[0] == 200
 
 
 def test_control_release_failure_keeps_dirty(env, monkeypatch):
-    assert run(request(env))[0] == 200
+    assert run(prepare_all(env))[0] == 200
     assert run(request(env, "/verify"))[0] == 200
     stub = env.SYNC_COORDINATOR.getByName(probe.CONTROL_NAME)
     original = stub.sync_state
@@ -233,7 +242,7 @@ def test_expiry_poll_uses_do_time_at_boundary(monkeypatch):
 
 
 def test_fixed_key_write_spacing_and_postwrite_failure(env, monkeypatch):
-    assert run(request(env))[0] == 200
+    assert run(prepare_all(env))[0] == 200
     adapter = probe.FaultKV(StateStore(env), manifest(env), probe.CASES[0])
     waits = []
 
@@ -247,3 +256,102 @@ def test_fixed_key_write_spacing_and_postwrite_failure(env, monkeypatch):
         run(adapter.put(probe.QUEUE, "[1]"))
     assert waits == [True] and adapter.latest[probe.QUEUE] == "[1]"
     assert env.STATE_KV.data[adapter.prefix + probe.QUEUE] == "[1]"
+
+
+def test_each_request_runs_one_case_and_requires_all_before_verify(env):
+    assert run(request(env))[0] == 200
+    assert set(manifest(env)["hashes"]) == {probe.CASES[0]}
+    before = dict(env.STATE_KV.data)
+    assert run(request(env, "/verify"))[1]["error"] == "sync_faults_incomplete"
+    assert env.STATE_KV.data == before
+    for count in range(2, len(probe.CASES) + 1):
+        assert run(request(env, "/advance"))[0] == 200
+        assert set(manifest(env)["hashes"]) == set(probe.CASES[:count])
+    assert run(request(env, "/advance"))[1]["error"] == "sync_faults_advance_forbidden"
+    assert run(request(env, "/verify"))[0] == 200
+    assert run(request(env, "/cleanup"))[0] == 200
+    assert manifest(env)["outcome"] == "passed"
+
+
+def test_interrupted_case_cannot_be_replayed_or_skipped(env, monkeypatch):
+    assert run(request(env))[0] == 200
+    original = probe._kv_case
+    calls = []
+
+    async def interrupted(kv):
+        calls.append(kv.case)
+        await kv.put(probe.QUEUE, "[]")
+        raise TimeoutError()
+
+    monkeypatch.setattr(probe, "_kv_case", interrupted)
+    status, result = run(request(env, "/advance"))
+    assert status == 409 and result["error"] == "sync_faults_phase_timeout"
+    monkeypatch.setattr(probe, "_kv_case", original)
+    before = dict(env.STATE_KV.data)
+    assert run(request(env, "/advance"))[1]["error"] == "sync_faults_advance_forbidden"
+    assert env.STATE_KV.data == before
+    assert calls == [probe.CASES[1]]
+    assert run(request(env, "/cleanup"))[0] == 200
+    assert manifest(env)["outcome"] == "failed_clean"
+
+
+def test_slow_cases_fit_separate_request_budgets(env, monkeypatch):
+    # 7ケース各7秒とTTL 11秒をモデル化。合算60秒でも各要求は50秒以内。
+    elapsed = [0]
+    durations = []
+    original_wait = asyncio.wait_for
+    original_kv = probe._kv_case
+    original_ttl = probe._ttl_case
+
+    async def slow_kv(kv):
+        result = await original_kv(kv)
+        elapsed[0] += 7
+        return result
+
+    async def slow_ttl(kv, invoke):
+        result = await original_ttl(kv, invoke)
+        elapsed[0] += 11
+        return result
+
+    async def deadline(coro, timeout):
+        start = elapsed[0]
+        result = await original_wait(coro, timeout)
+        if timeout == 50:
+            duration = elapsed[0] - start
+            durations.append(duration)
+            if duration > timeout:
+                raise TimeoutError()
+        return result
+
+    monkeypatch.setattr(probe, "_kv_case", slow_kv)
+    monkeypatch.setattr(probe, "_ttl_case", slow_ttl)
+    monkeypatch.setattr(probe.asyncio, "wait_for", deadline)
+    assert run(prepare_all(env))[0] == 200
+    assert durations == [7] * 7 + [11]
+    assert run(request(env, "/verify"))[0] == 200
+    assert run(request(env, "/cleanup"))[0] == 200
+    assert manifest(env)["outcome"] == "passed"
+
+
+@pytest.mark.parametrize(
+    "args", [{"run_id": OTHER}, {"version": OTHER}, {"token": "bad"}]
+)
+def test_advance_rejects_foreign_owner_version_or_token(env, args):
+    assert run(request(env))[0] == 200
+    before = deepcopy(manifest(env)), dict(env.STATE_KV.data)
+    assert run(request(env, "/advance", **args))[0] in (401, 409)
+    assert (manifest(env), env.STATE_KV.data) == before
+
+
+def test_do_rejects_skipped_case_or_fake_completion(env):
+    assert run(request(env))[0] == 200
+    owner = manifest(env)
+    for hashes, stage in [
+        ({**owner["hashes"], probe.CASES[2]: "a" * 64}, "fault_partial"),
+        (owner["hashes"], "fault_prepared"),
+        ({**owner["hashes"], probe.CASES[1]: "a" * 64}, "fault_partial"),
+    ]:
+        changed = {**owner, "hashes": hashes, "stage": stage}
+        with pytest.raises(RuntimeError, match="write_failed"):
+            run(StateStore(env).put_e2e_manifest(probe.SERVICE, changed))
+    assert manifest(env) == owner

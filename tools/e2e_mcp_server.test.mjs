@@ -89,17 +89,17 @@ test(`${scenario}の保存と読戻しを別要求へ分け、同runだけを回
     fetchImpl: async (url, options) => {
       calls.push({ path: new URL(url).pathname, headers: options.headers });
       return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !String(url).endsWith("/cleanup"),
-        status: "prepared", stage: String(url).endsWith("/verify") ? verifiedStage : "state_prepared" });
+        status: scenario === "sync_faults" ? "partial" : "prepared", stage: String(url).endsWith("/verify") ? verifiedStage : "state_prepared" });
     },
   }, async (client) => {
-    for (const syncPhase of ["prepare", "resume"]) {
+    for (const syncPhase of (scenario === "sync_faults" ? ["prepare", "advance", "resume"] : ["prepare", "resume"])) {
       const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
         run_id: RUN_ID, scenario, sync_phase: syncPhase,
       } }));
       assert.equal(result.ok, true, JSON.stringify(result));
     }
     const forbidden = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
-      run_id: RUN_ID, scenario, sync_phase: "advance",
+      run_id: RUN_ID, scenario, sync_phase: "advance", ...(scenario === "sync_faults" ? { version_sha256: "a".repeat(64) } : {}),
     } }));
     assert.equal(forbidden.error, "sync_phase_forbidden");
     const cleanup = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
@@ -108,13 +108,16 @@ test(`${scenario}の保存と読戻しを別要求へ分け、同runだけを回
     assert.equal(cleanup.ok, true);
   });
   assert.deepEqual(calls.map((call) => call.path), [
-    path, `${path}/verify`, `${path}/cleanup`,
+    path, ...(scenario === "sync_faults" ? [`${path}/advance`] : []), `${path}/verify`, `${path}/cleanup`,
   ]);
-  for (const call of calls.slice(0, 2)) {
+  for (const call of calls.slice(0, -1)) {
     assert.equal(call.headers["X-E2E-Run-ID"], RUN_ID);
     assert.equal(call.headers["X-E2E-Version-Tag"], RUN_ID);
   }
-  assert.equal(audit.filter((entry) => entry.phase === "finish").length, 3);
+  assert.equal(audit.filter((entry) => entry.phase === "finish").length, scenario === "sync_faults" ? 4 : 3);
+  if (scenario === "sync_faults") {
+    assert.ok(audit.some((entry) => entry.sync_phase === "advance" && entry.execution_status === "partial"));
+  }
 });
 
 for (const invalid of ["stage", "dirty", "run"]) {

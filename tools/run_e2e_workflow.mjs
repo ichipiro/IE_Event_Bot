@@ -472,6 +472,8 @@ export async function runDiscordDeltaRecovery(callTool, runId) {
   return { ok: true, recovered: "discord_delta" };
 }
 
+const SYNC_FAULT_CASE_COUNT = 8;
+
 async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, options) {
   const deployed = await requireTool(callTool, "deploy_e2e", {
     run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
@@ -487,6 +489,21 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
     });
     if (prepared.status !== 200 || prepared.dirty !== true || prepared.run_id !== runId) {
       throw new E2eWorkflowError(`${scenario}_prepare_failed`);
+    }
+    if (scenario === "sync_faults") {
+      if (prepared.execution_status !== "partial") {
+        throw new E2eWorkflowError("sync_faults_prepare_failed");
+      }
+      // 残り7ケースを1 HTTPずつ実行する。書込みの自動再送はしない。
+      for (let index = 1; index < SYNC_FAULT_CASE_COUNT; index += 1) {
+        const advanced = await requireTool(callTool, "trigger_sync", {
+          run_id: runId, scenario, sync_phase: "advance",
+        });
+        if (advanced.status !== 200 || advanced.dirty !== true || advanced.run_id !== runId ||
+            advanced.execution_status !== (index === SYNC_FAULT_CASE_COUNT - 1 ? "prepared" : "partial")) {
+          throw new E2eWorkflowError("sync_faults_advance_failed");
+        }
+      }
     }
     async function verify(expectedStage) {
       const attempts = options.verify?.attempts ?? STATE_VERIFY_ATTEMPTS;

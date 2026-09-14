@@ -26,7 +26,7 @@
 - [x] 作成通知・再試行を所有メッセージの記録・回収、通常ポーリング、専用workflowへ接続し、ローカル検証する。
 - [x] `discord_batch_notification` を実サービスで実行し、通知・再試行・全所有資源の回収と証跡を確認する（[実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)）。
 - [x] 手動・単独Cron・全体同期の共通処理を使うロック競合E2E、結果KVの所有・回収、専用workflowを実装し、ローカル検証する。
-- [ ] `sync_lock` で共通処理の競合・結果保護・解放を実KV・DOで検証する。HTTP内の並行呼出しであり、実Cron配信は項目8で扱う。
+- [x] `sync_lock` で共通処理の競合・結果保護・解放を実KV・DOで検証する（[実行34834547224](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34834547224)）。HTTP内の並行呼出しであり、実Cron配信は項目8で扱う。
 
 ## 3. 状態とロックの障害検証
 

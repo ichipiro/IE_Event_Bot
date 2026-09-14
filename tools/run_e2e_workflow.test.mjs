@@ -1222,17 +1222,22 @@ for (const failure of [null, "prepare", "verify", "version", "outcome"]) {
   });
 }
 
-for (const failure of [null, "prepare", "verify", "version", "outcome"]) {
+for (const failure of [null, "prepare", "advance", "early_done", "late_done", "verify", "version", "outcome"]) {
   test(`状態障害workflow: ${failure ?? "success"}と必須cleanup`, async () => {
+    let advances = 0;
     const overrides = {
       read_status: async () => ({ ok: true,
         worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
         scenarios: { sync_faults: { present: true, dirty: true, run_id: RUN_ID, stage: "fault_verified" } },
       }),
-      trigger_sync: async (args) => ({
-        ok: !(args.sync_phase === (failure === "verify" ? "resume" : failure)),
-        run_id: RUN_ID, status: 200, dirty: true, error: "sync_faults_probe_failed",
-      }),
+      trigger_sync: async (args) => {
+        if (args.sync_phase === "advance") { advances += 1; }
+        return {
+          ok: !(args.sync_phase === (failure === "verify" ? "resume" : failure)),
+          run_id: RUN_ID, status: 200, dirty: true, error: "sync_faults_probe_failed",
+          execution_status: (advances === 7 && failure !== "late_done") || (failure === "early_done" && advances === 1) ? "prepared" : "partial",
+        };
+      },
       assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
     };
     const { calls, callTool } = stateWorkflowFixture(overrides, "sync_faults");
@@ -1241,6 +1246,11 @@ for (const failure of [null, "prepare", "verify", "version", "outcome"]) {
     } else {
       assert.deepEqual(await runDeployAndSyncFaultsSmoke(callTool, RUN_ID), { ok: true, scenarios: ["sync_faults"] });
     }
+    if (!failure) {
+      assert.deepEqual(calls.filter((call) => call.name === "trigger_sync").map((call) => call.args.sync_phase),
+        ["prepare", ...Array(7).fill("advance"), "resume"]);
+    }
+    if (failure === "advance") { assert.equal(advances, 1); }
     assert.equal(calls.filter((call) => call.name === "deploy_e2e").length, 1);
     assert.equal(calls.filter((call) => call.args.sync_phase === "prepare").length, 1);
     assert.equal(calls.filter((call) => call.name === "cleanup_run" && call.args.service === "sync_faults").length, 1);

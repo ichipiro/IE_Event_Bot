@@ -1,5 +1,15 @@
 # 作業履歴
 
+## 2026-09-14: 状態障害E2Eの時間上限対策
+
+- マージ済み `76ac4c8` の[実行34839754885](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34839754885)は、Local validation成功とEnvironment承認後に専用Workerを1回deployした。run IDは `E2E-20260914T114605Z-60928ebf`。7つのKV障害ケースのprepare処理を記録したが、約51.4秒で409 `sync_faults_probe_failed` となり、TTLケース・別HTTP読戻しは完了しなかった。50秒のphase上限への到達が疑われるが、旧エラーでは例外種別は確定できない。
+- run内と `always()` のcleanupが200、対象 `failed_clean`・全資源 `dirty=false` を確認した。artifact監査8行・完了4操作とmanifest、version・run・commit一致、JUnit 563件・失敗0を独立照合した。失敗した検証をpassedとして扱わない。
+- 1回prepareと7回advanceで、8ケースを1 HTTPずつ実行するよう変更した。DOに着手と確定位置を保存し、hashの固定順・1件ずつの追加を強制する。未完了verifyは進捗を変更せず拒否し、書込み途中の失敗は再実行せず回収する。timeoutを固定エラーへ分離した。
+- 分割前に再現テスト2件の失敗を確認してから修正した。合算60秒の遅延モデル、途中timeout後の再実行拒否、所有者・version・認証の不一致、ケース飛越し、workflowの早すぎる完了・完了不足と必須cleanupも確認した。
+- Python 570件、Node 166件、Ruff、Pyright、E2E設定・Secret hygiene・workflow・Bash構文検査が成功した。秘密ファイルを含まないコピーで通常・E2E設定のWrangler dry-runが成功した。
+- 時計とsleepを置換しないローカル実行でもprepare・advance 7回・verify・cleanupが成功した。KVケースの最長は6.31秒、TTLケースは10.03秒だった。KV・DO storage・runtimeは代替実装、外部通信は遮断しており、分割後の実Cloudflare動作は未検証。今回の修正のPR・マージ・再デプロイは未実施。
+- 開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
 ## 2026-09-14: 古いqueueによる未処理操作の喪失を対策
 
 - 作成・更新・削除・件数上限の繰越・通知待ちの5ケースで、古いqueueの読取り後に残件が失われることを失敗テストで確認してから修正した。snapshotの各イベント指紋にも `_pending_sync` を保存し、見えているqueueを優先してsnapshot側だけに残った操作を補完する。既存のKVキーとDOの責務は維持した。

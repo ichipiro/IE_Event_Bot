@@ -125,3 +125,6 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - API トークンの権限と有効期限
 - GitHub の Secret、Actions 権限、branch protection、ruleset
 - 実際の疎通と監査ログ
+
+
+通常同期ロックのE2Eは専用の認証付き `sync-lock` routeだけから実行する。同期本体を検査用runnerへ差し替えて外部サービスへの書込みを防ぎ、結果KVをDOで所有するrun・scope・固定キーへ限定する。globalロックを競合側やcleanupが強制解放することはない。所有情報・結果hashの改変、未回収資源、制御ロック解放の未確認があれば成功扱いしない。実Cronを有効化せず、固定例外は検査用本体のみに注入する。

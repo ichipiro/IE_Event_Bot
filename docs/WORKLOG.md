@@ -1,5 +1,14 @@
 # 作業履歴
 
+## 2026-09-14: 通常同期の共通ロック競合E2Eを実装
+
+- `sync_lock` を追加した。手動・CronのDiscord同期分岐と全体同期の共通処理で、各経路を保持側とする成功・固定例外の6 roundを実行する。保持中に3経路を競合側として呼び、本体未実行・結果KVアクセスなし・owner維持、保持側の解放と例外後の成功を確認する。
+- 同期本体だけを省略可能なrunnerで隔離した。通常HTTP・Cronは既存runnerを使う。E2Eでは外部サービスへ通信せず、結果StateStoreをrun・scope・round別の固定キーへ限定する。DOに結果hashを保持し、別HTTPで実KVを読戻す経路を追加した。
+- 18候補中の結果8キーを保存し、cleanupは固定18キーを回収する。所有情報・hashの差し替えとclean後の再利用をDOで拒否する。制御DOロックの解放読戻し後だけcleanにし、globalロックの強制解放はしない。途中失敗・タイムアウトでは保持taskのfinally完了を待つ。
+- 認証・POST・version tag照合、MCP固定経路、`deploy-and-sync-lock-smoke`、有限の読戻し待機、監査対象の `always()` cleanup、statusとマスク済みmanifestへ接続した。
+- Python 510件（新規23件）、Node 154件、Ruff、Pyright、E2E設定・Secret hygiene・workflow検査、Bash構文検査が成功した。秘密ファイルを含まないコピーで固定Wrangler 4.127.1の通常・E2E両設定のdry-runが成功した。
+- 実KV・DOでのE2Eは未実行である。競合は1 HTTP内の共通処理の並行呼出しであり、別Workerリクエスト間の競合、実Cron配信、外部API適用中の競合、TTL超過は証明しない。開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
 ## 2026-09-14: 通常ポーリングの通知・再試行を実サービスで検証
 
 - upstream [PR #70](https://github.com/ichipiro/IE_Event_Bot/pull/70)とfork同期[PR #56](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/56)のマージ後、fork `develop` の `b95be41d1e7c31f5d707168650f644caa10968c7` で[実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)を開始した。Local validation成功後、Environmentのrequired reviewer承認を通して専用Workerを1回deployした。

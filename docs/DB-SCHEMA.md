@@ -126,3 +126,5 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 
 
 通常Discord snapshotの値は従来どおりevent IDからJSON文字列への辞書である。残件のある指紋JSONだけに `_pending_sync: {op, id, notification?}` を追加し、queueと同じ未処理操作を保持する。`notification` は通知先と投稿済みmessage IDを含む。削除待ちでは対象IDの記録を保持し、成功後に除く。DOへ通常queue本体を移さず、KVとDOの役割と既存bindingは維持する。E2Eの各KV adapterとdelta checkpointは、指紋内の残件についても許可ID・操作・通知先を検査する。
+
+Google E2Eの新規manifestは `retry_enabled=true` を保持し、途中での変更を拒否する。検証済みdeletedの後にretry_pending・retriedを通した場合だけpassedを許可する。旧manifestは4段階の回収条件を維持する。追加のbinding・KVキーはない。

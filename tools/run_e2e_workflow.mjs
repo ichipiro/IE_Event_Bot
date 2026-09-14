@@ -588,7 +588,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   await runPreflight(callTool, runId, options.preflight);
   let primaryError = null;
   try {
-    for (const [index, step] of ["pending", "drained", "updated", "deleted"].entries()) {
+    for (const [index, step] of ["pending", "drained", "updated", "deleted", "retry_pending", "retried"].entries()) {
       const written = await requireTool(callTool, "trigger_sync", {
         run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? "prepare" : "advance",
       });
@@ -615,6 +615,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       const manifest = status.scenarios?.google_sync;
       if (!manifest?.present || !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "verified" ||
           manifest.stages?.[`google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
+          (index >= 4 && manifest.stages?.google_sync_discord_failure_injected !== 200) ||
           status.worker_version?.id_sha256 !== deployed.version_sha256) {
         throw new E2eWorkflowError("google_sync_verification_mismatch");
       }

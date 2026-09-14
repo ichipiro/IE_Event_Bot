@@ -596,7 +596,7 @@ ws    Discord ID(message_id / mapped_id) 探索順:
     return None
 
 
-async def apply_google_events(env, state, events: list[dict]):
+async def apply_google_events(env, state, events: list[dict], *, discord_syncer=None):
     """
     Google Calendar のイベント一覧を受け取り、Notion と Discord に反映する。
     1回で処理しすぎないように件数制限し、失敗分は次回へ繰り越す。
@@ -838,13 +838,18 @@ async def apply_google_events(env, state, events: list[dict]):
                 gcal_discord_map[google_event_id] = origin_discord_event_id
             # そうでなければ Googleイベントを Discord 側へ作成または更新
             else:
-                discord_event_id = await _sync_to_discord(
+                # 所有資源E2Eでは、この呼出しだけ固定失敗を注入できる。
+                discord_event_id = await (discord_syncer or _sync_to_discord)(
                     env,
                     event,
                     page,
                     external_page,
                     gcal_discord_map,
                 )
+                if _discord_sync_available(env) and not discord_event_id:
+                    had_error = True
+                    event_failed = True
+                    errors.append(f"discord_sync_failed:{google_event_id}")
 
             # Notionページに Discord ID を書き戻す
             if page and discord_event_id:

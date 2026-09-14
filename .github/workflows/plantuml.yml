@@ -1,21 +1,6 @@
 name: PlantUML Architecture
 
 on:
-  push:
-    branches: [main, develop]
-    paths:
-      - "workers/src/**"
-      - "workers/wrangler.jsonc"
-      - "docs/architecture/plantuml/**"
-      - "tools/validate_plantuml.py"
-      - ".github/workflows/plantuml.yml"
-  pull_request:
-    paths:
-      - "workers/src/**"
-      - "workers/wrangler.jsonc"
-      - "docs/architecture/plantuml/**"
-      - "tools/validate_plantuml.py"
-      - ".github/workflows/plantuml.yml"
   workflow_dispatch: {}
 
 permissions:

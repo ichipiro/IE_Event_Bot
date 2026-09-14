@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-15: 通常Google同期E2Eの再実行が成功
+
+- 修正版 `24c9e53609bfd5a4fc3d832ab3bbd64f8b91ddca` の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、Local validation成功とEnvironment承認後に専用Workerを1回deployした。run IDは `E2E-20260914T152925Z-e16dcc4a`。
+- 所有Google予定2件の全ページ取得・通常dispatch・Notion/Discord適用、上限1件の繰越、残件消化、説明更新、削除・archive、各段階のcursor・対応表・queue・外部資源の別HTTP読戻しが成功した。prepare 1回・advance 3回・verify 4回で、読戻し再試行はなかった。最長phaseはprepareの36.058秒だった。
+- 監査22行・完了11操作とmanifest、実行commit・clean checkout、run ID・version tag・deploy/最終version fingerprint、JUnit 602件・失敗0を独立照合した。run内と `always()` のcleanup成功、`passed`・全資源 `dirty=false` を確認した。
+- 修正後のローカルPython 602件、Ruff、Pyright、E2E設定・秘密情報形式・workflow検査、E2E Wrangler dry-runも成功した。通常名前空間の状態、任意予定の全件適用、実Cron、外部API障害からの途中再開は検証対象外。実行時点でPR・マージ・本番デプロイは未実施。
+
 ## 2026-09-15: 通常Google同期E2Eの初回失敗とKV欠損値の修正
 
 - `ddbc8c8f112819c4b3234ba01eeedf705c3d934e` の[実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)で専用Workerを1回deployした。prepareは約17.7秒で409 `google_sync_failed` となり、後続段階へ進まなかった。実行時の例外種別は未確定である。

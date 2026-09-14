@@ -58,6 +58,7 @@
 
 ### 通常Discord同期の共有状態と排他
 
+- 保証範囲の確定: [保証範囲表](TESTING.md#状態障害の保証範囲表)と追加8ケースで、両キーの古い読取り・旧形式による削除待ち喪失、再適用・重複通知、owner確認後の期限切れによる新結果上書きをローカル再現した。項目3の境界整理は完了したが、これらの制限を解消したものではない。
 - 状態障害のローカル検証: `sync_faults` に古いsnapshot / queue 3ケースと、外部適用の代替runner成功後のKV保存前後失敗4ケースを追加した。古い空queueと最新snapshotにより、未処理イベント1件が別イベントの再試行queueで上書きされる条件を再現した。対策としてsnapshotの各指紋に `_pending_sync` を付け、queueとの和集合から残件を復元するよう修正した。作成・更新・削除・件数上限残件・通知待ちの再現5テストが修正前に失敗し、修正後は成功した。専用シナリオも残件回復を必須とした。実行34839754885ではKV障害7ケースのprepare処理が完了したが、TTLと別HTTP読戻し前に停止したため、この実行を検証完了とは扱わない。分割後は[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)で8ケースと別HTTP読戻し・回収が成功した。両キーとも古い場合や、残件情報のない旧形式snapshotと古いqueueの組合せからの復元は保証しない。保存失敗・古い値による再適用も確認しており、一度限りの反映は保証しない。
 - 状態障害E2Eの時間上限: [実行34839754885](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34839754885)はprepare約51.4秒で409となり、50秒のphase上限への到達が疑われる。回収200・`failed_clean`・全資源 `dirty=false` を確認済み。対策として1ケースずつ別HTTPに分割し、途中着手記録・固定順・書込み再送拒否・明示的なtimeoutエラーを追加した。分割後は[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)で各ケース最大15.191秒、TTL 14.051秒、verify 13.133秒で成功した。`passed`・全資源cleanを確認済み。
 - TTLへの追加対応: 期限・所有者を失った旧実行の結果保存を拒否するよう修正した。手動・Cron分岐・全体同期とGoogle適用後のcursor保護をローカル確認した。DO確認とKV書込み間の競合、同期本体内のqueue保存、実行済み外部書込みは保護範囲外である。10秒TTLと新旧実行を使う専用E2Eは[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)で実KV・DOでも成功した。

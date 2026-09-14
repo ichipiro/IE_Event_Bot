@@ -333,6 +333,53 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 
 この対策は、片方に保持された残件をもう片方の古い値で捨てないためのものである。両キーが残件作成前の古い値なら未知の操作を復元できず、古い残件の再出現や外部成功後の保存失敗では再適用され得る。KVの複数キーの原子性、一度限りの外部反映、TTL超過中の全書込みの排他を追加保証するものではない。新形式を読まない旧版へ戻す場合は、稼働中の残件を回収・完了させてから状態を確認する。
 
+### 状態障害の保証範囲表
+
+2026-09-14に [test_sync_guarantee_boundaries.py](../tests/test_sync_guarantee_boundaries.py) の8ケースを追加し、通常処理で以下の制限を再現した。古い読取り、保存失敗、応答喪失、時計の進行は固定注入であり、実サービスの障害発生率・伝播時間を測定した結果ではない。テスト成功は記載した挙動の確認を意味し、残る不具合の解消を意味しない。
+
+| 条件 | 現行の結果・保証 | 検証根拠 |
+| --- | --- | --- |
+| 新形式snapshotに残件が見え、queueだけが古い | 作成・更新・削除・上限繰越・通知待ちを復元する | `test_discord_stale_queue.py`、実KVの固定 `stale_queue_loss` ケース |
+| 両キーが残件の見えない古い値 | 削除待ちを復元できない。別イベントの失敗残件を保存すると元の残件が上書きされ、その後の新しい読取りでも戻らない | 追加テスト `test_invisible_delete_pending_cannot_be_recovered[False]` |
+| 残件markerのない旧snapshotと古いqueue | 同じ削除待ちの喪失が起きる。旧形式を読めることと、隠れた残件の復元は別の保証 | 同 `[True]`。可視の旧queue互換は `test_discord_notification_retry.py` |
+| 成功後にsnapshot・queueがともに空の古い値 | 再び新規と判定し、外部適用と作成通知を重複実行する | 追加テスト `test_stale_empty_state_replays_apply_and_creation_notification` |
+| 投稿済みmessage IDが残件に見える | 同じmessageへリアクションだけを再試行し、再投稿しない | `test_discord_stale_queue.py`、実通知E2E |
+| 投稿済みだが応答からmessage IDを取得できない | 次回は新しいmessageを投稿するため、一度限りの配信を保証しない | 追加テスト `test_missing_post_response_retries_with_another_message` |
+| 通知成功後、queue保存前に失敗 | snapshot保存も未完了なら再適用・再投稿が起きる | 追加テスト `test_queue_save_failure_after_notification_allows_duplicate` |
+| 段階間のowner確認時点で期限切れ・別owner・確認不能 | 409で停止し、その段階以降のcursor・最終結果保存を拒否する | `test_sync_lock_expiry.py`、実DOの固定TTLケース |
+| owner確認後、結果KV保存の完了前に期限切れ | 新実行が保存した結果を旧実行が上書きし、旧実行も200を返し得る。旧ownerの解放処理は新ownerを解放しない | 追加テスト `test_expiry_during_result_put_can_overwrite_new_result` の手動・Cron分岐・全体同期3ケース |
+
+外部適用・通知とKV保存を一つのトランザクションにはしていない。DOのowner確認とKV保存も不可分ではない。項目3の「保証範囲確定」はこの表の確定を指し、残件の無損失、一度限りの反映、全書込みの排他を完了条件へ追加したものではない。
+
+### 通常Google同期のローカル接続検証
+
+[test_google_sync_pipeline.py](../tests/test_google_sync_pipeline.py) は通常 `_run_sync_dispatch`、`run_google_delta_fetch`、`apply_google_events`、`StateStore` を通す。Google HTTP応答、認証token取得、Notion API補助関数、Discord API境界だけを代替し、DOはローカルで実ロジックを使う。各呼出しで `StateStore` を作り直す。
+
+- 2ページを取得し、上限1件で残件を保存する。次回の2分重複範囲のquery、残件消化、Notion・Discord対応表、同じIDでの更新、取消時のarchive・削除・対応表除去、cursor更新を照合する。
+- Notion照会の固定例外でcursorを進めず、失敗分を未処理分より先に再試行する。
+- Googleの2ページ目が503なら、1ページ目も適用せず、cursor・対応表・queueを更新しない。
+
+3ケースは通常経路の接続確認である。実サービス用の所有・回収は以下のシナリオへ実装した。全Calendarの実取得、外部DB、全APIの部分失敗、古いqueueと新しい同一イベントの競合、実KV伝播は未検証で、[E2E-PLAN.md](E2E-PLAN.md) 項目4は継続中である。
+
+### 通常Google同期の専用E2E
+
+`e2e_google_sync_probe.py` の `google_sync` は、`POST /admin/e2e/google-sync` と `/advance`・`/verify`・`/cleanup` を使う。`E2E_GOOGLE_SYNC_ENABLED=true`、内部認証、run ID、稼働version tagとの一致、KV・DO、専用Calendar・Notion内部DB・Discord guild、共通ロック有効・クールダウン無効を必須とする。cleanupは同run・同対象を確認するが、稼働version tagへの一致を要求しない。
+
+| 段階 | 操作と確認 |
+| --- | --- |
+| prepare → pending | run由来の固定Google IDで2件作成。通常全ページ取得から所有2件を選び、通常dispatch・適用を上限1件で実行。Notion・Discord各1件と残件1件を保存 |
+| verify | 別HTTPで6つのKV値のhash、cursor期待値、queue、対応表、所有予定・ページ・Discordイベントを照合 |
+| advance → drained | 前段階の検証済み状態を再確認し、上限2件で残件を消化。重複取得された予定の更新は通常処理に従う |
+| advance → updated | 先頭の所有Google予定の説明を更新し、通常差分取得・適用からNotion・Discordへの反映を確認 |
+| advance → deleted | 同じ所有Google予定を削除し、通常取得のcancelledからNotion archive・Discord削除・対応表除去を確認 |
+| cleanup | Google予定・Notionページ・Discord予定の所有を再確認して回収し、run別KVの固定6キーを削除 |
+
+各advanceの前にverifyを必須とする。専用制御DOロックはphase全体を保護し、通常dispatchは既存の共通同期ロックを使用する。1 HTTPは50秒を上限とする。書込み前に `working` を保存し、途中失敗したphaseは再送せずcleanupへ進む。所有IDが未保存でもrun markerで一意に再発見し、曖昧・所有不一致ならdirtyを維持する。ID衝突で作成していない既存予定は回収しない。検証の再実行が失敗した場合も成功判定を取り消す。
+
+MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 3回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
+
+ローカルでは [test_e2e_google_sync_probe.py](../tests/test_e2e_google_sync_probe.py) の19ケースで全段階、認証・version・設定拒否、古いKV、所有差替え、ID衝突、作成応答喪失、外部作成失敗後の再送拒否、回収再試行、再検証失敗、一覧反映遅延時の取得済みIDによる回収、外部削除後のKV回収失敗からの再試行を確認した。Google・Notion・Discord APIと対象の疎通確認は代替している。2026-09-15時点で実サービス実行は未実施。回収の保証範囲はAPI応答とKV delete完了であり、全拠点への削除伝播完了ではない。任意の外部予定への適用、実Cron、通知、Notion外部DB、部分失敗からの任意位置の自動再開はこのシナリオの対象外である。
+
 
 ### 分割後の状態障害E2Eの実行結果
 

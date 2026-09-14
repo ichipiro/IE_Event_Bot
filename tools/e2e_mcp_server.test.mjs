@@ -1713,3 +1713,38 @@ test("旧versionの拒否後も応答破棄指定を維持する", async () => {
     assert.equal(cancellations, 1);
   });
 });
+
+test("通常Google同期の各phaseとcleanupは固定ルートへ送る", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ path: new URL(url).pathname, headers: options.headers });
+    return jsonResponse({ ok: true, dirty: !String(url).endsWith("cleanup"), run_id: RUN_ID,
+      status: "pending", stage: "google_pending_verified" });
+  } }, async (client) => {
+    for (const phase of ["prepare", "advance", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true, JSON.stringify(result));
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: "google_sync", confirmation: `cleanup:google_sync:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  assert.deepEqual(calls.map(c => c.path), ["", "/advance", "/verify", "/cleanup"].map(suffix => `/admin/e2e/google-sync${suffix}`));
+  assert.ok(calls.slice(0, 3).every(c => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+});
+
+for (const invalid of ["stage", "dirty", "run"]) {
+  test(`通常Google同期MCPは${invalid}不一致を拒否する`, async () => {
+    const payload = { ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "google_pending_verified" };
+    if (invalid === "stage") { payload.stage = "ready"; }
+    if (invalid === "dirty") { payload.dirty = false; }
+    if (invalid === "run") { payload.run_id = RUN_ID.replace("1234abcd", "11111111"); }
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse(payload) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: { run_id: RUN_ID, scenario: "google_sync", sync_phase: "resume" } }));
+      assert.equal(result.ok, false);
+    });
+  });
+}

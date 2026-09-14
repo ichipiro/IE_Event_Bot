@@ -172,5 +172,7 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 
 `e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
 
+`e2e_google_sync_probe.py` は通常 `_run_sync_dispatch` → `run_google_delta_fetch` → `apply_google_events` を接続する。取得後に所有2件へ限定し、通常StateStoreをrun別の6つのKVキーへ向ける。初回上限1件、残件消化・更新・削除は上限2件で、各段階の別HTTP読戻しを必須とする。共有状態の形式と共通同期ロックを使うが、通常Google認証cache・Notion外部DB・Discord通常ポーリングへは接続しない。
+
 
 通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。

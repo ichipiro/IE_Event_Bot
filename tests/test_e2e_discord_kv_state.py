@@ -268,3 +268,23 @@ def test_state_scope_unset_disables_route():
     env.E2E_STATE_SCOPE = ""
     assert run(request(env))[0] == 404
     assert env.STATE_KV.put_calls == []
+
+
+@pytest.mark.parametrize('mutation', ['foreign_event', 'notification'])
+def test_embedded_retry_cannot_escape_owned_state(mutation):
+    from discord_retry_state import PENDING_FIELD
+
+    env = environment()
+    assert run(request(env))[0] == 200
+    kv = adapter(env)
+    event_id = kv.owner['event_ids'][0]
+    op: dict = {'id': event_id, 'op': 'upsert'}
+    if mutation == 'foreign_event':
+        op['id'] = 'foreign'
+    else:
+        op['notification'] = {'channel_id': 'unowned'}
+    value = json.dumps({event_id: json.dumps({'id': event_id, PENDING_FIELD: op})})
+    before = dict(env.STATE_KV.data)
+    with pytest.raises(ValueError, match='discord_state_value_forbidden'):
+        run(kv.put(KEYS[0], value))
+    assert env.STATE_KV.data == before

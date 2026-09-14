@@ -164,3 +164,13 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 ### 通常同期ロックの専用E2E
 
 `e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。
+
+
+### 状態障害と期限切れの検査
+
+通常の単独同期・全体同期は、同期の段階間でDOのownerと期限を再確認し、失効・確認不能なら409 `sync_lock_lost` として後続の結果保存を止める。確認とKV書込みは原子的ではなく、同期本体内の状態保存や既に開始した外部処理の排他を保証しない。
+
+`e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
+
+
+通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。

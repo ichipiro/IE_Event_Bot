@@ -210,8 +210,13 @@ async def cleanup_batch_kv(store, owner: dict) -> None:
         await store.env.STATE_KV.delete(key_prefix(owner) + key)
 
 
+class BatchQueueChanged(Exception):
+    pass
+
+
 class BatchDiscordKV(OwnedDiscordKV):
-    def __init__(self, store, owner: dict):
+    def __init__(self, store, owner: dict, *, expected_queue=None):
+        self.expected_queue = deepcopy(expected_queue)
         if not valid_batch_owner(owner) or any(
             not item.get("discord_event_id") for item in owner["fixtures"]
         ):
@@ -229,6 +234,14 @@ class BatchDiscordKV(OwnedDiscordKV):
             },
         )
         self.prefix = key_prefix(owner)
+
+    async def get(self, key: str):
+        value = await super().get(key)
+        if key == KEYS[1] and self.expected_queue is not None:
+            queue = [] if value is None or str(value) in ("jsnull", "jsundefined") else json.loads(str(value))
+            if queue != self.expected_queue:
+                raise BatchQueueChanged("discord_batch_queue_changed")
+        return value
 
     def _check_value(self, key: str, text: str) -> None:
         if key != KEYS[1] or self.batch_owner.get("kind") != NOTIFICATION_KIND:

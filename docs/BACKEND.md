@@ -77,6 +77,10 @@ StateStore
 
 通常の差分処理は、失敗・上限超過の操作を `sync:discord_notion_queue` に保存してから `discord:snapshot` を進める。queue保存が失敗した場合は旧snapshotから差分を再検出でき、snapshot保存が失敗した場合は保存済みqueueから再試行できる。外部反映後の保存失敗では成功済み操作が再実行され得る。
 
+作成通知が有効な新規イベントは、通知先をqueueの `notification` に保持する。上限超過や同期失敗で繰り越しても、同期成功後に通知する。通知だけが失敗した場合は `op=notify` として保存し、イベントに新しい変更がなければGoogle・Notionを再適用しない。投稿済みのmessage IDがあれば、そのメッセージへの✅リアクションだけを再試行する。通知操作も通常の処理件数上限に含める。イベントが一覧から消えた場合は既存の削除処理へ切り替え、保留通知を送らない。通知待ちの完了イベントが一覧から消えた場合は、同期先を削除せず保留通知だけを取り除く。
+
+通知先チャンネルの変更・無効化時は、保留通知を別チャンネルへ転送せず失敗として保持する。元の設定を復元すれば再試行できる。投稿結果を取得できない場合やKVの保存失敗・古い値の参照では重複投稿があり得るため、一度だけの配信は保証しない。
+
 これは複数キーの原子的更新や厳密な一度限りの適用を保証しない。[Workers KVの結果整合性](https://developers.cloudflare.com/kv/concepts/how-kv-works/)による古い値の参照、既存のロックTTLを超える処理の競合は残る。
 
 ### Google Webhook
@@ -152,3 +156,6 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 通常KVと外部fixtureの接続は専用 `discord_kv` シナリオで段階的に検証する。所有Discord event 1件を通常差分処理へ渡し、snapshot / queueはrun・scope別KVへ、外部資源のIDと所有メタデータはDOへ保存する。別HTTPで読戻し、外部資源・KVの回収後だけcleanとする。固定2件の `discord_batch` は上限1件で適用し、KVの残件を別HTTPで確認・消化する。通常ポーリング入口の一覧取得後、DOで所有する2件のID・run marker・初期内容を検証して差分処理へ渡す。Google同期・通知・通常Guild全件の適用は未接続。詳細は [TESTING.md](TESTING.md) を参照。
 
 通常ポーリングからGoogleも作成する `discord_batch_google` は、同じ2件の所有・KV残件処理を再利用する。各fixtureのGoogle固定IDとCalendar fingerprintをDOへ保存し、GoogleとNotionの作成直前に着手を記録する。Google作成が完了してからNotionへ対応IDを書き込み、別HTTPで両サービスを照合する。通常のGoogle同期設定は変えず、専用env viewで有効化する。
+
+
+`discord_batch_notification` は通常ポーリングの作成通知を所有2件へ接続する。通知runnerと送信・リアクション関数の差し替え口を使い、E2Eの投稿前後にDO所有記録と読戻しを行う。通常の呼出しではこれらを指定せず既存処理を使う。1件目は投稿後のリアクションをAPI呼出し前に1回だけ失敗させ、次のHTTPで同じmessageに再試行してから2件目へ進む。snapshot / queueはrun・scope別KV、message ID・投稿着手・回収完了はDOへ置く。専用route・MCP・手動workflowを接続済みで、検証手順と実サービス未検証の境界は [TESTING.md](TESTING.md) に記録する。

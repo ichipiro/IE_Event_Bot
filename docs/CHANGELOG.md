@@ -2,7 +2,13 @@
 
 この文書は、標準文書構成の変更を記録する。アプリケーションの公開リリース履歴は、Release Please が管理するリポジトリルートの `CHANGELOG.md` を正本とする。
 
+## 2026-09-14
+
+- `discord_batch_notification` の所有message記録・別HTTP再試行・回収、専用workflow、KVとDOの責務を記録した。ローカル検証と実サービス未検証を分け、E2E計画を更新した。
+
 ## 2026-09-12
+
+- 通常Discord同期の作成通知繰越・失敗再試行、投稿済みmessageのリアクション再試行、queue互換と重複配信の保証境界を記録した。通知22件のローカル検証が成功し、実サービス接続は後続作業として区別した。
 
 - 通常ポーリングから所有2件をGoogle・Notionへ反映する `discord_batch_google` を追加した。固定ID・対応ID・作成着手記録・部分失敗回収と、専用手動workflowをローカル検証した。[実行34619150601](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34619150601)で3サービス各2件の適用・残件・読戻し・全資源回収を実サービス確認した。
 

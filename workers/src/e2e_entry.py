@@ -111,6 +111,10 @@ _DISCORD_BATCH_GOOGLE_PHASES = {
     path.replace("discord-batch", "discord-batch-google"): phase
     for path, phase in _DISCORD_BATCH_PHASES.items()
 }
+_DISCORD_BATCH_NOTIFICATION_PHASES = {
+    path.replace("discord-batch", "discord-batch-notification"): phase
+    for path, phase in _DISCORD_BATCH_PHASES.items()
+}
 _DISCORD_KV_PHASES = {
     "/admin/e2e/discord-kv": "prepare",
     "/admin/e2e/discord-kv/verify": "verify",
@@ -317,8 +321,9 @@ def _e2e_google_discord_sync_enabled(env) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
-def _e2e_discord_batch_enabled(env, *, google=False) -> bool:
-    flag = "E2E_DISCORD_BATCH_GOOGLE_ENABLED" if google else "E2E_DISCORD_BATCH_ENABLED"
+def _e2e_discord_batch_enabled(env, *, google=False, notification=False) -> bool:
+    flag = ("E2E_DISCORD_BATCH_NOTIFICATION_ENABLED" if notification else
+            "E2E_DISCORD_BATCH_GOOGLE_ENABLED" if google else "E2E_DISCORD_BATCH_ENABLED")
     return (str(getattr(env, flag, "false")).lower() == "true"
             and bool(str(getattr(env, "E2E_STATE_SCOPE", "") or "").strip()))
 
@@ -447,8 +452,9 @@ class Default(ApplicationDefault):
         )
         discord_state_route = path in _DISCORD_STATE_PHASES
         discord_kv_route = path in _DISCORD_KV_PHASES
+        discord_batch_notification_route = path in _DISCORD_BATCH_NOTIFICATION_PHASES
         discord_batch_google_route = path in _DISCORD_BATCH_GOOGLE_PHASES
-        discord_batch_route = path in _DISCORD_BATCH_PHASES or discord_batch_google_route
+        discord_batch_route = path in _DISCORD_BATCH_PHASES or discord_batch_google_route or discord_batch_notification_route
         discord_notion_route = path in (
             _DISCORD_NOTION_SYNC_PATH,
             _DISCORD_NOTION_CLEANUP_PATH,
@@ -516,7 +522,7 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_delta_route and not _e2e_discord_delta_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
-        if discord_batch_route and not _e2e_discord_batch_enabled(self.env, google=discord_batch_google_route):
+        if discord_batch_route and not _e2e_discord_batch_enabled(self.env, google=discord_batch_google_route, notification=discord_batch_notification_route):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if discord_kv_route and not _e2e_discord_kv_enabled(self.env):
             return _json_response({"ok": False, "error": "not_found"}, status=404)
@@ -562,6 +568,7 @@ class Default(ApplicationDefault):
                     "discord_kv": await state.get_e2e_manifest("discord_kv"),
                     "discord_batch": await state.get_e2e_manifest("discord_batch"),
                     "discord_batch_google": await state.get_e2e_manifest("discord_batch_google"),
+                    "discord_batch_notification": await state.get_e2e_manifest("discord_batch_notification"),
                     "discord_google": await state.get_e2e_manifest(
                         DISCORD_GOOGLE_SYNC_MANIFEST_SERVICE
                     ),
@@ -645,6 +652,7 @@ class Default(ApplicationDefault):
                         "discord_kv": _e2e_discord_kv_enabled(self.env),
                         "discord_batch": _e2e_discord_batch_enabled(self.env),
                         "discord_batch_google": _e2e_discord_batch_enabled(self.env, google=True),
+                        "discord_batch_notification": _e2e_discord_batch_enabled(self.env, notification=True),
                         "qa_notification": _e2e_qa_notification_enabled(self.env),
                         "reminder": _e2e_reminder_enabled(self.env),
                         "notion_cleanup": _e2e_notion_cleanup_enabled(self.env),
@@ -669,6 +677,7 @@ class Default(ApplicationDefault):
                             "discord_kv",
                             "discord_batch",
                             "discord_batch_google",
+                            "discord_batch_notification",
                             "discord_google",
                             "discord_notion",
                             "discord_delta",
@@ -692,7 +701,7 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
-        kv_phase = (_DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES).get(path)
+        kv_phase = (_DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES).get(path)
         if (discord_state_route or discord_kv_route or discord_batch_route) and kv_phase != "cleanup" and (
             expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
         ):
@@ -817,8 +826,8 @@ class Default(ApplicationDefault):
             if discord_batch_route:
                 result = await run_discord_batch_probe(
                     self.env, state, run_id,
-                    (_DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES)[path],
-                    service="discord_batch_google" if discord_batch_google_route else "discord_batch",
+                    (_DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES)[path],
+                    service="discord_batch_notification" if discord_batch_notification_route else "discord_batch_google" if discord_batch_google_route else "discord_batch",
                 )
                 result["run_id"] = run_id
             elif discord_kv_route:

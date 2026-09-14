@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-14: PlantUMLを手動実行のみに変更
+
+- ローカルに保持していた `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の手動化変更を公開対象に含めた。`push`・`pull_request` を削除し、`workflow_dispatch` を保持した。
+- Java、固定JARとSHA-256検証、ALLOWLIST、図の検証・SVG生成・artifact保存のジョブ本体が変更されていないことを比較した。相対リンクと `git diff --check` を確認した。図の生成処理自体は実行していない。
+- upstreamのmainにも同じ自動起動があるため、起動条件だけを変更するPRで反映する。forkのmainにはPlantUML workflowは存在しない。
+
 ## 2026-09-14: 分割した状態障害E2Eを実KV・DOで再検証
 
 - 修正をfork作業ブランチ `feature/sync-fault-request-split` の `c1740e2f0a5d11dedefe4c06df24f318110ef1f2` へcommit・pushし、[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)を起動した。Local validation成功とEnvironment承認後、専用Workerを1回deployした。

@@ -23,7 +23,7 @@
 | Q&A、リマインド、クリーンアップ | `workers/src/jobs.py` |
 | クラス・関数・API依存、実行フロー、信頼境界 | `docs/architecture/plantuml/architecture-index.json`、`docs/architecture/plantuml/architecture-catalog.md`、同ディレクトリの `.puml` |
 | CI | `.github/workflows/ci.yml` |
-| PlantUML図の検証・SVG生成 | `.github/workflows/plantuml.yml`、`tools/validate_plantuml.py` |
+| PlantUML図の検証・SVG生成（手動実行のみ） | `.github/workflows/plantuml.yml`、`tools/validate_plantuml.py` |
 | Pull Request 規則 | `.github/workflows/commitlint.yml`、`.github/workflows/pr-target-guard.yml` |
 | Release | `.github/workflows/release-please.yml`、`.github/workflows/sync-main-to-develop.yml` |
 

@@ -284,4 +284,6 @@ prepareの1 HTTP内で、手動Discord同期・CronのDiscord同期分岐と共�
 
 制御用DO `e2e:sync-lock-control` のロックが同シナリオの並行prepare / verify / cleanupを拒否する。通常同期が取得するglobalロックとは別であり、その取得・解放を置き換えない。cleanupはglobalロックが残っていれば回収を止め、他ownerを強制解放しない。固定18キーを回収し、制御ロックの解放も読み戻した後でcleanにする。検証成功前に回収した場合は `failed_clean`、成功後だけ `passed` とする。workflowの `always()` cleanupと監査・manifest収集にも接続する。
 
-`tests/test_e2e_sync_lock_probe.py` は実DOロジックと代替KVを使い、6 round、別HTTP読戻し、認証・version・設定拒否、所有情報・hashの差し替え拒否、古いKV、保存・回収・ロック解放失敗、タイムアウト、clean後の再利用拒否を検証する。MCP・workflowでは固定経路、応答不一致の拒否、失敗後の回収、version・outcome照合を検証する。これはローカル検証であり、専用環境での実KV・DO動作、別Workerリクエスト間の競合、実Cron配信、外部API適用中の競合、TTL超過を証明しない。
+`tests/test_e2e_sync_lock_probe.py` は実DOロジックと代替KVを使い、6 round、別HTTP読戻し、認証・version・設定拒否、所有情報・hashの差し替え拒否、古いKV、保存・回収・ロック解放失敗、タイムアウト、clean後の再利用拒否を検証する。MCP・workflowでは固定経路、応答不一致の拒否、失敗後の回収、version・outcome照合を検証する。これらの代替APIテストはローカル検証である。実KV・DOの確認は次の専用実行と区別する。別Workerリクエスト間の競合、実Cron配信、外部API適用中の競合、TTL超過は未検証である。
+
+2026-09-14（JST）の[実行34834547224](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34834547224)で、fork revision `f0a342e1965bbd086d4ff2ed3834673a3475a7cc` を専用Workerへ1回deployし、`sync_lock` を実KV・DOで検証した。6 roundの競合拒否・結果保護・成功/固定例外後の解放、別HTTPでの結果8キーのhashと未作成キーの読戻し、固定18キーの回収が成功した。artifactの監査10行・完了5操作とmanifestを独立照合し、6 round・読戻し・KV回収の各200、run内と `always()` のcleanup成功、Worker version・run一致、`outcome=passed`、全資源 `dirty=false`、JUnit 510件・失敗0を確認した。prepare / verifyは各1回で、KV読戻し再試行は発生していない。同期本体は検査用runnerであり、Discord・Google・Notionへの同期と実Cron配信は実行していない。KV回収はdelete完了の確認であり、全拠点への削除伝播を保証しない。

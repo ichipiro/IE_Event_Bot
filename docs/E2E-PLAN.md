@@ -24,7 +24,7 @@
 - [x] 固定2件のsnapshot / queue、件数上限、残件を実サービスで検証する（[実行34614558706](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34614558706)）。
 - [x] 通常ポーリングの通知繰越・同期失敗後の通知漏れを修正し、投稿・リアクションの再試行をローカル検証する。
 - [x] 作成通知・再試行を所有メッセージの記録・回収、通常ポーリング、専用workflowへ接続し、ローカル検証する。
-- [ ] `discord_batch_notification` を実サービスで実行し、通知・再試行・全所有資源の回収と証跡を確認する。
+- [x] `discord_batch_notification` を実サービスで実行し、通知・再試行・全所有資源の回収と証跡を確認する（[実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)）。
 - [ ] 手動・単独Cron・全体同期の競合を検証する。
 
 ## 3. 状態とロックの障害検証

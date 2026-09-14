@@ -156,3 +156,6 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 通常KVと外部fixtureの接続は専用 `discord_kv` シナリオで段階的に検証する。所有Discord event 1件を通常差分処理へ渡し、snapshot / queueはrun・scope別KVへ、外部資源のIDと所有メタデータはDOへ保存する。別HTTPで読戻し、外部資源・KVの回収後だけcleanとする。固定2件の `discord_batch` は上限1件で適用し、KVの残件を別HTTPで確認・消化する。通常ポーリング入口の一覧取得後、DOで所有する2件のID・run marker・初期内容を検証して差分処理へ渡す。Google同期・通知・通常Guild全件の適用は未接続。詳細は [TESTING.md](TESTING.md) を参照。
 
 通常ポーリングからGoogleも作成する `discord_batch_google` は、同じ2件の所有・KV残件処理を再利用する。各fixtureのGoogle固定IDとCalendar fingerprintをDOへ保存し、GoogleとNotionの作成直前に着手を記録する。Google作成が完了してからNotionへ対応IDを書き込み、別HTTPで両サービスを照合する。通常のGoogle同期設定は変えず、専用env viewで有効化する。
+
+
+`discord_batch_notification` は通常ポーリングの作成通知を所有2件へ接続する。通知runnerと送信・リアクション関数の差し替え口を使い、E2Eの投稿前後にDO所有記録と読戻しを行う。通常の呼出しではこれらを指定せず既存処理を使う。1件目は投稿後のリアクションをAPI呼出し前に1回だけ失敗させ、次のHTTPで同じmessageに再試行してから2件目へ進む。snapshot / queueはrun・scope別KV、message ID・投稿着手・回収完了はDOへ置く。専用route・MCP・手動workflowを接続済みで、検証手順と実サービス未検証の境界は [TESTING.md](TESTING.md) に記録する。

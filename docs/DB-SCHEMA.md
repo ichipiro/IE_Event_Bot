@@ -110,3 +110,6 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 `discord_batch` manifestは固定2組のrun marker・外部ID・初期内容fingerprint・回収完了フラグを所有する。確定済みID・scopeの変更と回収完了の巻戻しをDOで拒否する。snapshot / queueは `e2e:discord_batch:<run_id>:<scope_id>:` の固定2キーだけに保存し、DOには複製しない。外部資源ごとに回収完了を記録し、全外部資源とKVの回収後にIDを除いた集約fingerprintへ置き換える。
 
 `discord_batch_google` は別のDO manifestと `e2e:discord_batch_google:<run_id>:<scope_id>:` の固定2KVキーを使う。対象fingerprintにCalendarを加え、各fixtureへrun由来の `google_event_id`、Google作成着手、Google回収完了を保存する。通常の `discord_batch` とは所有manifest・KV prefixを共有しない。tokenやsnapshot / queueをDO所有manifestへ保存しない。
+
+
+`discord_batch_notification` は `e2e:manifest:discord_batch_notification` と `e2e:discord_batch_notification:<run_id>:<scope_id>:` の固定2KVキーを使う。対象fingerprintへchannelとroleを追加する。各fixtureは `create_attempted.message`、`message_content_sha256`、取得後の `message_id`、`reaction_deferred`、`reaction_done`、`message_cleanup_done` を保持する。DOは取得済みID・本文hash・通知先の差し替えと完了フラグの巻戻しを拒否し、未回収messageがあるclean化を拒否する。KV adapterは所有event ID・通知先hash・DO記録済みmessage IDだけを受け入れる。snapshot / queueをDOへ複製せず、clean後はmessage IDもfixture fingerprintへまとめる。

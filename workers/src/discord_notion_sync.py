@@ -554,7 +554,10 @@ def _build_event_created_message(env, event: dict) -> str | None:
     return "\n".join(lines)
 
 
-async def _notify_discord_event_created(env, event: dict, *, delivery: dict | None = None) -> bool:
+async def _notify_discord_event_created(
+    env, event: dict, *, delivery: dict | None = None,
+    send_message=None, add_reaction=None,
+) -> bool:
     """新規作成された Discord イベントを通知チャンネルへ投稿する。"""
     channel_id = _env_text(env, "EVENT_CREATE_CHANNEL_ID", "")
     if not channel_id:
@@ -563,8 +566,9 @@ async def _notify_discord_event_created(env, event: dict, *, delivery: dict | No
         # 設定変更後に保留中の通知を別チャンネルへ転送しない。
         return False
     message_id = str((delivery or {}).get("message_id") or "")
+    react = add_reaction or _discord_add_reaction
     if message_id:
-        return await _discord_add_reaction(env, channel_id, message_id, "✅")
+        return await react(env, channel_id, message_id, "✅")
     role_id = _env_text(env, "EVENT_CREATE_ROLE_ID", "")
     message = _build_event_created_message(env, event)
     if not message:
@@ -576,7 +580,8 @@ async def _notify_discord_event_created(env, event: dict, *, delivery: dict | No
             "roles": [role_id],
             "replied_user": False,
         }
-    message_id = await _discord_send_message(
+    send = send_message or _discord_send_message
+    message_id = await send(
         env,
         channel_id,
         message,
@@ -588,7 +593,7 @@ async def _notify_discord_event_created(env, event: dict, *, delivery: dict | No
         # 投稿成功・リアクション失敗を次回の再投稿にしない。
         delivery["message_id"] = message_id
     # 参加表明用の✅リアクションを付与する
-    return await _discord_add_reaction(env, channel_id, message_id, "✅")
+    return await react(env, channel_id, message_id, "✅")
 
 
 def _google_sync_enabled(env) -> bool:
@@ -884,6 +889,7 @@ async def _sync_discord_event_delete(
 
 async def run_discord_notion_poll_sync(
     env, state, *, event_selector=None, upsert_runner=None, delete_runner=None,
+    notify_runner=None,
 ):
     """
     定期ポーリングのメイン処理。
@@ -913,11 +919,13 @@ async def run_discord_notion_poll_sync(
         events = await event_selector(events)
     return await _apply_discord_event_diff(
         env, state, events, upsert_runner=upsert_runner, delete_runner=delete_runner,
+        notify_runner=notify_runner,
     )
 
 
 async def _apply_discord_event_diff(
     env, state, events: list[dict], *, upsert_runner=None, delete_runner=None,
+    notify_runner=None,
 ):
     """取得済みイベントの差分判定・適用とsnapshot / queue更新を行う。"""
     current_snapshot = {} # フィンガープリント
@@ -1052,7 +1060,8 @@ async def _apply_discord_event_diff(
                 errors.append(f"upsert_failed:{event_id}")
                 retry_ops.append(op)
             elif "notification" in op:
-                notified = await _notify_discord_event_created(env, event, delivery=op["notification"])
+                notify = notify_runner or _notify_discord_event_created
+                notified = await notify(env, event, delivery=op["notification"])
                 if not notified:
                     had_error = True
                     errors.append(f"create_notify_failed:{event_id}")

@@ -20,6 +20,7 @@ import {
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
   runDeployAndDiscordBatchGoogleSmoke,
+  runDeployAndDiscordBatchNotificationSmoke,
   runDiscordDeltaRecovery,
   selectWorkflowRunId,
   runDeployAndGoogleDiscordSmoke,
@@ -245,6 +246,56 @@ for (const failure of [null, "pending_stage", "advance", "final_stage", "not_rea
     assert.deepEqual(touchedServicesFromAudit([
       { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "discord_batch_google" },
     ], RUN_ID), ["discord_batch_google"]);
+  });
+}
+
+
+for (const failure of [null, "pending_stage", "retry", "retry_stage", "advance", "final_stage", "not_ready", "cleanup"]) {
+  test(`通知workflowは再試行と残件適用を別HTTPで1回ずつ行い回収する: ${failure}`, async () => {
+    const scenario = "discord_batch_notification";
+    let advances = 0;
+    let reads = 0;
+    const calls = [];
+    const callTool = async (name, args) => {
+      calls.push({ name, args });
+      if (name === "deploy_e2e") { return toolResult({ ok: true, version_sha256: "a".repeat(64) }); }
+      if (name === "trigger_sync") {
+        if (args.sync_phase === "resume" && failure === "not_ready" && ++reads === 1) {
+          return toolResult({ ok: false, status: 409, dirty: true, run_id: RUN_ID, error: `${scenario}_not_ready` });
+        }
+        if (args.sync_phase === "advance") { advances += 1; }
+        return toolResult({ ok: true, status: 200, dirty: true, run_id: RUN_ID,
+          execution_status: args.sync_phase !== "advance" ? "prepared"
+            : (advances === 1 ? (failure === "retry" ? "drained" : "retry_drained")
+              : (failure === "advance" ? "retry_drained" : "drained")) });
+      }
+      if (name === "read_status") {
+        const stages = ["batch_pending_verified", "batch_retry_verified", "batch_verified"];
+        return toolResult({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+          scenarios: { [scenario]: { present: true, dirty: true, run_id: RUN_ID,
+            stage: failure === ["pending_stage", "retry_stage", "final_stage"][advances] ? "wrong" : stages[advances] } } });
+      }
+      if (name === "cleanup_run" && failure === "cleanup") {
+        return toolResult({ ok: false, dirty: true, error: "cleanup_failed" });
+      }
+      return toolResult({ ok: true, manifest: { outcome: "passed" } });
+    };
+    const result = runDeployAndDiscordBatchNotificationSmoke(callTool, RUN_ID, {
+      verify: { sleepImpl: async () => {} }, cleanup: { attempts: 1 },
+    });
+    if (failure && failure !== "not_ready") {
+      await assert.rejects(result, /discord_batch_notification_|cleanup_run_failed/);
+      assert.equal(calls.some((c) => c.name === "assert_external_state"), false);
+    } else {
+      assert.deepEqual(await result, { ok: true, scenarios: [scenario] });
+    }
+    assert.equal(calls.filter((c) => c.args.sync_phase === "prepare").length, 1);
+    assert.equal(advances, failure === "pending_stage" ? 0 : ["retry", "retry_stage"].includes(failure) ? 1 : 2);
+    assert.ok(calls.some((c) => c.name === "cleanup_run" && c.args.service === scenario));
+    assert.deepEqual(touchedServicesFromAudit([
+      { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: scenario },
+    ], RUN_ID), [scenario]);
+    assert.ok(COMMANDS.includes("deploy-and-discord-batch-notification-smoke"));
   });
 }
 

@@ -1,5 +1,14 @@
 # 作業履歴
 
+## 2026-09-14: 通常ポーリングの通知・再試行を実サービスで検証
+
+- upstream [PR #70](https://github.com/ichipiro/IE_Event_Bot/pull/70)とfork同期[PR #56](https://github.com/lycanthr0pes/IE_Event_Bot_fork/pull/56)のマージ後、fork `develop` の `b95be41d1e7c31f5d707168650f644caa10968c7` で[実行34831533775](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34831533775)を開始した。Local validation成功後、Environmentのrequired reviewer承認を通して専用Workerを1回deployした。
+- `discord_batch_notification` で所有2件を通常ポーリングへ渡し、上限1件のNotion反映・通知投稿、固定注入後の同じmessageへのリアクション再試行、2件目の通知・最終読戻しが成功した。prepare 1回、advance 2回、verify各段階1回で、KV読戻し再試行は発生していない。
+- artifact `e2e-evidence-34831533775-1` の監査18行・完了9操作をmanifestと独立照合した。run ID `E2E-20260914T100849Z-122a8828`、Worker version tag、deployと最終version fingerprint、対象commitが一致し、実行checkoutはcleanだった。
+- 通知削除204・削除後GET 404、Discordイベント削除204、Notion archive 200を各2件、固定2KVキーの回収200、run内と `always()` のcleanup成功、`outcome=passed`、全資源 `dirty=false` を確認した。生URL・認証情報・生の外部資源IDを含めないartifact構造を確認した。
+- Actionsの両jobと全必須stepが成功し、JUnit artifactの487件・失敗0・エラー0・skip 0を独立確認した。初回リアクション失敗はAPI呼出し前の固定注入であり、Discord側の実障害、実Cron、TTL超過は検証していない。Release・本番デプロイは実施していない。
+- `E2E-PLAN.md`、`TESTING.md`、`ISSUES.md`、文書変更履歴へ結果を反映した。開始時からの `.github/workflows/plantuml.yml` と `docs/REFERENCES.md` の変更を保持した。
+
 ## 2026-09-14: 通常ポーリングの通知所有・再試行E2Eを接続
 
 - `discord_batch_notification` を追加した。所有2件を上限1件で通常ポーリングへ渡し、1件目の投稿後にリアクション処理をAPI呼出し前で1回だけ失敗させる。別HTTPで同じmessageへ再試行し、残り1件の通知へ進む。

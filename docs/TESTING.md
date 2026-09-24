@@ -388,6 +388,8 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 
 `deploy-and-google-sync-recovery` は `recovery_run_id` を必須とし、同runのcleanup段階と稼働tag、他のdirty資源がないことをdeploy前に確認する。修正版を同run IDでdeployした後にgoogle_syncだけを回収し、`failed_clean`、通常とalwaysのcleanup、全資源cleanのpreflight、マスク済みartifactを確認する。fixture作成・同期再開・失敗した試験のpassed化は行わない。
 
+2026-09-24の[復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で、`834930f` を同じrun IDへdeployし、空名回収の照合stage 200、Discord削除204、Notion archive 200、Google削除204、KV回収200、`failed_clean`・全資源 `dirty=false` を確認した。監査4行・2操作、run/version/commit・clean checkout、JUnit 642件・失敗0を照合した。元の試験は失敗のままであり、修正版の不正日時要求と再試行の実証とは分ける。
+
 MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 5回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
 
 ローカルでは [test_e2e_google_sync_probe.py](../tests/test_e2e_google_sync_probe.py) の26ケースで全段階、認証・version・設定拒否、古いKV、所有差替え、ID衝突、作成応答喪失、外部作成失敗後の再送拒否、回収再試行、再検証失敗、一覧反映遅延時の取得済みIDによる回収、外部削除後のKV回収失敗からの再試行、JS null/undefinedのKV欠損値、部分反映からの同じIDへのqueue再試行、注入欠落・回復失敗・要件巻戻し・回復後再検証失敗の拒否を確認した。Google・Notion・Discord APIと対象の疎通確認は代替している。2026-09-15（JST）の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、所有2件の繰越・消化・更新・削除、各段階の別HTTP読戻し、回収が成功した。prepare 1回・advance 3回・verify 4回で再試行はなく、最長phaseは36.058秒だった。監査22行・11操作、manifest、run・version・commit一致、JUnit 602件・失敗0、`passed`・全資源 `dirty=false` を独立照合した。回収の保証範囲はAPI応答とKV delete完了であり、全拠点への削除伝播完了ではない。任意の外部予定への適用、実Cron、通知、Notion外部DB、部分失敗からの任意位置の自動再開はこのシナリオの対象外である。

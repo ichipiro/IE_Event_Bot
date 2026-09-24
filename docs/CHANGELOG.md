@@ -4,6 +4,8 @@
 
 ## 2026-09-24
 
+- [復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)の成功、空名になった所有Discord予定を含む回収、`failed_clean`・全資源clean、run/version/commitとartifactの照合結果を記録した。
+
 - API拒否E2E初回の失敗・dirty資源、空名が受理されたモデルの再現、限定的な所有確認と回収専用workflow、不正日時への試験変更を記録した。
 
 - 通常Google同期のHTTP失敗・subrequest上限による残件消失と成功誤判定の修正、ローカル再現結果を記録した。所有Discord予定の不正PATCHに対するAPI拒否とqueue再試行を専用E2Eへ追加し、実サービス障害・共有状態の全件適用とは分けた。

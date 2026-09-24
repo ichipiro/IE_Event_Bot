@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: API拒否E2Eの残存資源を回収
+
+- 修正版 `834930fd2a9d4a81105cf280a2813ba55aca1506` の[復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で、Environment承認後に専用Workerをdeployした。回収対象は元のrun `E2E-20260924T040614Z-fdf4a42c` のみで、新規fixtureは作成していない。
+- `google_sync_empty_name_recovered=200` から、記録済みID・Guild・run markerが一致し、名前だけ空になったDiscord予定の回収経路を確認した。Discord削除204、Notion archive 200、Google削除204、KV回収200、`failed_clean`・全資源 `dirty=false` を確認した。
+- 監査4行・2操作、対象run・commit・clean checkout、旧実行からのWorker version変更と新version fingerprintの一致を独立照合した。Local validation、回収、always後処理、成果物収集が成功し、JUnit 642件・失敗0を確認した。
+- 元のAPI拒否試験は失敗として保持する。不正日時を使う修正版の6段階E2E、共有状態と任意予定の全件適用、本番デプロイは未確認である。
+
 ## 2026-09-24: API拒否E2Eの失敗と所有資源の回収対策
 
 - `33f5e487efa99a56b93fd9285523712dc9f45732` の[実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)で、Environment承認後に専用Workerをdeployした。run IDは `E2E-20260924T040614Z-fdf4a42c`。作成・繰越消化・更新・削除と各verifyは成功したが、API拒否段階が `google_sync_partial_failure_mismatch` で失敗した。

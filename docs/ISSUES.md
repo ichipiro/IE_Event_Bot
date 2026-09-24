@@ -115,6 +115,7 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 追加診断結果: [実行35991322986](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35991322986)でログ照会403・code 10000に対し、対象account用token verifyは200・activeを確認した。使用中account token自体は有効だがログ照会は拒否される。現在のObservability／Observability Telemetryの権限名とRead/Editを確認中。元のロック解放失敗の原因は未確定。
 - 権限案内の訂正: ユーザー画面には「Workersの可観測性 編集」があり、Telemetryの別項目は存在しない。旧名称に基づく追加案内は撤回した。編集したtokenの所有形態と、診断で使われるaccount tokenとの対応を確認する。権限不足・token不一致のいずれも未確定。
 - 変更対象の相違: ユーザーは「マイプロフィール → APIトークン」で権限追加したと回答した。一方、診断はアカウント所有tokenを使用しており、変更対象が異なる。GitHubに登録したaccount token側への設定反映と再診断が必要。ログ照会の成功と元のロック解放失敗の原因確定は未完了。
+- ログ照会の解決: account token権限更新後、[診断35991322986のattempt 2](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35991322986/attempts/2)が成功し、失敗123件・成功89件のログを取得した。403は解消済み。取得した分類ログに原例外はなく、コードもrelease／status／応答検査の例外詳細を捨てるため、元のロック解放失敗の根本原因は未確定。次は失敗位置と安全な例外分類の記録を追加する。DO RPC記録の47件対49件の差だけでは失敗したactionは特定できない。
 - 暫定対応: 未対応の通常同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で `404` にする。read-only preflight、service CRUD、所有資源限定のサービス間scenario、QA通知scenario、前日リマインドscenario、Notion期限cleanup scenario、Webhook simulation scenario、Google Webhook初回実配信scenario、Google変更起因Webhook scenarioは別routeで継続する。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)

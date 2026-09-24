@@ -1,5 +1,10 @@
 # 作業履歴
 
+## 2026-09-24: 権限を編集したtokenと使用中tokenの相違を確認
+
+- ユーザーは権限追加を「マイプロフィール → APIトークン」で行ったと回答した。診断35991322986で使用したのはaccount用verifyが200・activeとなるアカウント所有tokenであり、変更対象の個人tokenと所有形態が異なる。個人tokenへの権限追加を、GitHubが使用するaccount tokenへの反映と扱うことはできない。
+- 次は「アカウントの管理 → アカウントAPIトークン」にある、GitHub Environment `e2e` の `CLOUDFLARE_API_TOKEN` に対応するtokenの権限を確認する。使用中account tokenへの設定反映と再診断は未実施。これで元のロック解放失敗の根本原因が確定したわけではない。
+
 ## 2026-09-24: Telemetry権限の追加案内を撤回
 
 - ユーザーの画面には `Workers Observability Telemetry` の設定項目が存在しない。旧権限一覧の名称を現在の設定画面で選択可能と推測した案内は誤りとして撤回する。既存の「Workersの可観測性 編集」だけでは不足すると断定しない。

@@ -108,7 +108,7 @@
 		{
 			"binding": "STATE_KV",
 			// 個人 Cloudflare account に作成した E2E 専用 namespace。
-			"id": "e2df7a0838234dc6a9121f1999690c20",
+			"id": "119c6ebb96b0468cb7c25d96980b416e",
 			"remote": false
 		}
 	]

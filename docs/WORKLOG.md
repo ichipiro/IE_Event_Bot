@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Calendar診断で削除履歴のみの残存を確認
+
+- [実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は承認後に成功した。`83cd4b3f8b5585935a9c42721e94f68e393fa0f6`、run `E2E-20260924T070808Z-523c5621`、Worker version fingerprint `5a466bf93575bb477274ceaf4d938047c9c2f3b00ac3c076186ebfa8a30e6a5e` をartifactと照合した。
+- 読取り結果はHTTP 200・`calendar_deleted`。取得対象の全ページに通常予定はなく、削除済み予定の履歴が残っていた。削除履歴も含めて空であることを要求する全件モードの開始条件に抵触する。履歴の作成元・件数は今回の診断では取得していない。
+- 監査4行・2操作（deploy、inspect）、cleanupなし、全service/scenario manifestが前回実行と同一で `dirty=false`、JUnit 668件成功を確認した。予定・共有KVへの書込みはない。
+- 現行ガードのまま全件E2Eを続けるには、削除履歴のない新規E2E専用Calendarへの切替が必要。全件適用の実サービス検証は未完了のままとする。
+
 ## 2026-09-24: Calendar開始条件の読み取り専用診断を追加
 
 - 既存artifactにはCalendarの失敗理由を区別する情報がなく、接続済みCalendarツールにも対象fingerprintが一致するCalendarがなかったため、専用Worker自身で診断する経路を追加した。

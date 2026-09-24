@@ -1958,3 +1958,28 @@ for (const classification of ["calendar_empty", "calendar_active", "calendar_del
     assert.ok(!JSON.stringify(audit).includes("private"));
   });
 }
+
+test("通常HTTP全体同期の固定入口と監査phase", async () => {
+  const paths = [], audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry), fetchImpl: async (url, options) => {
+    assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+    assert.equal(options.headers["X-E2E-Run-ID"], RUN_ID);
+    const path = new URL(url).pathname;
+    paths.push(path);
+    return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID,
+      status: path === "/sync/all" ? "drained" : "prepared", stage: "ready" });
+  } }, async client => {
+    for (const phase of ["prepare_http", "http_advance"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      const rejected = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_delta", sync_phase: phase,
+      } }));
+      assert.equal(rejected.error, "sync_phase_forbidden");
+    }
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/http", "/sync/all"]);
+  assert.deepEqual(audit.filter(e => e.phase === "finish").map(e => e.sync_phase), ["prepare_http", "http_advance"]);
+});

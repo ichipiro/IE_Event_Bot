@@ -1,5 +1,9 @@
 # 作業履歴
 
+## 2026-09-24: 通常HTTP・共有KVの全体同期E2E
+
+通常 `/sync/all` のRequestを既存fetch・StateStore・同期runnerへ渡す4段階モードを追加。専用環境の所有2件、通常名のKV7キー、global DOの成功時刻を読戻し、所有資源・KVの回収を検証する。DO成功時刻は実行履歴として維持。ローカルPython 787件、Node 273件、Ruff、Pyright、E2E設定・Secret衛生・workflow検査、Wrangler dry-run、相対リンク・差分検査が成功。実サービス結果は実行後に記録する。
+
 ## 2026-09-24: 全体同期9段階の実サービス検証と回収が成功
 
 - 承認後の[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)はcommit `a2b1af5b657099627db074e0c2c97c335b718491` で成功した。run `E2E-20260924T134151Z-6a59b394` の全9段階と各verify、監査42行・21操作を独立照合した。

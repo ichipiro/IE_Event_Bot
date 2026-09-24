@@ -510,3 +510,18 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 各stepの適用後に別HTTPのverifyを必須とし、MCP・workflowはstep証跡、固定失敗の到達、クールダウン、排他、run・version一致を照合する。他シナリオのdirty manifestがある場合は開始を拒否し、全体同期中の別シナリオ開始もHTTPとDOの両方で拒否する。run・対象・モードの変更、所有外入力、対応IDの変更を拒否する。全段階verify後の回収だけ `passed`、途中回収は `failed_clean` とし、回収失敗時はdirtyと所有記録を残す。回収専用モードは既存の `deploy-and-google-sync-recovery` を使える。
 
 ローカル試験は外部HTTPを代替する。実環境でもstep 4・6は固定失敗の注入、step 8は1 HTTP内の共通dispatch呼出しであり、実サービス障害・実Webhook受信・Cloudflareの実Cron起動・別Workerリクエスト間の競合を証明しない。作成通知は無効化する。
+
+## 通常HTTP入口と共有KVによる全体同期
+
+`deploy-and-all-http-smoke` はE2E専用Workerの `POST /sync/all` を使う4段階のシナリオである。`POST /admin/e2e/google-sync/http` で所有Google予定2件を準備し、各段階を別HTTPでverifyする。通常入口では元のRequestを `entry.Default.fetch` へ渡し、通常のStateStore・dispatch・Google取得／適用・Discordポーリングを使う。同期runnerや取得結果の差し替え、固定障害注入は行わない。
+
+1. step 0: Calendar・Guild・Notion内部DBと共有KVの空状態を確認し、所有予定2件を作成する。
+2. step 1: `/sync/all` でGoogle→Notion・DiscordとDiscord→Google・Notionを実行する。
+3. step 2: 所有Discord予定の本文を変更後、次の `/sync/all` でGoogle・Notionへ反映する。
+4. step 3: 再度 `/sync/all` を実行し、内容・既存対応ID・空queue・snapshot・成功結果を読み戻す。
+
+共有KVは通常名の7キー（cursor、2対応表、Google queue、結果、Discord snapshot、Discord queue）に保存する。`sync:last_epoch` は通常構成どおりglobal DOへ保存し、別HTTPで同値を確認する。KVアダプターはキーを改名せず、所有run・内容digestの確認と書込み前の回収記録だけを行う。読取り値をDOやメモリで代替しない。KVの `sync:last_epoch` を含む8キーすべてが開始時に空であることを要求する。
+
+`E2E_ALL_HTTP_ENABLED=true`、認証、run・稼働version一致、所有manifestの準備・verifyが揃う場合だけ通常入口を開く。adminのadvance経由では進めない。各dispatch前に全Calendar・Guild・内部DBの所有範囲を確認し、既存の削除履歴は事前fingerprintと一致する場合だけ許容する。削除履歴も通常同期へ渡し、Googleの処理上限は履歴上限100件と所有2件の計102件とする。実行中に外部から別データを書き込む環境の保証ではない。
+
+回収は所有予定・ページ・共有KVの記録済みdigestだけを対象にする。DOの最終成功時刻は通常同期の実行履歴として維持する。Google認証はリクエスト内、作成通知と実Cronは無効。途中失敗を回収成功でpassedに変えず、4段階verify後だけpassedとする。本番環境、通常通知、実Cron、実Webhook、障害回復はこのモードの対象外である。

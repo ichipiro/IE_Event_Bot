@@ -1,6 +1,7 @@
 """通常Google同期の固定KVキーとrun所有記録。"""
 
 import json
+import math
 import re
 from copy import deepcopy
 from hashlib import sha256
@@ -20,7 +21,7 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix", "all_sync")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix", "all_sync", "http_sync")
 ALL_KEYS = KEYS + ("discord:snapshot", "sync:discord_notion_queue")
 ALL_STEPS = ("prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained")
 # 32 KiBのmanifestにfixture・KV書込み記録の余地を残す。
@@ -36,6 +37,8 @@ def source_id(run_id, index):
 
 
 def final_step(owner):
+    if owner.get("http_sync"):
+        return 3
     if owner.get("all_sync"):
         return len(ALL_STEPS) - 1
     # 旧4段階のdirty manifestも、更新後に所有確認して回収できる。
@@ -68,6 +71,8 @@ def valid_google_transition(previous, value):
             and len(slots) == (3 if value.get("full_apply") else 2)
             and type(value.get("full_apply", False)) is bool
             and type(value.get("all_sync", False)) is bool
+            and type(value.get("http_sync", False)) is bool
+            and (not value.get("http_sync") or value.get("all_sync") is True)
             and (not value.get("all_sync") or not (value.get("full_apply") or value.get("retry_enabled") or value.get("matrix")))
             and (not value.get("full_apply") or not value.get("retry_enabled"))
             and isinstance(hashes, dict)
@@ -81,6 +86,10 @@ def valid_google_transition(previous, value):
             and value.get("stage") in ("working", "ready", "verified", "cleanup")
         ):
             return False
+        if value.get("http_sync") and "http_epoch" in value:
+            epoch = value["http_epoch"]
+            if type(epoch) not in (int, float) or not math.isfinite(epoch) or epoch <= 0:
+                return False
         writes = value.get("shared_writes", {})
         baseline = value.get("baseline_deleted", {})
         if (
@@ -91,13 +100,13 @@ def valid_google_transition(previous, value):
                    for pair in baseline.items() for item in pair)
         ):
             return False
-        if not isinstance(writes, dict) or set(writes) - set(KEYS):
+        if not isinstance(writes, dict) or set(writes) - set(ALL_KEYS if value.get("http_sync") else KEYS):
             return False
         if any(
             not isinstance(items, list) or not items or len(items) > 32
             or any(not re.fullmatch(r"[0-9a-f]{64}", str(item)) for item in items)
             for items in writes.values()
-        ) or (writes and not value.get("full_apply")):
+        ) or (writes and not (value.get("full_apply") or value.get("http_sync"))):
             return False
         if value.get("full_apply"):
             pending = value.get("pending_ids", [])
@@ -160,6 +169,8 @@ def valid_google_transition(previous, value):
             return False
         if previous["stage"] != "working" and writes != old_writes:
             return False
+        if previous["stage"] != "working" and value.get("http_epoch") != previous.get("http_epoch"):
+            return False
         if previous["stage"] != "working" and hashes != previous["hashes"]:
             return False
         if previous["stage"] != "working" and value.get(
@@ -217,7 +228,7 @@ class GoogleKV:
         self.hashes = dict(owner["hashes"])
         # 通常の読取りcacheではなく、APIから得た所有IDをDOへ記録するために使う。
         self.references = {}
-        self.prefix = "" if owner.get("full_apply") else f"e2e:google_sync:{owner['run_id']}:{owner['scope_id']}:"
+        self.prefix = "" if owner.get("full_apply") or owner.get("http_sync") else f"e2e:google_sync:{owner['run_id']}:{owner['scope_id']}:"
         self.shared_writes = deepcopy(owner.get("shared_writes", {}))
 
     async def check(self, key, *, writing=False):
@@ -251,6 +262,8 @@ class GoogleKV:
         if key in ALL_KEYS[len(KEYS):]:
             current = await self.store.get_e2e_manifest(SERVICE)
             owned_ids = {slot.get("discord_event_id") for slot in current["fixtures"]} - {None}
+            if self.owner.get("http_sync"):
+                owned_ids |= set(self.references.get("map:gcal_discord", {}).values())
             data = json.loads(value)
             if key == "discord:snapshot":
                 valid = isinstance(data, dict) and set(data) <= owned_ids
@@ -283,7 +296,7 @@ class GoogleKV:
                 )
             if not valid:
                 raise GoogleStateError("google_sync_state_invalid")
-        if self.owner.get("full_apply"):
+        if self.owner.get("full_apply") or self.owner.get("http_sync"):
             # KV応答喪失でも回収できるよう、書込み予定のdigestを先にDOへ保存する。
             current = await self.store.get_e2e_manifest(SERVICE)
             writes = deepcopy(current.get("shared_writes", {}))

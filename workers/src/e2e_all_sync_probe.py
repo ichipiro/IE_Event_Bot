@@ -83,6 +83,9 @@ async def _verify(env, store, owner, token):
             "ok": owner["step"] not in (4, 6), "mode": "native", "google_ok": True,
             "google_apply_ok": owner["step"] != 4, "discord_notion_ok": owner["step"] != 6,
         }, "result_mismatch")
+    if owner.get("http_sync") and owner["step"]:
+        from e2e_all_http_probe import verify_epoch
+        await verify_epoch(store, owner)
     owner["stages"][f"all_sync_step_{owner['step']}"] = 200
 
 
@@ -265,6 +268,14 @@ async def _controls(env, store, owner, token, invoke):
 
 async def run_phase(env, store, run_id, phase, invoke, owner):
     _require(not (await google._lock_state(store)).get("owner"), "busy")
+    http_sync = phase == "prepare_http" or bool(owner and owner.get("dirty") and owner.get("http_sync"))
+    if phase == "http_advance":
+        _require(http_sync and owner and owner.get("dirty"), "http_not_prepared")
+        phase = "advance"
+    elif http_sync and phase == "advance":
+        raise GoogleStateError("all_sync_normal_http_required")
+    if phase == "prepare_http":
+        phase = "prepare_all"
     if owner and owner.get("dirty"):
         _require(owner["run_id"] == run_id and owner["target_fingerprints"] == google._targets(env), "owner_mismatch")
         _require(phase != "prepare_all", "already_prepared")
@@ -279,6 +290,8 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
                       or await google._verify_guild(env, env.DISCORD_GUILD_ID, stages, {})
                       or await google._verify_database(env, env.NOTION_EVENT_INTERNAL_ID, google._EVENT_SCHEMA,
                                                       stages, {}, "all_sync_database", "notion_event")), "target_mismatch")
+        if http_sync:
+            _require(not any([await google._raw_shared(env, key) is not None for key in ALL_KEYS]), "shared_not_empty")
         baseline = await google._check_full_empty(env, token, stages)
         slots = [{"run_id": slot_run_id(run_id, i), "google_event_id": source_id(run_id, i),
                   "source": google._event_payload(slot_run_id(run_id, i), source_id(run_id, i)),
@@ -287,6 +300,8 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
                  "target_fingerprints": google._targets(env), "step": 0, "stage": "working",
                  "hashes": {}, "fixtures": slots, "stages": stages, "all_sync": True,
                  "baseline_deleted": baseline}
+        if http_sync:
+            owner["http_sync"] = True
         await google._save(store, owner)
         for slot in slots:
             status, _ = await google._google_request("GET", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]), token)
@@ -301,6 +316,8 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
             owner["stage"] = "ready"
             await google._save(store, owner)
         await _verify(env, store, owner, token)
+        if http_sync:
+            owner["stages"][f"all_http_step_{owner['step']}"] = 200
         owner["stage"] = "verified"
         await google._save(store, owner)
     elif phase == "advance":
@@ -310,7 +327,10 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         owner["stage"] = "working"
         await google._save(store, owner)
         await _change(env, store, owner, token)
-        if owner["step"] == final_step(owner):
+        if http_sync:
+            from e2e_all_http_probe import dispatch
+            await dispatch(env, store, owner, token, invoke)
+        elif owner["step"] == final_step(owner):
             await _controls(env, store, owner, token, invoke)
         else:
             await _dispatch(env, store, owner, token, invoke)

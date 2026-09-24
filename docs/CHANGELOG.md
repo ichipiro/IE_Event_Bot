@@ -1,5 +1,9 @@
 # 文書変更履歴
 
+## 2026-09-24: 通常HTTP・共有KVの全体同期E2E
+
+`deploy-and-all-http-smoke` の入口、4段階、共有KVとDOの責務、回収範囲をTESTING・SECURITYへ追記。従来9段階の隔離全体同期と区別する。
+
 ## 2026-09-24: 全体同期9段階の実サービス検証成功
 
 - TESTING、E2E-PLAN、ISSUES、WORKLOGへ全9段階・回収成功、監査・version照合と、run別KV・固定失敗・同一HTTP内競合という検証範囲を記録した。

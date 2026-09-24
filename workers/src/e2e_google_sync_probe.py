@@ -72,7 +72,7 @@ def _targets(env):
 
 
 async def _save(store, owner):
-    if owner.get("full_apply") and owner.get("dirty"):
+    if (owner.get("full_apply") or owner.get("http_sync")) and owner.get("dirty"):
         current = await store.get_e2e_manifest(SERVICE)
         if current and current.get("run_id") == owner.get("run_id"):
             owner["shared_writes"] = current.get("shared_writes", {})
@@ -489,8 +489,8 @@ async def _verify(env, store, owner, token):
 
 
 async def _cleanup(env, store, owner, token):
-    if owner.get("full_apply"):
-        await _check_shared_cleanup(env, owner)
+    if owner.get("full_apply") or owner.get("http_sync"):
+        await _check_shared_cleanup(env, owner, keys=ALL_KEYS if owner.get("http_sync") else KEYS)
     for slot in owner["fixtures"]:
         if slot["apply_attempted"]:
             await _discover(env, store, owner, slot)
@@ -559,13 +559,13 @@ async def _cleanup(env, store, owner, token):
                 owner["stages"]["google_sync_source_delete"] = status
     prefix = GoogleKV(store, owner).prefix
     for key in (ALL_KEYS if owner.get("all_sync") else KEYS):
-        if owner.get("full_apply"):
+        if owner.get("full_apply") or owner.get("http_sync"):
             await _check_shared_cleanup(env, owner, keys=(key,))
             if key not in owner.get("shared_writes", {}):
                 continue
         await env.STATE_KV.delete(prefix + key)
-    if owner.get("full_apply"):
-        if any([await _raw_shared(env, key) is not None for key in KEYS]):
+    if owner.get("full_apply") or owner.get("http_sync"):
+        if any([await _raw_shared(env, key) is not None for key in (ALL_KEYS if owner.get("http_sync") else KEYS)]):
             raise GoogleStateError("google_sync_not_ready")
         owner["stages"]["google_sync_shared_cleanup"] = 200
     return {
@@ -634,7 +634,7 @@ async def _phase(env, store, run_id, phase, invoke):
     if full_apply:
         phase = "prepare"
     owner = await store.get_e2e_manifest(SERVICE)
-    if phase == "prepare_all" or (owner and owner.get("dirty") and owner.get("all_sync")):
+    if phase in ("prepare_all", "prepare_http", "http_advance") or (owner and owner.get("dirty") and owner.get("all_sync")):
         from e2e_all_sync_probe import run_phase
         return await run_phase(env, store, run_id, phase, invoke, owner)
     if phase == "prepare_matrix" or (owner and owner.get("dirty") and owner.get("matrix")):
@@ -871,6 +871,8 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
         "prepare_full",
         "prepare_matrix",
         "prepare_all",
+        "prepare_http",
+        "http_advance",
         "inspect",
         "advance",
         "verify",
@@ -905,7 +907,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             return {"ok": False, "dirty": False, "run_id": run_id,
                     "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
     existing = await store.get_e2e_manifest(SERVICE)
-    full_mode = phase in ("prepare_full", "prepare_matrix", "prepare_all") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
+    full_mode = phase in ("prepare_full", "prepare_matrix", "prepare_all", "prepare_http", "http_advance") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
     if full_mode:
         # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。
         disabled = (

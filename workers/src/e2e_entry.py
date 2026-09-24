@@ -134,6 +134,8 @@ _GOOGLE_SYNC_PHASES = {
     "/admin/e2e/google-sync/full": "prepare_full",
     "/admin/e2e/google-sync/matrix": "prepare_matrix",
     "/admin/e2e/google-sync/all": "prepare_all",
+    "/admin/e2e/google-sync/http": "prepare_http",
+    "/sync/all": "http_advance",
     "/admin/e2e/google-sync/inspect": "inspect",
     "/admin/e2e/google-sync/advance": "advance",
     "/admin/e2e/google-sync/verify": "verify",
@@ -477,7 +479,8 @@ class Default(ApplicationDefault):
             _DISCORD_DELTA_ADVANCE_PATH,
         )
         sync_fault_route = path in _SYNC_FAULT_PHASES
-        google_sync_route = path in _GOOGLE_SYNC_PHASES
+        http_enabled = str(getattr(self.env, "E2E_ALL_HTTP_ENABLED", "false")).lower() == "true"
+        google_sync_route = path in _GOOGLE_SYNC_PHASES and (path != "/sync/all" or http_enabled)
         sync_lock_route = path in _SYNC_LOCK_PHASES
         discord_state_route = path in _DISCORD_STATE_PHASES
         discord_kv_route = path in _DISCORD_KV_PHASES
@@ -512,7 +515,9 @@ class Default(ApplicationDefault):
             _WEBHOOK_CHANGE_PATH,
             _WEBHOOK_CHANGE_CLEANUP_PATH,
         )
-        orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS
+        orchestrated_write_route = path in _ORCHESTRATED_WRITE_PATHS and not google_sync_route
+        if path == "/admin/e2e/google-sync/http" and not http_enabled:
+            return _json_response({"ok": False, "error": "not_found"}, status=404)
         if path in _BLOCKED_APPLICATION_WRITE_PATHS:
             return _json_response({"ok": False, "error": "not_found"}, status=404)
         if orchestrated_write_route and not _e2e_orchestration_enabled(self.env):
@@ -773,8 +778,12 @@ class Default(ApplicationDefault):
             if google_owner and google_owner.get("dirty") and (google_owner.get("full_apply") or google_owner.get("all_sync")):
                 return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
-            async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None, *, discord_runner=None, source="e2e-google-sync"):
+            async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None, *, discord_runner=None, source="e2e-google-sync", normal_http=False):
                 from google_apply_sync import apply_google_events
+
+                if normal_http:
+                    from e2e_all_http_probe import HttpApplication
+                    return await HttpApplication(probe_env).fetch(request)
 
                 async def fetch_owned(_env, state, *, commit_cursor):
                     return await fetcher(probe_env, state, commit_cursor=False)

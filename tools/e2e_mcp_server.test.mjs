@@ -1983,3 +1983,28 @@ test("通常HTTP全体同期の固定入口と監査phase", async () => {
   assert.deepEqual(paths, ["/admin/e2e/google-sync/http", "/sync/all"]);
   assert.deepEqual(audit.filter(e => e.phase === "finish").map(e => e.sync_phase), ["prepare_http", "http_advance"]);
 });
+
+for (const stage of ["working", "ready", "cleanup"]) {
+  test(`google回収の${stage}だけを所有する場合も旧revisionを待機する`, async () => {
+    let reads = 0;
+    const waits = [];
+    await withClient({ env: ENV, auditImpl: async () => {},
+      deployImpl: async () => ({ ok: true, status: 0 }),
+      delayImpl: async ms => waits.push(ms),
+      fetchImpl: async () => {
+        const status = redeployStatus();
+        status.scenarios = { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage } };
+        if (++reads >= 3) { status.worker_version.id_sha256 = "d".repeat(64); }
+        return jsonResponse(status);
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        previous_version_sha256: "c".repeat(64),
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.version_sha256, "d".repeat(64));
+      assert.equal(waits.length, 1);
+    });
+  });
+}

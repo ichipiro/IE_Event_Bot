@@ -1224,7 +1224,7 @@ export function createE2eMcpServer(options = {}) {
                 status.worker_version.id_sha256 !== previousVersion || !manifest.present ||
                 !manifest.dirty || manifest.run_id !== runId || (!googleRecovery && manifest.stage !== "delta_updated") ||
                 Object.values(status.services).some((item) => item.dirty) ||
-                Object.entries(status.scenarios).some(([key, item]) => key !== "discord_delta" && item.dirty)) {
+                Object.entries(status.scenarios).some(([key, item]) => key !== target && item.dirty)) {
               return { ok: false, status: 409, error: "redeploy_checkpoint_mismatch" };
             }
           }

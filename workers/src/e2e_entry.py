@@ -135,6 +135,8 @@ _GOOGLE_SYNC_PHASES = {
     "/admin/e2e/google-sync/matrix": "prepare_matrix",
     "/admin/e2e/google-sync/all": "prepare_all",
     "/admin/e2e/google-sync/http": "prepare_http",
+    "/admin/e2e/google-sync/watch": "prepare_webhook",
+    "/admin/e2e/google-sync/watch/trigger": "webhook_trigger",
     "/sync/all": "http_advance",
     "/admin/e2e/google-sync/inspect": "inspect",
     "/admin/e2e/google-sync/advance": "advance",
@@ -428,6 +430,14 @@ class Default(ApplicationDefault):
             if token_status:
                 return Response("unauthorized", status=401)
             state = StateStore(self.env)
+            if str(getattr(self.env, "E2E_WATCH_SHARED_ENABLED", "false")).lower() == "true":
+                from e2e_watch_shared_probe import callback
+                try:
+                    shared_response = await callback(self.env, state, request)
+                except Exception:
+                    return Response("webhook unavailable", status=503)
+                if shared_response is not None:
+                    return shared_response
             if change_enabled:
                 async def deliver(webhook_request, sync_state, google_applier):
                     return await self._handle_gcal_webhook(
@@ -778,6 +788,8 @@ class Default(ApplicationDefault):
             if google_owner and google_owner.get("dirty") and (google_owner.get("full_apply") or google_owner.get("all_sync")):
                 return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
+            if "watch" in path and str(getattr(self.env, "E2E_WATCH_SHARED_ENABLED", "false")).lower() != "true":
+                return _json_response({"ok": False, "error": "not_found"}, status=404)
             async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None, *, discord_runner=None, source="e2e-google-sync", normal_http=False):
                 from google_apply_sync import apply_google_events
 

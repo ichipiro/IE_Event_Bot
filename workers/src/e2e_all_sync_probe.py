@@ -10,7 +10,7 @@ import e2e_google_sync_probe as google
 from discord_retry_state import split_snapshot
 from e2e_discord_batch_state import slot_run_id
 from e2e_google_sync_state import (
-    ALL_KEYS, ALL_STEPS, GoogleKV, GoogleStateError, KIND, final_step, source_id, valid_discord_map,
+    ALL_KEYS, ALL_STEPS, WATCH_KEYS, GoogleKV, GoogleStateError, KIND, final_step, source_id, valid_discord_map,
 )
 from google_apply_sync import _build_discord_description, _notion_update_event
 from google_calendar_sync import run_google_delta_fetch
@@ -270,13 +270,21 @@ async def _controls(env, store, owner, token, invoke):
 
 async def run_phase(env, store, run_id, phase, invoke, owner):
     _require(not (await google._lock_state(store)).get("owner"), "busy")
-    http_sync = phase == "prepare_http" or bool(owner and owner.get("dirty") and owner.get("http_sync"))
+    webhook_sync = phase == "prepare_webhook" or bool(owner and owner.get("dirty") and owner.get("webhook_sync"))
+    if phase == "webhook_trigger":
+        from e2e_watch_shared_probe import trigger
+        return await trigger(env, store, run_id, owner)
+    if webhook_sync and phase == "webhook_advance":
+        phase = "http_advance"
+    elif webhook_sync and phase == "http_advance":
+        raise GoogleStateError("all_sync_real_webhook_required")
+    http_sync = phase in ("prepare_http", "prepare_webhook") or bool(owner and owner.get("dirty") and owner.get("http_sync"))
     if phase == "http_advance":
         _require(http_sync and owner and owner.get("dirty"), "http_not_prepared")
         phase = "advance"
     elif http_sync and phase == "advance":
         raise GoogleStateError("all_sync_normal_http_required")
-    if phase == "prepare_http":
+    if phase in ("prepare_http", "prepare_webhook"):
         phase = "prepare_all"
     if owner and owner.get("dirty"):
         _require(owner["run_id"] == run_id and owner["target_fingerprints"] == google._targets(env), "owner_mismatch")
@@ -293,7 +301,7 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
                       or await google._verify_database(env, env.NOTION_EVENT_INTERNAL_ID, google._EVENT_SCHEMA,
                                                       stages, {}, "all_sync_database", "notion_event")), "target_mismatch")
         if http_sync:
-            _require(not any([await google._raw_shared(env, key) is not None for key in ALL_KEYS]), "shared_not_empty")
+            _require(not any([await google._raw_shared(env, key) is not None for key in ALL_KEYS + (WATCH_KEYS if webhook_sync else ())]), "shared_not_empty")
         origin_maps = {}
         baseline = await google._check_full_empty(env, token, stages, origin_maps=origin_maps if http_sync else None)
         slots = [{"run_id": slot_run_id(run_id, i), "google_event_id": source_id(run_id, i),
@@ -306,6 +314,9 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         if http_sync:
             owner["http_sync"] = True
             owner["http_baseline_maps"] = origin_maps
+        if webhook_sync:
+            from e2e_watch_shared_probe import initial_watch_owner
+            owner.update(initial_watch_owner(env, run_id))
         await google._save(store, owner)
         for slot in slots:
             status, _ = await google._google_request("GET", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]), token)
@@ -314,12 +325,20 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
             await google._save(store, owner)
             status, event = await google._google_request("POST", google._event_collection_url(env.GOOGLE_CALENDAR_ID) + "?sendUpdates=none", token, slot["source"])
             _require(status == 200 and google._source_owned(event, slot), "seed_failed")
+        if webhook_sync:
+            from e2e_watch_shared_probe import maintain
+            await maintain(env, store, owner, token)
     elif phase == "verify":
+        if webhook_sync and owner.get("webhook_armed"):
+            raise GoogleStateError("google_sync_not_ready")
         _require(owner["stage"] in ("ready", "verified"), "phase_invalid")
         if owner["stage"] == "verified":
             owner["stage"] = "ready"
             await google._save(store, owner)
         await _verify(env, store, owner, token)
+        if webhook_sync:
+            from e2e_watch_shared_probe import verify_watch
+            await verify_watch(env, store, owner)
         if http_sync:
             owner["stages"][f"all_http_step_{owner['step']}"] = 200
         owner["stage"] = "verified"

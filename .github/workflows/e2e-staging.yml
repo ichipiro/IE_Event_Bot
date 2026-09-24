@@ -24,6 +24,7 @@ on:
           - deploy-and-sync-faults-smoke
           - deploy-and-google-calendar-check
           - deploy-and-google-full-smoke
+          - deploy-and-watch-shared-smoke
           - deploy-and-all-http-smoke
           - deploy-and-all-sync-smoke
           - deploy-and-google-matrix-smoke
@@ -174,6 +175,7 @@ jobs:
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
           inputs.mode == 'deploy-and-google-calendar-check' ||
           inputs.mode == 'deploy-and-google-full-smoke' ||
+          inputs.mode == 'deploy-and-watch-shared-smoke' ||
           inputs.mode == 'deploy-and-all-http-smoke' ||
           inputs.mode == 'deploy-and-all-sync-smoke' ||
           inputs.mode == 'deploy-and-google-matrix-smoke' ||
@@ -214,6 +216,7 @@ jobs:
           inputs.mode == 'deploy-and-sync-lock-smoke' ||
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
           inputs.mode == 'deploy-and-google-full-smoke' ||
+          inputs.mode == 'deploy-and-watch-shared-smoke' ||
           inputs.mode == 'deploy-and-all-http-smoke' ||
           inputs.mode == 'deploy-and-all-sync-smoke' ||
           inputs.mode == 'deploy-and-google-matrix-smoke' ||

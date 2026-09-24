@@ -90,14 +90,24 @@ async def dispatch(env, store, owner, token, invoke):
     await google._save(store, owner)
     before_epoch = await store.get_sync_last_epoch()
     started = time.time()
-    response = await invoke(run_env, None, None, normal_http=True)
-    result = json.loads(await response.text())
-    _require(response.status == 200 and result.get("ok") is True
-             and result.get("source") == "manual"
-             and result.get("google", {}).get("ok") is True
-             and result.get("google_apply", {}).get("ok") is True
-             and result.get("discord_notion", {}).get("ok") is True
-             and not result.get("discord_notion", {}).get("skipped"), "http_dispatch_failed")
+    if owner.get("webhook_sync"):
+        from e2e_watch_shared_probe import dispatch_webhook
+        result = await dispatch_webhook(env, store, owner, run_env, kv, invoke)
+        response_status = 200
+    else:
+        response = await invoke(run_env, None, None, normal_http=True)
+        result = json.loads(await response.text())
+        response_status = response.status
+    if owner.get("webhook_sync"):
+        _require(result == {"ok": True, "mode": "native", "google_ok": True,
+                            "google_apply_ok": True, "discord_notion_ok": True}, "webhook_dispatch_failed")
+    else:
+        _require(response_status == 200 and result.get("ok") is True
+                 and result.get("source") == "manual"
+                 and result.get("google", {}).get("ok") is True
+                 and result.get("google_apply", {}).get("ok") is True
+                 and result.get("discord_notion", {}).get("ok") is True
+                 and not result.get("discord_notion", {}).get("skipped"), "http_dispatch_failed")
     _require(not (await google._lock_state(store)).get("owner"), "http_lock_not_released")
     owner["hashes"] = kv.hashes
     owner["http_epoch"] = await store.get_sync_last_epoch()

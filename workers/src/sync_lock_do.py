@@ -188,12 +188,24 @@ class SyncCoordinator(DurableObject):
             )
             return {"ok": True, "last_epoch": last_epoch}, 200
 
+        if action == "e2e_watch_shared":
+            from e2e_watch_shared_probe import watch_rpc
+            return await watch_rpc(self.ctx.storage, payload)
+
         if action == "mark_google_message_seen":
             channel_id = str(payload.get("channel_id") or "").strip()
             message_number = str(payload.get("message_number") or "").strip()
             if not channel_id or not message_number:
                 return {"ok": True, "duplicate": False, "skipped": True}, 200
             owner_run_id = str(payload.get("owner_run_id") or "").strip()
+            shared_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:google_sync"))
+            if shared_owner.get("dirty") and shared_owner.get("webhook_sync") and any(
+                w["channel_id"] == channel_id for w in shared_owner.get("watches", [])
+            ):
+                observed = _decode_json_record(await self.ctx.storage.get("e2e:watch_shared:" + shared_owner["run_id"]))
+                if message_number not in observed.get(channel_id, {}).get("messages", []):
+                    return {"ok": False, "error": "google_message_owner_mismatch"}, 409
+                owner_run_id = shared_owner["run_id"]
             if owner_run_id and not _E2E_RUN_ID_PATTERN.fullmatch(owner_run_id):
                 return {"ok": False, "error": "invalid_e2e_owner_run_id"}, 400
             ttl_seconds = max(60.0, float(payload.get("ttl_seconds") or 86400))

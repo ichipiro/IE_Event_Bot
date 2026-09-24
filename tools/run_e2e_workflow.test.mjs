@@ -1519,3 +1519,34 @@ for (const failure of [null, "stage", "dispatch", "version", "cleanup", "outcome
     assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
   });
 }
+
+
+for (const failure of [null, "maintenance", "callback", "cleanup"]) {
+  test(`通常watchと共有Webhook workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["prepared", "drained", "updated", "drained"];
+    let index = 0;
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "webhook_trigger") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: {
+          [`all_http_step_${index}`]: 200, [`all_http_dispatch_${index}`]: 200,
+          watch_shared_maintenance: failure === "maintenance" ? undefined : 200,
+          [`watch_shared_step_${index}`]: failure === "callback" ? undefined : 200,
+        } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
+        google_sync_shared_cleanup: 200, watch_shared_cleanup: failure === "cleanup" ? undefined : 200,
+      } } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { httpSync: true, webhookSync: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { httpSync: true, webhookSync: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_webhook", "resume", ...Array(3).fill(["webhook_trigger", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+  });
+}

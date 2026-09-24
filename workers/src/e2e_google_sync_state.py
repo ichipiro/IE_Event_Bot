@@ -21,8 +21,15 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix", "all_sync", "http_sync")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix", "all_sync", "http_sync", "webhook_sync")
 ALL_KEYS = KEYS + ("discord:snapshot", "sync:discord_notion_queue")
+WATCH_KEYS = ("gcal_watch_state", "result:gcal_watch_ensure")
+
+
+def state_keys(owner):
+    return (ALL_KEYS if owner.get("all_sync") else KEYS) + (WATCH_KEYS if owner.get("webhook_sync") else ())
+
+
 ALL_STEPS = ("prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained")
 # 32 KiBのmanifestにfixture・KV書込み記録の余地を残す。
 MAX_BASELINE_DELETED = 100
@@ -85,7 +92,7 @@ def valid_google_transition(previous, value):
             and (not value.get("all_sync") or not (value.get("full_apply") or value.get("retry_enabled") or value.get("matrix")))
             and (not value.get("full_apply") or not value.get("retry_enabled"))
             and isinstance(hashes, dict)
-            and set(hashes) <= set(ALL_KEYS if value.get("all_sync") else KEYS)
+            and set(hashes) <= set(state_keys(value))
             and all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in hashes.values())
             and type(value.get("step")) is int
             and type(value.get("retry_enabled", False)) is bool
@@ -95,6 +102,12 @@ def valid_google_transition(previous, value):
             and value.get("stage") in ("working", "ready", "verified", "cleanup")
         ):
             return False
+        if type(value.get("webhook_sync", False)) is not bool or (value.get("webhook_sync") and not value.get("http_sync")):
+            return False
+        if value.get("webhook_sync"):
+            from e2e_watch_shared_probe import valid_watch_owner
+            if not valid_watch_owner(previous, value):
+                return False
         if value.get("http_sync") and "http_epoch" in value:
             epoch = value["http_epoch"]
             if type(epoch) not in (int, float) or not math.isfinite(epoch) or epoch <= 0:
@@ -114,7 +127,7 @@ def valid_google_transition(previous, value):
                 or (origin_maps and not value.get("http_sync"))
                 or any(not re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in origin_maps.values())):
             return False
-        if not isinstance(writes, dict) or set(writes) - set(ALL_KEYS if value.get("http_sync") else KEYS):
+        if not isinstance(writes, dict) or set(writes) - set(state_keys(value) if value.get("http_sync") else KEYS):
             return False
         if any(
             not isinstance(items, list) or not items or len(items) > 32
@@ -250,7 +263,7 @@ class GoogleKV:
     async def check(self, key, *, writing=False):
         current = await self.store.get_e2e_manifest(SERVICE)
         if (
-            key not in (ALL_KEYS if self.owner.get("all_sync") else KEYS)
+            key not in state_keys(self.owner)
             or not current
             or current.get("dirty") is not True
             or any(current.get(k) != self.owner.get(k) for k in OWNER_FIELDS)
@@ -275,7 +288,10 @@ class GoogleKV:
         await self.check(key, writing=True)
         if not isinstance(value, str) or len(value.encode()) > 32768:
             raise GoogleStateError("google_sync_state_invalid")
-        if key in ALL_KEYS[len(KEYS):]:
+        if key in WATCH_KEYS:
+            from e2e_watch_shared_probe import validate_watch_value
+            validate_watch_value(self.owner, key, value)
+        elif key in ALL_KEYS[len(KEYS):]:
             current = await self.store.get_e2e_manifest(SERVICE)
             owned_ids = {slot.get("discord_event_id") for slot in current["fixtures"]} - {None}
             if self.owner.get("http_sync"):

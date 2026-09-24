@@ -529,3 +529,20 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 初回[実行36010039102](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010039102)は最初の通常HTTPで `google_sync_state_invalid` となり、所有資源・共有KVを回収して `failed_clean` になった。通常処理がDiscord由来の削除履歴を対応表へ残すケースで同じ拒否をローカル再現した。E2Eの許容範囲へ開始前に確認した履歴の対応ID fingerprintを加え、未知・改変された対応は引き続き拒否する。通常同期の挙動と取得一覧は変更しない。状態形式の拒否では、値を含めずmap／queue／snapshotの固定分類を返す。
 
 再実行[36010723441](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010723441)（commit `02bc807275c03cf9dddfa3aa7367dd5ae91100cb`、run `E2E-20260924T141102Z-1f6eb5a4`）は実サービス検証に成功した。監査22行・11操作から通常 `/sync/all` 3回と各verifyを確認し、4段階の完了、対応IDと本文、共有queue・snapshot・結果、DO成功時刻を照合した。既知削除履歴の対応を含む通常処理が通り、所有資源と共有KVを回収した。成果物からrun・稼働version・commit・clean checkoutの一致、`passed`、全manifest `dirty=false`、JUnit 790件成功を独立確認した。初回失敗の記録は維持し、この成功へ置き換えない。
+
+## 通常watchと共有状態を使う実Webhook同期
+
+`deploy-and-watch-shared-smoke` は専用環境の所有予定2件を使う。`prepare_webhook` で通常の `ensure_watch_active` を通常HTTP入口から実行し、登録、有効時の無更新、期限しきい値による更新、期限欠損、token変更と復元、停止後の再登録を確認する。期限の経過を待つ試験ではなく、しきい値と所有するwatch状態を設定する試験である。6個のchannel IDはAPI呼出し前に所有記録へ保存し、初回 `sync` のresource IDはwatch応答より先に届いてもDOへ保存する。
+
+各 `webhook_trigger` は所有Google予定のprivate propertyを更新する。Googleから実際に届いた `exists` が通常 `entry.fetch` → Webhook認証・重複抑止 → 通常同期dispatchへ入り、通常名の共有KV、global DOのロック・成功時刻、通常のGoogle/Notion/Discord処理を使う。Google全件入力は事前に所有予定と既知の削除履歴だけであることを確認する。3回の実通知で全体同期の往復と共有状態の別HTTP読戻しを確認する。各回で受信した同じrequestを内部再送し、KVと成功時刻が変化しないことを確認する。これはGoogle自身による同一通知の再配信を保証しない。
+
+初回同期の前には、所有channelの別通知番号で次の現行動作を観測する。
+
+- 同期ロック取得中の通知は204となり、ロック解放後の同じ通知番号も重複として204となる。同期は再実行されない。
+- 固定の無効bearerによるGoogle取得失敗は500となるが、有効bearerへ戻した後の同じ通知番号は204となる。同期は再実行されない。
+
+これらは再試行欠落の検出であり、復旧成功ではない。manifestの `watch_shared_busy_retry_lost=409` と `watch_shared_failure_retry_lost=409` に記録する。シナリオの `passed` は正常系とこの観測が期待どおりだったことを示し、再試行保証を意味しない。その後、実通知の通常処理で成功状態へ戻す。本番の同期ロジックは変更しない。
+
+旧channelと所有外channelの拒否はE2E入口の所有権ガードによる。通常Workerでの旧channel拒否を証明しない。token変更中の初回通知は通常token検証で拒否され、最終channelの `sync` を別HTTPで確認する。実Cron、本番Worker、自然な期限切れ、Googleの再送間隔は対象外。
+
+回収はwatch停止を先に行い、所有通知のdedupeと観測記録、Google予定・Discord予定・Notionページ、watchを含む共有KVの順で確認する。共有値が所有記録と一致しない場合は削除せず、`dirty=true` を維持する。global DOの成功時刻は実行履歴として残す。

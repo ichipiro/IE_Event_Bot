@@ -57,6 +57,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-matrix-smoke",
   "deploy-and-all-sync-smoke",
   "deploy-and-all-http-smoke",
+  "deploy-and-watch-shared-smoke",
   "deploy-and-google-calendar-check",
   "deploy-and-google-sync-recovery",
   "deploy-and-discord-delta-recovery",
@@ -647,7 +648,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       : ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     for (const [index, step] of steps.entries()) {
       const written = await requireTool(callTool, "trigger_sync", {
-        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (options.httpSync ? "prepare_http" : options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : options.httpSync ? "http_advance" : "advance",
+        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (options.webhookSync ? "prepare_webhook" : options.httpSync ? "prepare_http" : options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : options.webhookSync ? "webhook_trigger" : options.httpSync ? "http_advance" : "advance",
       });
       if (written.status !== 200 || !written.dirty || written.run_id !== runId || written.execution_status !== step) {
         throw new E2eWorkflowError("google_sync_phase_mismatch");
@@ -667,7 +668,8 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
           (verified.error === "worker_response_read_failed" && verified.payload.status === 200);
         if (transportFailure) { transportFailures += 1; }
         const retryable = transportFailure ? transportFailures < GOOGLE_VERIFY_TRANSPORT_ATTEMPTS
-          : verified.error === "google_sync_not_ready" && verified.payload.status === 409 && verified.payload.dirty === true;
+          : (verified.error === "google_sync_not_ready" && verified.payload.status === 409 && verified.payload.dirty === true) ||
+            (options.webhookSync && verified.error === "google_sync_busy");
         // verifyだけを再送する。応答不明のprepare/advanceは再実行しない。
         if (!retryable || verified.payload.run_id !== runId || attempt === STATE_VERIFY_ATTEMPTS) {
           throw new E2eWorkflowError(verified.error);
@@ -692,6 +694,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
             (index >= 20 && (manifest.stages?.google_matrix_pagination !== 200 || manifest.stages?.google_matrix_seven_inputs !== 200)) ||
             (index >= 24 && (manifest.stages?.google_matrix_notion_failure_injected !== 200 || manifest.stages?.google_matrix_notion_cursor_preserved !== 200)) ||
             (index >= 26 && (manifest.stages?.google_matrix_delete_failure_injected !== 200 || manifest.stages?.google_matrix_delete_cursor_preserved !== 200)))) ||
+          (options.webhookSync && (manifest.stages?.watch_shared_maintenance !== 200 || manifest.stages?.[`watch_shared_step_${index}`] !== 200)) ||
           (options.httpSync && index > 0 && manifest.stages?.[`all_http_dispatch_${index}`] !== 200) ||
           (options.allSync && ((index >= 4 && manifest.stages?.all_sync_failure_4 !== 200) ||
             (index >= 6 && manifest.stages?.all_sync_failure_6 !== 200) ||
@@ -708,6 +711,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   if (!cleanup.ok) { throw new E2eWorkflowError("cleanup_run_failed"); }
   const clean = await requireTool(callTool, "assert_external_state", { run_id: runId, service: "google_sync" });
   if (clean.manifest?.outcome !== "passed" ||
+      (options.webhookSync && clean.manifest?.stages?.watch_shared_cleanup !== 200) ||
       ((options.fullApply || options.httpSync) && clean.manifest?.stages?.google_sync_shared_cleanup !== 200) ||
       (options.matrix && clean.manifest?.stages?.google_matrix_series_cleanup !== 200)) {
     throw new E2eWorkflowError("google_sync_outcome_failed");
@@ -1235,6 +1239,9 @@ async function runCommand(command, runId) {
     if (command === "deploy-and-google-calendar-check") {
       await runGoogleCalendarCheck(callTool, runId);
       return;
+    }
+    if (command === "deploy-and-watch-shared-smoke") {
+      return await runDeployAndGoogleSyncSmoke(callTool, runId, { httpSync: true, webhookSync: true });
     }
     if (command === "deploy-and-all-http-smoke") {
       await runDeployAndGoogleSyncSmoke(callTool, runId, { httpSync: true });

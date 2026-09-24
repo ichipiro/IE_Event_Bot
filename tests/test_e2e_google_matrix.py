@@ -64,6 +64,39 @@ def run_to(test, last):
         assert status == 200, (step, payload)
 
 
+@pytest.mark.parametrize("action", ["release", "status"])
+@pytest.mark.parametrize("failure", ["exception", "invalid_json"])
+def test_step11_control_failure_distinguishes_lock_residue(monkeypatch, action, failure):
+    """固定障害で症状を比較する。実サービスの原因を証明するテストではない。"""
+    test = MatrixScenario(monkeypatch)
+    run_to(test, 10)
+    stub = test.env.SYNC_COORDINATOR.getByName("e2e:google-sync-control")
+    original = stub.sync_state
+
+    async def fail(payload):
+        if json.loads(payload)["action"] == action:
+            if failure == "exception":
+                raise RuntimeError("fixed control failure")
+            return "invalid json"
+        return await original(payload)
+
+    monkeypatch.setattr(stub, "sync_state", fail)
+    status, payload = test.call("advance")
+    assert status == 409 and payload["error"] == "google_sync_release_failed"
+    assert test.owner()["stage"] == "ready"
+    monkeypatch.setattr(stub, "sync_state", original)
+    if action == "release":
+        status, payload = test.call("cleanup")
+        assert status == 503 and payload["error"] == "google_sync_busy"
+        # 代替storageの期限だけを過去へ変更して回収可能になることを確認する。
+        storage = stub.durable_object.ctx.storage
+        lock = json.loads(storage.data["lock"])
+        lock["expires_at"] = 0
+        storage.data["lock"] = json.dumps(lock)
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
 @pytest.mark.parametrize("history_count", [1, 100])
 def test_matrix_all_stages_shared_retry_and_cleanup(monkeypatch, history_count):
     test = MatrixScenario(monkeypatch)

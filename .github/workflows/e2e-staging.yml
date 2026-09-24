@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - preflight
+          - read-only-google-lock-diagnostics
           - deploy-and-crud-smoke
           - deploy-and-discord-google-smoke
           - deploy-and-discord-notion-smoke
@@ -126,6 +127,7 @@ jobs:
       - name: Install Node.js dependencies
         run: npm ci
       - name: Create run ID
+        if: ${{ inputs.mode != 'read-only-google-lock-diagnostics' }}
         id: run_id
         env:
           E2E_MODE: ${{ inputs.mode }}
@@ -133,6 +135,20 @@ jobs:
         run: |
           run_id="$(node --input-type=module -e 'import {selectWorkflowRunId} from "./tools/run_e2e_workflow.mjs"; console.log(selectWorkflowRunId(process.env.E2E_MODE, process.env.E2E_RECOVERY_RUN_ID || ""));')"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+      - name: Read-only Google lock diagnostics
+        if: ${{ inputs.mode == 'read-only-google-lock-diagnostics' }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/diagnose_google_lock.mjs
+      - name: Upload redacted Google lock diagnostics
+        if: ${{ always() && inputs.mode == 'read-only-google-lock-diagnostics' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: google-lock-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/google-lock-diagnostics/report.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Read-only preflight
         if: ${{ inputs.mode == 'preflight' }}
         env:

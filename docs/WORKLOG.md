@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Google matrixのロック解放失敗を調査
+
+- 失敗runのstep 11は09:26:45.483〜09:26:58.359 UTCの12.876秒だった。phase上限90秒・制御ロックTTL300秒への到達とは一致しない。後続cleanupは約10秒以内の8回すべてbusy。成功runの同stepは10.966秒だった。
+- コードは制御DOのrelease RPC・status RPC・応答確認を同じ `google_sync_release_failed` にまとめ、例外詳細を残さない。代替API・実DOロジックでstep 11に固定障害を入れ、releaseの削除前例外／不正JSONはrelease_failedと後続busyを再現した。正常release後のstatus例外／不正JSONではrelease_failedとなるが回収は成功した。4ケース成功は原因候補の比較であり、実環境の根本原因の確定ではない。
+- `read-only-google-lock-diagnostics` を追加した。専用Workerの失敗35秒・成功19秒の2時間帯だけをCloudflare Workers Logsへ照会する。保存なしのqueryを使い、artifactには固定エラー分類・時刻・実行時間・HTTP statusだけを含め、生ログ・URL・認証情報・例外本文を含めない。デプロイ・E2E run作成・外部fixture操作は実行しない。既存GitHub Environment `e2e` の承認を維持する。
+- [Cloudflare Query API](https://developers.cloudflare.com/api/resources/workers/subresources/observability/subresources/telemetry/methods/query/)は照会にも `Workers Observability Write` 権限を要求する。既存tokenでの利用可否と過去ログの取得は未確認。取得できない場合はその状態を報告し、権限を自動変更しない。
+
 ## 2026-09-24: Google matrix 18段階の再実行が成功
 
 - [再実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)で全18段階と各verifyが成功した。3日間の終日・UTC日跨ぎ予定、残存3件それぞれのDiscord HTTP 400・code 50035、cursor保護、上限1件による共有queueの3→2→1→0の消化、既存対応IDの維持を確認した。

@@ -36,6 +36,15 @@ def source_id(run_id, index):
     return "e2e" + digest(f"google-sync:{run_id}:{index}")
 
 
+def valid_discord_map(owner, data):
+    if not isinstance(data, dict):
+        return False
+    ids = {slot["google_event_id"] for slot in owner["fixtures"]}
+    baseline = owner.get("http_baseline_maps", {}) if owner.get("http_sync") else {}
+    return all(key in ids or (isinstance(value, str) and baseline.get(digest(key)) == digest(value))
+               for key, value in data.items())
+
+
 def final_step(owner):
     if owner.get("http_sync"):
         return 3
@@ -100,6 +109,11 @@ def valid_google_transition(previous, value):
                    for pair in baseline.items() for item in pair)
         ):
             return False
+        origin_maps = value.get("http_baseline_maps", {})
+        if (not isinstance(origin_maps, dict) or set(origin_maps) - set(baseline)
+                or (origin_maps and not value.get("http_sync"))
+                or any(not re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in origin_maps.values())):
+            return False
         if not isinstance(writes, dict) or set(writes) - set(ALL_KEYS if value.get("http_sync") else KEYS):
             return False
         if any(
@@ -155,6 +169,8 @@ def valid_google_transition(previous, value):
                 == ("passed" if previous.get("passed") else "failed_clean")
             )
         if any(previous.get(k) != value.get(k) for k in OWNER_FIELDS):
+            return False
+        if previous.get("http_baseline_maps", {}) != origin_maps:
             return False
         if previous.get("baseline_deleted", {}) != baseline:
             return False
@@ -263,7 +279,8 @@ class GoogleKV:
             current = await self.store.get_e2e_manifest(SERVICE)
             owned_ids = {slot.get("discord_event_id") for slot in current["fixtures"]} - {None}
             if self.owner.get("http_sync"):
-                owned_ids |= set(self.references.get("map:gcal_discord", {}).values())
+                source_ids = {slot["google_event_id"] for slot in self.owner["fixtures"]}
+                owned_ids |= {v for k, v in self.references.get("map:gcal_discord", {}).items() if k in source_ids}
             data = json.loads(value)
             if key == "discord:snapshot":
                 valid = isinstance(data, dict) and set(data) <= owned_ids
@@ -274,7 +291,8 @@ class GoogleKV:
                     for op in data
                 )
             if not valid:
-                raise GoogleStateError("google_sync_state_invalid")
+                code = {"map:gcal_discord": "discord_map", "map:gcal_notion": "notion_map", "sync:google_apply_queue": "google_queue", "discord:snapshot": "snapshot", "sync:discord_notion_queue": "discord_queue"}[key]
+                raise GoogleStateError("google_sync_state_invalid" + ("_" + code if self.owner.get("http_sync") else ""))
         ids = {slot["google_event_id"] for slot in self.owner["fixtures"]}
         if key in (KEYS[1], KEYS[2], KEYS[3]):
             data = json.loads(value)
@@ -287,7 +305,7 @@ class GoogleKV:
                     and set(data["internal"]) <= ids
                 )
             elif key == KEYS[2]:
-                valid = isinstance(data, dict) and set(data) <= ids
+                valid = valid_discord_map(self.owner, data)
             else:
                 valid = (
                     isinstance(data, list)
@@ -295,7 +313,8 @@ class GoogleKV:
                     and all(isinstance(e, dict) and e.get("id") in ids for e in data)
                 )
             if not valid:
-                raise GoogleStateError("google_sync_state_invalid")
+                code = {"map:gcal_discord": "discord_map", "map:gcal_notion": "notion_map", "sync:google_apply_queue": "google_queue", "discord:snapshot": "snapshot", "sync:discord_notion_queue": "discord_queue"}[key]
+                raise GoogleStateError("google_sync_state_invalid" + ("_" + code if self.owner.get("http_sync") else ""))
         if self.owner.get("full_apply") or self.owner.get("http_sync"):
             # KV応答喪失でも回収できるよう、書込み予定のdigestを先にDOへ保存する。
             current = await self.store.get_e2e_manifest(SERVICE)

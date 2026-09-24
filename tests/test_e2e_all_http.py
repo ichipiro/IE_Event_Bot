@@ -137,3 +137,41 @@ def test_mode_is_immutable_and_epoch_tamper_revokes_success(monkeypatch):
     assert test.call("verify")[0] == 409
     assert test.call("cleanup")[0] == 200
     assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_normal_sync_preserves_mapping_from_known_discord_origin_tombstone(monkeypatch):
+    test = AllScenario(monkeypatch)
+    test.env.E2E_ALL_HTTP_ENABLED = "true"
+    deleted = {"id": "known-deleted", "status": "cancelled", "updated": "2026-09-14T01:00:00Z",
+               "extendedProperties": {"private": {"ie_origin": "discord", "ie_discord_event_id": "old-discord"}}}
+    test.google[deleted["id"]] = deepcopy(deleted)
+    assert test.call("http")[0] == 200
+    assert test.call("verify")[0] == 200
+    status, payload = normal(test)
+    assert status == 200, payload
+    assert test.call("verify")[0] == 200
+    mapping = json.loads(test.env.STATE_KV.data["map:gcal_discord"])
+    assert mapping["known-deleted"] == "old-discord" and len(mapping) == 3
+    assert test.call("cleanup")[0] == 200
+    assert test.google["known-deleted"] == deleted
+
+
+def test_baseline_mapping_cannot_be_added_or_changed_after_prepare(monkeypatch):
+    test = prepared(monkeypatch)
+    owner = test.owner()
+    owner['http_baseline_maps'] = {'a' * 64: 'b' * 64}
+    with pytest.raises(RuntimeError, match='write_failed'):
+        asyncio.run(test.store.put_e2e_manifest('google_sync', owner))
+
+
+def test_unknown_baseline_mapping_is_rejected_without_kv_write(monkeypatch):
+    from e2e_google_sync_state import GoogleKV, GoogleStateError
+
+    test = prepared(monkeypatch)
+    owner = test.owner()
+    owner['step'], owner['stage'] = 1, 'working'
+    asyncio.run(test.store.put_e2e_manifest('google_sync', owner))
+    kv = GoogleKV(test.store, owner)
+    with pytest.raises(GoogleStateError, match='state_invalid_discord_map'):
+        asyncio.run(kv.put('map:gcal_discord', json.dumps({'foreign': 'foreign-discord'})))
+    assert 'map:gcal_discord' not in test.env.STATE_KV.data

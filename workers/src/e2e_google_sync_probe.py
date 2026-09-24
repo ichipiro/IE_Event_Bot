@@ -592,7 +592,7 @@ async def _check_shared_cleanup(env, owner, *, keys=KEYS):
             raise GoogleStateError("google_sync_shared_owner_mismatch")
 
 
-async def _check_full_empty(env, token, stages):
+async def _check_full_empty(env, token, stages, *, origin_maps=None):
     if any([await _raw_shared(env, key) is not None for key in KEYS]):
         raise GoogleStateError("google_sync_shared_not_empty")
     result = await run_google_delta_fetch(GoogleEnv(env, token), StateStore(_DeltaEnv(env)), commit_cursor=False)
@@ -611,6 +611,11 @@ async def _check_full_empty(env, token, stages):
         if key in baseline:
             raise GoogleStateError("google_sync_calendar_duplicate")
         baseline[key] = _deleted_fingerprint(event)
+        if origin_maps is not None:
+            from google_apply_sync import _google_origin_discord_event_id
+            origin = _google_origin_discord_event_id(event)
+            if origin:
+                origin_maps[key] = digest(origin)
         if len(baseline) > MAX_BASELINE_DELETED:
             raise GoogleStateError("google_sync_baseline_limit")
     status, events = await discord_request(

@@ -10,7 +10,7 @@ import e2e_google_sync_probe as google
 from discord_retry_state import split_snapshot
 from e2e_discord_batch_state import slot_run_id
 from e2e_google_sync_state import (
-    ALL_KEYS, ALL_STEPS, GoogleKV, GoogleStateError, KIND, final_step, source_id,
+    ALL_KEYS, ALL_STEPS, GoogleKV, GoogleStateError, KIND, final_step, source_id, valid_discord_map,
 )
 from google_apply_sync import _build_discord_description, _notion_update_event
 from google_calendar_sync import run_google_delta_fetch
@@ -73,7 +73,9 @@ async def _verify(env, store, owner, token):
                  and [e["id"] for e in pending] == expected_discord
                  and [e["id"] for e in snapshot_pending] == expected_discord
                  and set(snapshot) == {s["discord_event_id"] for s in slots}, "queue_mismatch")
-        _require(json.loads(values["map:gcal_discord"] or "{}") == {
+        discord_map = json.loads(values["map:gcal_discord"] or "{}")
+        own_ids = {s["google_event_id"] for s in slots}
+        _require(valid_discord_map(owner, discord_map) and {k: v for k, v in discord_map.items() if k in own_ids} == {
             s["google_event_id"]: s["discord_event_id"] for s in slots
         } and json.loads(values["map:gcal_notion"] or "{}").get("internal") == {
             s["google_event_id"]: s["notion_page_id"] for s in slots
@@ -292,7 +294,8 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
                                                       stages, {}, "all_sync_database", "notion_event")), "target_mismatch")
         if http_sync:
             _require(not any([await google._raw_shared(env, key) is not None for key in ALL_KEYS]), "shared_not_empty")
-        baseline = await google._check_full_empty(env, token, stages)
+        origin_maps = {}
+        baseline = await google._check_full_empty(env, token, stages, origin_maps=origin_maps if http_sync else None)
         slots = [{"run_id": slot_run_id(run_id, i), "google_event_id": source_id(run_id, i),
                   "source": google._event_payload(slot_run_id(run_id, i), source_id(run_id, i)),
                   "source_attempted": False, "apply_attempted": False} for i in range(2)]
@@ -302,6 +305,7 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
                  "baseline_deleted": baseline}
         if http_sync:
             owner["http_sync"] = True
+            owner["http_baseline_maps"] = origin_maps
         await google._save(store, owner)
         for slot in slots:
             status, _ = await google._google_request("GET", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]), token)

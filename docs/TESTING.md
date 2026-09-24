@@ -525,3 +525,5 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 `E2E_ALL_HTTP_ENABLED=true`、認証、run・稼働version一致、所有manifestの準備・verifyが揃う場合だけ通常入口を開く。adminのadvance経由では進めない。各dispatch前に全Calendar・Guild・内部DBの所有範囲を確認し、既存の削除履歴は事前fingerprintと一致する場合だけ許容する。削除履歴も通常同期へ渡し、Googleの処理上限は履歴上限100件と所有2件の計102件とする。実行中に外部から別データを書き込む環境の保証ではない。
 
 回収は所有予定・ページ・共有KVの記録済みdigestだけを対象にする。DOの最終成功時刻は通常同期の実行履歴として維持する。Google認証はリクエスト内、作成通知と実Cronは無効。途中失敗を回収成功でpassedに変えず、4段階verify後だけpassedとする。本番環境、通常通知、実Cron、実Webhook、障害回復はこのモードの対象外である。
+
+初回[実行36010039102](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010039102)は最初の通常HTTPで `google_sync_state_invalid` となり、所有資源・共有KVを回収して `failed_clean` になった。通常処理がDiscord由来の削除履歴を対応表へ残すケースで同じ拒否をローカル再現した。E2Eの許容範囲へ開始前に確認した履歴の対応ID fingerprintを加え、未知・改変された対応は引き続き拒否する。通常同期の挙動と取得一覧は変更しない。状態形式の拒否では、値を含めずmap／queue／snapshotの固定分類を返す。

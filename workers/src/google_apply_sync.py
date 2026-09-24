@@ -553,6 +553,8 @@ async def _sync_to_discord(
     notion_page: dict | None,
     fallback_page: dict | None,
     gcal_discord_map: dict,
+    *,
+    discord_deleter=None,
 ):
     """
     Googleイベントを Discord 側へ同期し、DiscordイベントIDを返す。
@@ -580,7 +582,7 @@ ws    Discord ID(message_id / mapped_id) 探索順:
     # 同期時にGoogle側で削除されていたらDiscord側も削除
     if (event or {}).get("status") == "cancelled":
         if discord_event_id:
-            if not await _discord_delete_event(env, discord_event_id):
+            if not await (discord_deleter or _discord_delete_event)(env, discord_event_id):
                 raise RuntimeError("discord_delete_failed")
         gcal_discord_map.pop(google_event_id, None)
         return None
@@ -602,7 +604,7 @@ ws    Discord ID(message_id / mapped_id) 探索順:
     return None
 
 
-async def apply_google_events(env, state, events: list[dict], *, discord_syncer=None):
+async def apply_google_events(env, state, events: list[dict], *, discord_syncer=None, notion_updater=None):
     """
     Google Calendar のイベント一覧を受け取り、Notion と Discord に反映する。
     1回で処理しすぎないように件数制限し、失敗分は次回へ繰り越す。
@@ -739,7 +741,7 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
                 if origin_discord_event_id:
                     gcal_discord_map[google_event_id] = origin_discord_event_id
                 else:
-                    await _sync_to_discord(env, event, page, external_page, gcal_discord_map)
+                    await (discord_syncer or _sync_to_discord)(env, event, page, external_page, gcal_discord_map)
                 continue
 
             # イベント内容を取り出す
@@ -760,7 +762,7 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
             # 内部Notionページを更新または作成
             # 既存ページがある場合は更新
             if page:
-                ok = await _notion_update_event(
+                ok = await (notion_updater or _notion_update_event)(
                     env,
                     page["id"],
                     name=name,

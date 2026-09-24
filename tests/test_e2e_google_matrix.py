@@ -4,7 +4,7 @@ import asyncio
 import json
 from copy import deepcopy
 from datetime import datetime, timedelta
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 from workers import Response
@@ -46,7 +46,14 @@ class MatrixScenario(Scenario):
             return result
 
         async def listing(url, options):
-            return Response(json.dumps({"items": [e for e in self.google.values() if not e.get("recurrence")]}))
+            params = parse_qs(urlparse(url).query)
+            size = int(params.get("maxResults", [2500])[0])
+            start = int(params.get("pageToken", [0])[0])
+            items = [e for e in self.google.values() if not e.get("recurrence")]
+            data: dict = {"items": items[start:start + size]}
+            if start + size < len(items):
+                data["nextPageToken"] = str(start + size)
+            return Response(json.dumps(data))
 
         monkeypatch.setattr(matrix, "_google_request", google)
         monkeypatch.setattr(probe, "_google_request", google)
@@ -108,14 +115,14 @@ def test_matrix_all_stages_shared_retry_and_cleanup(monkeypatch, history_count):
     test.google["old"] = {"id": "old", "status": "cancelled"}
     for index in range(history_count - 1):
         test.google[str(index)] = {"id": str(index), "status": "cancelled"}
-    run_to(test, 17)
+    run_to(test, 27)
     owner = test.owner()
-    assert len(owner["fixtures"]) == 5
+    assert len(owner["fixtures"]) == 7
     assert owner["stages"]["google_matrix_api_rejection"] == 400
     assert owner["stages"]["google_matrix_cursor_preserved"] == 200
     assert owner["stages"]["google_matrix_multi_cursor_preserved"] == 200
     assert all(owner["stages"][f"google_matrix_rejection_{index}"] == 400 for index in (1, 2, 4))
-    assert len(test.pages) == 5 and len(test.discord) == 3
+    assert len(test.pages) == 7 and len(test.discord) == 4
     assert owner["pending_ids"] == []
     assert set(KEYS) <= set(test.env.STATE_KV.data)
     status, payload = test.call("cleanup")
@@ -128,7 +135,7 @@ def test_matrix_all_stages_shared_retry_and_cleanup(monkeypatch, history_count):
     assert test.google["old"] == {"id": "old", "status": "cancelled"}
 
 
-@pytest.mark.parametrize("step", [0, 1, 4, 5, 6, 9, 12, 14, 15, 16])
+@pytest.mark.parametrize("step", [0, 1, 4, 5, 6, 9, 12, 14, 15, 16, 18, 19, 20, 21, 22, 24, 26])
 def test_matrix_can_cleanup_between_phases(monkeypatch, step):
     test = MatrixScenario(monkeypatch)
     run_to(test, step)
@@ -243,6 +250,122 @@ def test_matrix_three_failures_drain_one_at_a_time(monkeypatch):
         assert [(s.get("notion_page_id"), s.get("discord_event_id")) for s in test.owner()["fixtures"]] == [
             (s.get("notion_page_id"), s.get("discord_event_id")) for s in before["fixtures"]
         ]
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+@pytest.mark.parametrize(("step", "slot_index", "kind"), [(24, 5, "notion"), (26, 6, "delete")])
+def test_matrix_new_failures_preserve_cursor_and_retry_without_creation(monkeypatch, step, slot_index, kind):
+    test = MatrixScenario(monkeypatch)
+    run_to(test, step - 1)
+    before = deepcopy(test.owner())
+    cursor, epoch = (test.env.STATE_KV.data[k] for k in (KEYS[0], KEYS[4]))
+    assert test.call("advance")[0] == 200
+    assert test.call("verify")[0] == 200
+    owner = test.owner()
+    slot = owner["fixtures"][slot_index]
+    assert owner["pending_ids"] == [slot["google_event_id"]]
+    assert owner["stages"][f"google_matrix_{kind}_failure_injected"] == 200
+    assert test.env.STATE_KV.data[KEYS[0]] == cursor
+    assert test.env.STATE_KV.data[KEYS[4]] == epoch
+    if kind == "delete":
+        assert test.pages[slot["notion_page_id"]]["archived"] is True
+        assert slot["discord_event_id"] in test.discord
+    else:
+        assert probe._property_text(test.pages[slot["notion_page_id"]], "内容", "rich_text") == slot["previous_description"]
+        assert slot["source"]["description"] in test.discord[slot["discord_event_id"]]["description"]
+    test.calls.clear()
+    assert test.call("advance")[0] == 200
+    assert test.call("verify")[0] == 200
+    assert test.owner()["pending_ids"] == []
+    assert ("discord", "POST") not in test.calls
+    assert len(test.pages) == 7  # NotionのPOST照会は許すが、新規ページは作らない。
+    assert [(s.get("notion_page_id"), s.get("discord_event_id")) for s in test.owner()["fixtures"]] == [
+        (s.get("notion_page_id"), s.get("discord_event_id")) for s in before["fixtures"]
+    ]
+    assert test.call("cleanup")[0] == 200
+
+
+def test_matrix_seven_items_cross_pages_and_drain_in_order(monkeypatch):
+    test = MatrixScenario(monkeypatch)
+    run_to(test, 19)
+    original = google_calendar_sync.fetch
+    page_tokens = []
+
+    async def record(url, options):
+        params = parse_qs(urlparse(url).query)
+        assert params["maxResults"] == ["2"]
+        assert "updatedMin" not in params
+        page_tokens.append(params.get("pageToken"))
+        return await original(url, options)
+
+    monkeypatch.setattr(google_calendar_sync, "fetch", record)
+    assert test.call("advance")[0] == 200
+    assert page_tokens == [None, ["2"], ["4"], ["6"]]
+    monkeypatch.setattr(google_calendar_sync, "fetch", original)
+    assert test.call("verify")[0] == 200
+    assert test.owner()["stages"]["google_matrix_seven_inputs"] == 200
+    pending = test.owner()["pending_ids"]
+    assert len(pending) == 5
+    for remaining in (3, 1, 0):
+        assert test.call("advance")[0] == 200
+        assert test.call("verify")[0] == 200
+        pending = pending[2:]
+        assert test.owner()["pending_ids"] == pending and len(pending) == remaining
+    assert test.call("cleanup")[0] == 200
+
+
+@pytest.mark.parametrize("failure", ["second_page", "missing", "duplicate"])
+def test_matrix_pagination_failure_does_not_apply_or_advance_cursor(monkeypatch, failure):
+    test = MatrixScenario(monkeypatch)
+    run_to(test, 19)
+    before = dict(test.env.STATE_KV.data)
+    original = google_calendar_sync.fetch
+
+    async def broken(url, options):
+        params = parse_qs(urlparse(url).query)
+        response = await original(url, options)
+        if params.get("pageToken") != ["2"]:
+            return response
+        if failure == "second_page":
+            return Response("{}", status=503)
+        data = json.loads(await response.text())
+        if failure == "missing":
+            data["items"].pop()
+        else:
+            data["items"].append(data["items"][0])
+        return Response(json.dumps(data))
+
+    monkeypatch.setattr(google_calendar_sync, "fetch", broken)
+    test.calls.clear()
+    assert test.call("advance")[0] == 409
+    assert test.env.STATE_KV.data == before
+    assert not any(method != "GET" for _, method in test.calls)
+    assert test.call("cleanup")[0] == 200
+
+
+def test_matrix_extended_requirement_cannot_be_downgraded(monkeypatch):
+    test = MatrixScenario(monkeypatch)
+    run_to(test, 0)
+    owner = test.owner()
+    owner.pop("matrix_extended")
+    owner["fixtures"] = owner["fixtures"][:5]
+    with pytest.raises(RuntimeError, match="e2e_manifest_write_failed"):
+        asyncio.run(test.store.put_e2e_manifest("google_sync", owner))
+
+
+def test_matrix_legacy_five_item_run_remains_recoverable(monkeypatch):
+    original = matrix._new_owner
+
+    def legacy(*args):
+        owner = original(*args)
+        owner.pop("matrix_extended")
+        owner["fixtures"] = owner["fixtures"][:5]
+        return owner
+
+    monkeypatch.setattr(matrix, "_new_owner", legacy)
+    test = MatrixScenario(monkeypatch)
+    run_to(test, 17)
     assert test.call("cleanup")[0] == 200
     assert test.owner()["outcome"] == "passed"
 

@@ -9,7 +9,17 @@ STATUSES = ("prepared",) * 5 + (
     "pending", "pending", "drained", "updated", "updated", "deleted", "deleted",
     "retry_pending", "retried",
     "retry_pending", "pending", "pending", "retried",
+    "prepared", "prepared", "pending", "pending", "pending", "drained",
+    "retry_pending", "retried", "retry_pending", "retried",
 )
+
+PENDING_COUNTS = {5: 3, 6: 1, 12: 1, 14: 3, 15: 2, 16: 1,
+                  20: 5, 21: 3, 22: 1, 24: 1, 26: 1}
+
+
+def final_step(owner):
+    # 拡張前に失敗した5件runも、元の完了条件で回収できるようにする。
+    return len(STATUSES) - 1 if owner.get("matrix_extended") is True else 17
 
 
 def valid_transition(previous, value):
@@ -27,9 +37,10 @@ def valid_transition(previous, value):
         and value.get("retry_enabled") is True
         and re.fullmatch(r"E2E-\d{8}T\d{6}Z-[0-9a-f]{8}", str(value.get("run_id", "")))
         and re.fullmatch(r"[0-9a-f]{32}", str(value.get("scope_id", "")))
-        and type(value.get("step")) is int and 0 <= value["step"] < len(STATUSES)
+        and type(value.get("matrix_extended", False)) is bool
+        and type(value.get("step")) is int and 0 <= value["step"] <= final_step(value)
         and value.get("stage") in ("working", "ready", "verified", "cleanup")
-        and isinstance(value.get("fixtures"), list) and len(value["fixtures"]) == 5
+        and isinstance(value.get("fixtures"), list) and len(value["fixtures"]) == (7 if value.get("matrix_extended") else 5)
         and isinstance(value.get("series"), dict)
     ):
         return False
@@ -66,7 +77,7 @@ def valid_transition(previous, value):
         ):
             return False
         event_id = slot.get("google_event_id")
-        if index < 3:
+        if index not in (3, 4):
             if event_id != source_id(value["run_id"], index) or source.get("id") != event_id:
                 return False
         elif event_id is not None:
@@ -76,7 +87,7 @@ def valid_transition(previous, value):
                 return False
         if event_id:
             ids.append(event_id)
-    if len(ids) != len(set(ids)) or (value["step"] >= 5 and len(ids) != 5):
+    if len(ids) != len(set(ids)) or (value["step"] >= 5 and len(ids) != len(value["fixtures"])):
         return False
     pending = value.get("pending_ids", [])
     if not isinstance(pending, list) or len(set(pending)) != len(pending) or not set(pending) <= set(ids):
@@ -90,13 +101,15 @@ def valid_transition(previous, value):
         return False
     if value["step"] < 5 and (value["hashes"] or writes or pending):
         return False
-    if value["stage"] in ("ready", "verified") and len(pending) != {5: 3, 6: 1, 12: 1, 14: 3, 15: 2, 16: 1}.get(value["step"], 0):
+    if value["stage"] in ("ready", "verified") and len(pending) != PENDING_COUNTS.get(value["step"], 0):
         return False
     if not previous.get("dirty"):
         return (value["step"] == 0 and value["stage"] == "working"
                 and not value["hashes"] and not writes
                 and previous.get("last_run_id") != value["run_id"])
     if previous.get("matrix") is not True:
+        return False
+    if previous.get("matrix_extended") != value.get("matrix_extended"):
         return False
     if any(previous.get(k) != value.get(k) for k in (*OWNER_FIELDS, "baseline_deleted", "retry_enabled")):
         return False
@@ -121,7 +134,7 @@ def valid_transition(previous, value):
     if value["stage"] == "cleanup":
         return value["step"] == previous["step"] and value.get("passed", False) == (
             previous.get("passed", False) if previous["stage"] == "cleanup" else
-            previous["stage"] == "verified" and previous["step"] == len(STATUSES) - 1
+            previous["stage"] == "verified" and previous["step"] == final_step(previous)
         )
     if previous["stage"] == "cleanup":
         return False

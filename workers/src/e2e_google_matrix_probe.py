@@ -1,13 +1,13 @@
-"""終日・繰返し2回を含む5件と共有queueの段階別E2E。"""
+"""終日・繰返しを含む7件、全ページ取得と共有queueの段階別E2E。"""
 
 import json
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 from e2e_discord_batch_state import slot_run_id
-from e2e_google_matrix_state import STATUSES
+from e2e_google_matrix_state import PENDING_COUNTS, STATUSES, final_step
 from e2e_google_sync_state import GoogleKV, GoogleStateError, KEYS, KIND, digest, source_id
 from e2e_google_sync_probe import (
     GoogleEnv, _DeltaEnv, _EVENT_SCHEMA, _check_full_empty, _cleanup,
@@ -16,7 +16,8 @@ from e2e_google_sync_probe import (
     _property_text, _save, _source_owned, _targets, _verify_calendar,
     _verify_database, _verify_guild, discord_request, notion_request,
 )
-from google_apply_sync import _sync_to_discord
+from google_apply_sync import _notion_update_event, _sync_to_discord
+import google_calendar_sync
 from google_auth import get_google_access_token
 from google_calendar_sync import run_google_delta_fetch
 from state import StateStore
@@ -52,7 +53,7 @@ def _new_owner(env, run_id, baseline, stages):
     slots = []
     series_source = _event_payload(slot_run_id(run_id, 3), source_id(run_id, 3))
     series_source["recurrence"] = ["RRULE:FREQ=DAILY;COUNT=2"]
-    for index in range(5):
+    for index in range(7):
         subrun = slot_run_id(run_id, index)
         source = _event_payload(subrun, source_id(run_id, index))
         if index == 0:
@@ -62,7 +63,7 @@ def _new_owner(env, run_id, baseline, stages):
             start = _instant(source["start"]["dateTime"]).astimezone(timezone.utc).replace(hour=23, minute=30)
             source["start"] = {"dateTime": start.isoformat(), "timeZone": "UTC"}
             source["end"] = {"dateTime": (start + timedelta(hours=2)).isoformat(), "timeZone": "UTC"}
-        if index >= 3:
+        if index in (3, 4):
             source["id"] = None
             for key in ("start", "end"):
                 source[key] = {"dateTime": (_instant(series_source[key]["dateTime"]) + timedelta(days=index - 3)).isoformat(),
@@ -73,6 +74,7 @@ def _new_owner(env, run_id, baseline, stages):
                       "source_attempted": False, "apply_attempted": False, "delete_attempted": False})
     return {"version": 1, "kind": KIND, "run_id": run_id, "scope_id": uuid4().hex,
             "target_fingerprints": _targets(env), "matrix": True, "full_apply": True,
+            "matrix_extended": True,
             "retry_enabled": True, "dirty": True, "step": 0, "stage": "working",
             "hashes": {}, "shared_writes": {}, "pending_ids": [], "baseline_deleted": baseline,
             "fixtures": slots, "stages": stages,
@@ -81,7 +83,7 @@ def _new_owner(env, run_id, baseline, stages):
 
 async def _seed(env, store, owner, token):
     step = owner["step"]
-    slot = owner["fixtures"][step - 1] if step < 4 else owner["series"]
+    slot = owner["series"] if step == 4 else owner["fixtures"][{18: 5, 19: 6}.get(step, step - 1)]
     source = slot["source"]
     status, _ = await _google_request("GET", _event_item_url(env.GOOGLE_CALENDAR_ID, source["id"]), token)
     if status != 404:
@@ -102,7 +104,7 @@ async def _seed(env, store, owner, token):
     if status != 200 or not isinstance(items, list) or len(items) != 2 or data.get("nextPageToken"):
         raise GoogleStateError("google_matrix_instances_invalid")
     ids = set()
-    for child in owner["fixtures"][3:]:
+    for child in owner["fixtures"][3:5]:
         matches = [e for e in items if isinstance(e, dict) and
                    _same_time(e.get("originalStartTime", {}), child["source"]["originalStartTime"])]
         if len(matches) != 1:
@@ -120,7 +122,7 @@ async def _seed(env, store, owner, token):
         child["google_event_id"] = child["source"]["id"] = event_id
     # Googleが発行したinstance IDを保存してから、回ごとの所有markerを付ける。
     await _save(store, owner)
-    for child in owner["fixtures"][3:]:
+    for child in owner["fixtures"][3:5]:
         patch = {key: child["source"][key] for key in ("summary", "description", "extendedProperties")}
         status, event = await _google_request("PATCH", _event_item_url(env.GOOGLE_CALENDAR_ID, child["google_event_id"]) + "?sendUpdates=none", token, patch)
         if status != 200 or not _source_matches(event, child):
@@ -130,13 +132,13 @@ async def _seed(env, store, owner, token):
 async def _change(env, store, owner, token, index=None):
     step = owner["step"]
     if index is None:
-        index = {8: 0, 9: 3, 10: 0, 11: 3, 12: 1}[step]
+        index = {8: 0, 9: 3, 10: 0, 11: 3, 12: 1, 24: 5, 26: 6}[step]
     slot = owner["fixtures"][index]
     path = _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"])
     status, event = await _google_request("GET", path, token)
     if status != 200 or not _source_matches(event, slot):
         raise GoogleStateError("google_matrix_change_owner_mismatch")
-    if step in (10, 11):
+    if step in (10, 11, 26):
         slot["delete_attempted"] = True
         await _save(store, owner)
         status, _ = await _google_request("DELETE", path + "?sendUpdates=none", token)
@@ -162,15 +164,33 @@ async def _apply(env, store, owner, token, invoke):
     kv = GoogleKV(store, owner)
     probe_env = GoogleEnv(env, token)
     probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "2" if owner["step"] <= 7 else "5"
-    if owner["step"] >= 15:
+    if owner["step"] in (15, 16, 17, 25, 27):
         probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "1"
+    if 20 <= owner["step"] <= 23:
+        probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "2"
+    if owner["step"] in (24, 26):
+        probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "7"
     for slot in owner["fixtures"]:
-        slot["apply_attempted"] = True
+        if slot["source_attempted"] or slot["source"].get("recurringEventId"):
+            slot["apply_attempted"] = True
     await _save(store, owner)
     fetched_ids = []
 
     async def fetcher(_env, state, *, commit_cursor):
-        result = await run_google_delta_fetch(probe_env, state, commit_cursor=False)
+        page_count = 0
+
+        async def small_page_fetch(url, options):
+            nonlocal page_count
+            parts = urlsplit(url)
+            params = dict(parse_qsl(parts.query))
+            params["maxResults"] = "2"
+            page_count += 1
+            return await google_calendar_sync.fetch(urlunsplit(parts._replace(query=urlencode(params))), options)
+
+        # 7件を全件取得する段階だけcursorを使わず、通常のページ送りを実APIで通す。
+        fetch_state = StateStore(_DeltaEnv(probe_env)) if owner["step"] == 20 else state
+        result = await run_google_delta_fetch(probe_env, fetch_state, commit_cursor=False,
+                                             fetch_impl=small_page_fetch if owner["step"] == 20 else None)
         if not result.get("ok"):
             raise GoogleStateError("google_matrix_fetch_failed")
         slots = {s["google_event_id"]: s for s in owner["fixtures"]}
@@ -189,16 +209,21 @@ async def _apply(env, store, owner, token, invoke):
                 raise GoogleStateError("google_matrix_source_mismatch")
             seen.add(event_id)
             current.append(event)
-        required = set(slots) if owner["step"] == 5 else (
-            {owner["fixtures"][{8: 0, 9: 3, 10: 0, 11: 3, 12: 1}[owner["step"]]]["google_event_id"]}
-            if 8 <= owner["step"] <= 12 else set()
+        required = {s["google_event_id"] for s in owner["fixtures"][:5]} if owner["step"] == 5 else (
+            {owner["fixtures"][{8: 0, 9: 3, 10: 0, 11: 3, 12: 1, 24: 5, 26: 6}[owner["step"]]]["google_event_id"]}
+            if 8 <= owner["step"] <= 12 or owner["step"] in (24, 26) else set()
         )
         if owner["step"] == 14:
             required = {owner["fixtures"][i]["google_event_id"] for i in (1, 2, 4)}
         if not required <= seen:
             raise GoogleStateError("google_matrix_source_not_visible")
+        if owner["step"] == 20:
+            if seen != set(slots) or page_count < 4:
+                raise GoogleStateError("google_matrix_pagination_mismatch")
+            owner["stages"]["google_matrix_pagination"] = 200
+            owner["stages"]["google_matrix_seven_inputs"] = 200
         # 繰越・失敗再試行の呼出しでは、保存済みqueueだけの消化を検証する。
-        result["items"] = [] if owner["step"] in (6, 7, 13, 15, 16, 17) else current
+        result["items"] = [] if owner["step"] in (6, 7, 13, 15, 16, 17, 21, 22, 23, 25, 27) else current
         result["events"] = len(result["items"])
         fetched_ids.extend(e["id"] for e in result["items"])
         owner["stages"]["google_matrix_full_input"] = 200
@@ -208,6 +233,22 @@ async def _apply(env, store, owner, token, invoke):
     rejection_slots = [owner["fixtures"][i] for i in ((1, 2, 4) if owner["step"] == 14 else (1,))]
 
     async def discord_runner(call_env, event, page, fallback, mapping):
+        if owner["step"] == 26:
+            slot = owner["fixtures"][6]
+            if event.get("id") != slot["google_event_id"]:
+                return await _sync_to_discord(call_env, event, page, fallback, mapping)
+
+            async def refuse_delete(_env, event_id):
+                if event_id != slot.get("discord_event_id") or event.get("status") != "cancelled" or rejected:
+                    raise GoogleStateError("google_matrix_delete_owner_mismatch")
+                status, current = await discord_request(env, owner["stages"], {}, "google_matrix_delete_owner", "GET", _discord_path(env, event_id))
+                if status != 200 or not _discord_event_is_owned(current, event_id=event_id, guild_id=env.DISCORD_GUILD_ID, run_id=slot["run_id"]):
+                    raise GoogleStateError("google_matrix_delete_owner_mismatch")
+                rejected.add(event["id"])
+                owner["stages"]["google_matrix_delete_failure_injected"] = 200
+                return False
+
+            return await _sync_to_discord(call_env, event, page, fallback, mapping, discord_deleter=refuse_delete)
         slot = next((s for s in rejection_slots if s["google_event_id"] == event.get("id")), None)
         if slot is None:
             return await _sync_to_discord(call_env, event, page, fallback, mapping)
@@ -225,37 +266,61 @@ async def _apply(env, store, owner, token, invoke):
         rejected.add(event["id"])
         return None
 
-    failed = owner["step"] in (12, 14)
-    response = await invoke(probe_env, kv.state(), fetcher, discord_runner if failed else None)
+    async def notion_updater(call_env, page_id, **changes):
+        slot = owner["fixtures"][5]
+        if changes.get("google_event_id") != slot["google_event_id"]:
+            return await _notion_update_event(call_env, page_id, **changes)
+        if page_id != slot.get("notion_page_id") or rejected:
+            raise GoogleStateError("google_matrix_notion_owner_mismatch")
+        status, page = await notion_request(env, owner["stages"], {}, "google_matrix_notion_owner", "GET", f"/pages/{quote(page_id, safe='')}")
+        if status != 200 or not _page_owned(env, page, slot) or _property_text(page, "内容", "rich_text") != slot["previous_description"]:
+            raise GoogleStateError("google_matrix_notion_owner_mismatch")
+        rejected.add(slot["google_event_id"])
+        owner["stages"]["google_matrix_notion_failure_injected"] = 200
+        return False
+
+    failed = owner["step"] in (12, 14, 24, 26)
+    response = await invoke(probe_env, kv.state(), fetcher,
+                            discord_runner if owner["step"] in (12, 14, 26) else None,
+                            notion_updater if owner["step"] == 24 else None)
     payload = json.loads(await response.text())
     applied = payload.get("google_apply", {})
     if response.status != (500 if failed else 200) or payload.get("ok") is not (not failed):
         raise GoogleStateError("google_matrix_apply_failed")
     queue = json.loads(await kv.get(KEYS[3]) or "[]")
-    expected_count = {5: 3, 6: 1, 12: 1, 14: 3, 15: 2, 16: 1}.get(owner["step"], 0)
+    expected_count = PENDING_COUNTS.get(owner["step"], 0)
     if applied.get("pending_events") != expected_count or len(queue) != expected_count:
         raise GoogleStateError("google_matrix_queue_mismatch")
-    expected_ids = (fetched_ids[2:] if owner["step"] == 5 else
-                    owner["pending_ids"][2:] if owner["step"] == 6 else
+    expected_ids = (fetched_ids[2:] if owner["step"] in (5, 20) else
+                    owner["pending_ids"][2:] if owner["step"] in (6, 21, 22, 23) else
                     [e for e in fetched_ids if e in rejected] if failed else
                     owner["pending_ids"][1:] if owner["step"] >= 15 else [])
     slots = {slot["google_event_id"]: slot for slot in owner["fixtures"]}
     if ([e.get("id") for e in queue] != expected_ids
-            or any(not _source_matches(e, slots[e["id"]]) for e in queue)):
+            or any(not (e.get("status") == "cancelled" if slots[e["id"]]["delete_attempted"]
+                        else _source_matches(e, slots[e["id"]])) for e in queue)):
         raise GoogleStateError("google_matrix_queue_mismatch")
     if failed:
+        if owner["step"] in (24, 26):
+            rejection_slots = [owner["fixtures"][5 if owner["step"] == 24 else 6]]
+        expected_errors = [
+            f"notion_internal_update_failed:{event_id}" if owner["step"] == 24
+            else f"exception:{event_id}:RuntimeError" if owner["step"] == 26
+            else f"discord_sync_failed:{event_id}" for event_id in expected_ids
+        ]
         if (rejected != {s["google_event_id"] for s in rejection_slots}
                 or applied.get("ok") is not False or applied.get("error_count") != len(rejection_slots)
-                or applied.get("errors") != [f"discord_sync_failed:{event_id}" for event_id in expected_ids]
+                or applied.get("errors") != expected_errors
                 or any(kv.hashes.get(k) != owner["hashes"].get(k) for k in (KEYS[0], KEYS[4]))):
             raise GoogleStateError("google_matrix_partial_failure_mismatch")
-        stage = "google_matrix_cursor_preserved" if owner["step"] == 12 else "google_matrix_multi_cursor_preserved"
+        stage = {12: "google_matrix_cursor_preserved", 14: "google_matrix_multi_cursor_preserved",
+                 24: "google_matrix_notion_cursor_preserved", 26: "google_matrix_delete_cursor_preserved"}[owner["step"]]
         owner["stages"][stage] = 200
     else:
         owner["expected_cursor"] = payload["google"]["next_updated_min"]
-    if owner["step"] in (13, 15, 16, 17) and applied.get("processed") != 1:
+    if owner["step"] in (13, 15, 16, 17, 25, 27) and applied.get("processed") != 1:
         raise GoogleStateError("google_matrix_retry_count_mismatch")
-    if owner["step"] >= 15:
+    if owner["step"] in (15, 16, 17, 21, 22, 23, 25, 27):
         owner["stages"][f"google_matrix_queue_drain_{owner['step']}"] = 200
     owner["pending_ids"] = [e["id"] for e in queue]
     owner["hashes"] = kv.hashes
@@ -281,11 +346,11 @@ async def _verify(env, store, owner, token):
         if [e["id"] for e in json.loads(values[KEYS[3]] or "[]")] != owner["pending_ids"]:
             raise GoogleStateError("google_matrix_queue_mismatch")
         result = json.loads(values[KEYS[5]] or "{}")["payload"]
-        if any(result.get(k) is not (owner["step"] not in (12, 14)) for k in ("ok", "google_apply_ok")):
+        if any(result.get(k) is not (owner["step"] not in (12, 14, 24, 26)) for k in ("ok", "google_apply_ok")):
             raise GoogleStateError("google_matrix_result_mismatch")
         notion_map, discord_map = json.loads(values[KEYS[1]] or "{}")["internal"], json.loads(values[KEYS[2]] or "{}")
     for index, slot in enumerate(owner["fixtures"]):
-        if not slot["source_attempted"] and (index < 3 or owner["step"] < 4):
+        if not slot["source_attempted"] and (index not in (3, 4) or owner["step"] < 4):
             continue
         status, event = await _google_request("GET", _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]), token)
         deleted = slot["delete_attempted"]
@@ -294,10 +359,14 @@ async def _verify(env, store, owner, token):
             raise GoogleStateError("google_matrix_source_mismatch")
         if owner["step"] < 5:
             continue
-        pending = slot["google_event_id"] in owner["pending_ids"] and owner["step"] < 7
+        pending = (slot["google_event_id"] in owner["pending_ids"] and not slot.get("notion_page_id")) or not slot["apply_attempted"]
+        delete_pending = owner["step"] == 26 and index == 6
         absent = deleted or pending
         if absent:
-            if slot["google_event_id"] in notion_map or slot["google_event_id"] in discord_map:
+            if slot["google_event_id"] in notion_map or (
+                discord_map.get(slot["google_event_id"]) != slot.get("discord_event_id") if delete_pending
+                else slot["google_event_id"] in discord_map
+            ):
                 raise GoogleStateError("google_matrix_map_mismatch")
         elif (not slot.get("notion_page_id") or not slot.get("discord_event_id")
               or notion_map.get(slot["google_event_id"]) != slot["notion_page_id"]
@@ -307,7 +376,8 @@ async def _verify(env, store, owner, token):
             status, page = await notion_request(env, owner["stages"], {}, "google_matrix_page_read", "GET", f"/pages/{quote(slot['notion_page_id'], safe='')}")
             if status != 200 or not _page_owned(env, page, slot) or bool(page.get("archived") or page.get("in_trash")) != deleted:
                 raise GoogleStateError("google_matrix_page_mismatch")
-            if not deleted and _property_text(page, "内容", "rich_text") != slot["source"]["description"]:
+            description = slot["previous_description"] if owner["step"] == 24 and index == 5 else slot["source"]["description"]
+            if not deleted and _property_text(page, "内容", "rich_text") != description:
                 raise GoogleStateError("google_matrix_page_mismatch")
             if not deleted:
                 dates = (page.get("properties", {}).get("日時", {}) or {}).get("date") or {}
@@ -318,13 +388,13 @@ async def _verify(env, store, owner, token):
         if slot.get("discord_event_id"):
             event_id = slot["discord_event_id"]
             status, event = await discord_request(env, owner["stages"], {}, "google_matrix_discord_read", "GET", _discord_path(env, event_id))
-            if deleted:
+            if deleted and not delete_pending:
                 if status != 404:
                     raise GoogleStateError("google_matrix_discord_mismatch")
                 continue
             if status != 200 or not _discord_event_is_owned(event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID, run_id=slot["run_id"]):
                 raise GoogleStateError("google_matrix_discord_mismatch")
-            retry_pending = owner["step"] >= 12 and slot["google_event_id"] in owner["pending_ids"]
+            retry_pending = 12 <= owner["step"] <= 17 and slot["google_event_id"] in owner["pending_ids"]
             description = slot["previous_description"] if retry_pending else slot["source"]["description"]
             if description not in event.get("description", "") or (retry_pending and slot["source"]["description"] in event.get("description", "")):
                 raise GoogleStateError("google_matrix_discord_mismatch")
@@ -367,22 +437,22 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         await _save(store, owner)
         return {"ok": True, "dirty": True, "status": STATUSES[owner["step"]], "stage": f"google_{STATUSES[owner['step']]}_verified"}
     elif phase == "advance":
-        if owner["stage"] != "verified" or owner["step"] >= len(STATUSES) - 1:
+        if owner["stage"] != "verified" or owner["step"] >= final_step(owner):
             raise GoogleStateError("google_sync_phase_invalid")
         owner["step"] += 1
         owner["stage"] = "working"
         await _save(store, owner)
-        if owner["step"] <= 4:
+        if owner["step"] <= 4 or owner["step"] in (18, 19):
             await _seed(env, store, owner, token)
         else:
-            if 8 <= owner["step"] <= 12:
+            if 8 <= owner["step"] <= 12 or owner["step"] in (24, 26):
                 await _change(env, store, owner, token)
             if owner["step"] == 14:
                 for index in (1, 2, 4):
                     await _change(env, store, owner, token, index)
             await _apply(env, store, owner, token, invoke)
     elif phase == "cleanup":
-        owner["passed"] = owner.get("passed", False) if owner["stage"] == "cleanup" else owner["stage"] == "verified" and owner["step"] == len(STATUSES) - 1
+        owner["passed"] = owner.get("passed", False) if owner["stage"] == "cleanup" else owner["stage"] == "verified" and owner["step"] == final_step(owner)
         owner["stage"] = "cleanup"
         await _save(store, owner)
         series = owner["series"]
@@ -401,7 +471,7 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
                     if status != 200 or not isinstance(items, list) or len(items) > 2 or data.get("nextPageToken"):
                         raise GoogleStateError("google_matrix_series_owner_mismatch")
                     for item in items:
-                        children = [s for s in owner["fixtures"][3:] if
+                        children = [s for s in owner["fixtures"][3:5] if
                                     _same_time(item.get("originalStartTime", {}), s["source"]["originalStartTime"])]
                         if len(children) != 1 or item.get("recurringEventId") != series["source"]["id"]:
                             raise GoogleStateError("google_matrix_series_owner_mismatch")

@@ -772,14 +772,14 @@ class Default(ApplicationDefault):
             if google_owner and google_owner.get("dirty") and google_owner.get("full_apply"):
                 return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
-            async def invoke(probe_env, probe_state, fetcher, discord_syncer=None):
+            async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None):
                 from google_apply_sync import apply_google_events
 
                 async def fetch_owned(_env, state, *, commit_cursor):
                     return await fetcher(probe_env, state, commit_cursor=False)
 
                 async def apply_owned(_env, state, events):
-                    return await apply_google_events(probe_env, state, events, discord_syncer=discord_syncer)
+                    return await apply_google_events(probe_env, state, events, discord_syncer=discord_syncer, notion_updater=notion_updater)
 
                 return await self._run_sync_dispatch(
                     None, probe_state, "e2e-google-sync",

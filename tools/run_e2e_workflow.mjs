@@ -638,7 +638,8 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   await runPreflight(callTool, runId, options.preflight);
   let primaryError = null;
   try {
-    const steps = options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried"]
+    const steps = options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
+      "prepared", "prepared", "pending", "pending", "pending", "drained", "retry_pending", "retried", "retry_pending", "retried"]
       : options.fullApply ? ["pending", "drained", "updated", "deleted"]
       : ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     for (const [index, step] of steps.entries()) {
@@ -678,7 +679,10 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
             (index >= 12 && (manifest.stages?.google_matrix_api_rejection !== 400 || manifest.stages?.google_matrix_cursor_preserved !== 200)) ||
             (index >= 14 && (manifest.stages?.google_matrix_multi_cursor_preserved !== 200 ||
               [1, 2, 4].some(slot => manifest.stages?.[`google_matrix_rejection_${slot}`] !== 400))) ||
-            (index >= 15 && manifest.stages?.[`google_matrix_queue_drain_${index}`] !== 200))) ||
+            ([15, 16, 17, 21, 22, 23, 25, 27].includes(index) && manifest.stages?.[`google_matrix_queue_drain_${index}`] !== 200) ||
+            (index >= 20 && (manifest.stages?.google_matrix_pagination !== 200 || manifest.stages?.google_matrix_seven_inputs !== 200)) ||
+            (index >= 24 && (manifest.stages?.google_matrix_notion_failure_injected !== 200 || manifest.stages?.google_matrix_notion_cursor_preserved !== 200)) ||
+            (index >= 26 && (manifest.stages?.google_matrix_delete_failure_injected !== 200 || manifest.stages?.google_matrix_delete_cursor_preserved !== 200)))) ||
           status.worker_version?.id_sha256 !== deployed.version_sha256) {
         throw new E2eWorkflowError("google_sync_verification_mismatch");
       }

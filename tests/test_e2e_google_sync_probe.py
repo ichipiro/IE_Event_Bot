@@ -24,6 +24,7 @@ DB = "11111111-1111-4111-8111-111111111111"
 
 class Scenario:
     def __init__(self, monkeypatch):
+        self.next_discord_id = 0
         self.env = environment()
         self.env.SYNC_ALL_INCLUDE_DISCORD_NOTION = "false"
         self.env.GOOGLE_CALENDAR_ID = "test-calendar"
@@ -93,7 +94,8 @@ class Scenario:
                         )
                     )
                 if method == "POST":
-                    event_id = f"discord-{len(self.discord)}"
+                    event_id = f"discord-{self.next_discord_id}"
+                    self.next_discord_id += 1
                     self.discord[event_id] = {
                         "id": event_id,
                         "guild_id": self.env.DISCORD_GUILD_ID,

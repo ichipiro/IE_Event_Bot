@@ -430,6 +430,8 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 
 対象は通常予定2件（うち1件はUTCで日付をまたぐ2時間）、3日間の終日予定1件、日次2回の繰返し予定（展開後2件）の計5件。初期検査、通常予定3件の個別作成、繰返し親の作成とinstance記録を別HTTPへ分割する。Googleが返したinstance IDを、親ID・originalStartTime・run marker・内容・開始終了時刻で照合してから保存し、各回に固有markerを付ける。IDの生成形式は推測しない。繰返しinstanceの識別と個別変更は[Googleの繰返し予定仕様](https://developers.google.com/workspace/calendar/api/guides/recurringevents)に従う。
 
+現行版は後半で通常予定を2件追加し、合計7件（削除済み2件を含む）・28stepを対象にする。所有manifestの `matrix_extended=true` は途中変更を拒否し、step 27まで成功しないとpassedにしない。旧5件・18stepのdirty runは旧完了条件と回収経路を維持する。
+
 | step | 処理と読戻し |
 | --- | --- |
 | 0〜4 | 初期検査、終日・通常2件・繰返し親と2回分の段階作成 |
@@ -440,8 +442,16 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 | 13 | 次のHTTPで保存済みqueueだけを再試行し、既存Notion/Discord IDを維持して完了 |
 | 14 | 残存3件の説明を更新し、所有Discord予定3件すべてで不正日時PATCHへの400・code 50035、Notion部分反映、残件3件、cursor・最終成功時刻の維持を照合 |
 | 15〜17 | 上限1件で共有queueだけを別HTTPから処理し、残件3→2→1→0、未回復Discordの旧説明、回復後の新説明、既存ID維持を照合 |
+| 18〜19 | 通常予定を1件ずつ追加し、所有記録とGoogle読戻しを確認 |
+| 20〜23 | cursorを参照せず、Googleの通常ページ送りを `maxResults=2` で実行。削除済み2件を含む所有7件と4ページ以上を必須とし、上限2件でqueueを5→3→1→0へ消化 |
+| 24〜25 | 追加予定の説明を変更し、所有確認後にNotion更新の失敗を固定注入。Notionは旧説明・Discordは新説明、残件1件・cursor保護を確認し、次のHTTPでqueueだけを再試行 |
+| 26〜27 | もう1件の追加予定を削除し、所有確認後にDiscord削除の失敗を固定注入。Notionはarchive済み・Discordは残存、対応表・残件1件・cursor保護を確認し、次のHTTPで削除を完了 |
 
-各stepを別HTTPでverifyし、Googleの内容・開始終了時刻、Notionの日時と説明、Discordの開始終了時刻・説明・削除、対応表とqueueを照合する。終日は既存の通常変換（開始日09:00 JST、exclusive終了日01:00 JST）を維持する。step 6・7・13・15〜17では、全取得入力の所有確認後、通常適用には保存済みqueueだけを渡す。履歴保護の例外以外の所有外入力は拒否する。
+各stepを別HTTPでverifyし、Googleの内容・開始終了時刻、Notionの日時と説明、Discordの開始終了時刻・説明・削除、対応表とqueueを照合する。終日は既存の通常変換（開始日09:00 JST、exclusive終了日01:00 JST）を維持する。step 6・7・13・15〜17・21〜23・25・27では、全取得入力の所有確認後、通常適用には保存済みqueueだけを渡す。履歴保護の例外以外の所有外入力は拒否する。
+
+小さいページサイズはE2Eから渡すfetch callbackだけで設定し、通常運用の `maxResults=2500` を維持する。[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)の `nextPageToken` に従って実APIを読み、ページ内の欠落・重複や所有外入力、想定したページ数の不足は適用前に拒否する。Notion更新とDiscord削除の固定注入では対象操作を実行せず失敗値を返し、通常適用のエラー・queue保存分岐を通す。サービス障害やHTTP 5xxを観測した証拠とは扱わず、その後の再試行と他の適用・読戻し・回収には実APIを使う。callbackを渡さない通常処理の動作は維持する。
+
+28step版のローカル検証は完了し、実サービス実行と成果物の照合は未完了である。
 
 回収は所有する繰返し親・各回・対応先を区別する。親のrecurrence・各回の所属とmarkerを再確認してから親を削除し、通常予定とNotion/Discord、共有KVも回収する。未知の親・回・変更された繰返し規則ではdirtyを維持する。親作成後の応答喪失やinstanceのmarker更新途中でも、記録済み親と元の開始時刻から所有範囲を確認する。32 KiB manifestの境界を含め、既存削除履歴100件での全段階をローカル検証する。
 

@@ -56,6 +56,16 @@ class MemoryStorage:
 
     def __init__(self) -> None:
         self.data: dict[str, Any] = {}
+        self.alarm_at = None
+
+    async def setAlarm(self, timestamp):  # noqa: N802
+        self.alarm_at = timestamp
+
+    async def getAlarm(self):  # noqa: N802
+        return self.alarm_at
+
+    async def deleteAlarm(self):  # noqa: N802
+        self.alarm_at = None
 
     async def get(self, key: str) -> Any:
         return self.data.get(key)

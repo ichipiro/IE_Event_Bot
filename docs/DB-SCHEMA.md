@@ -67,11 +67,13 @@ KV の JSON は安定した文字列表現で保存し、同じ内容の不要�
 
 `SYNC_COORDINATOR` の名前付きインスタンス `global` を使用する。
 
+通常Webhookの通知キューは同じbindingの別インスタンス `gcal-webhook` に置く。キー `gcal_webhook_queue` は通知識別子のSHA-256をキーとした最大128件のJSONで、channel、message number、resource、stateを保持する。Webhook tokenは保持しない。Alarm予約後に通知を保存し、両方の完了を確認してから受信HTTPへ成功を返す。共有Webhook E2Eは `e2e:gcal-webhook:<run_id>` を使い、run・stepも保持する。所有run以外の通知がある場合は回収を拒否し、所有通知とAlarmの回収を完了条件に含める。
+
 | ストレージキー | 値 | 用途 |
 | --- | --- | --- |
 | `lock` | 所有者と期限の JSON | 同期の排他 |
 | `sync:last_epoch` | 最終時刻の JSON | クールダウン |
-| `gcal_msg:<channel_id>:<message_number>` | 期限と任意のE2E所有run IDのJSON | Google Webhook 重複抑止 |
+| `gcal_msg:<channel_id>:<message_number>` | 期限、処理中のclaim所有者、任意のE2E所有run IDのJSON | 処理中leaseと成功済み通知を区別する。成功後はclaimを除去し、従来の期限形式と互換を保つ |
 | `e2e:manifest:google` | E2E cleanup manifest の JSON | Google fixture の所有権と復旧 |
 | `e2e:manifest:discord` | E2E cleanup manifest の JSON | Discord fixture の所有権と復旧 |
 | `e2e:manifest:notion` | E2E cleanup manifest の JSON | Notion fixture の所有権と復旧 |

@@ -227,7 +227,7 @@ async def _controls(env, store, owner, token, invoke):
     for source in ("manual", "webhook", "cron"):
         response = await invoke(probe_env, state, forbidden, discord_runner=forbidden, source=source)
         result = json.loads(await response.text())
-        _require(response.status == 200 and result.get("status") == "cooldown_skip"
+        _require(response.status == (503 if source == "webhook" else 200) and result.get("status") == "cooldown_skip"
                  and kv.hashes == unchanged, "cooldown_failed")
     owner["stages"]["all_sync_cooldown"] = 200
     probe_env.KV_SYNC_COOLDOWN_ENABLED = "false"
@@ -247,7 +247,7 @@ async def _controls(env, store, owner, token, invoke):
             for contender in ("manual", "webhook", "cron"):
                 response = await invoke(probe_env, state, forbidden, discord_runner=forbidden, source=contender)
                 result = json.loads(await response.text())
-                _require(response.status == 200 and result.get("status") == "in_progress_skip"
+                _require(response.status == (503 if contender == "webhook" else 200) and result.get("status") == "in_progress_skip"
                          and (await google._lock_state(store)).get("owner") == lock["owner"]
                          and kv.hashes == unchanged, "contention_failed")
             proceed.set()

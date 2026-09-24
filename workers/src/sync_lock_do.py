@@ -117,12 +117,23 @@ class SyncCoordinator(DurableObject):
             headers={"content-type": "application/json"},
         )
 
+    async def alarm(self):
+        from google_webhook_queue import run_alarm
+        await run_alarm(self.env, self.ctx.storage)
+
     async def _handle_action(self, payload: dict) -> tuple[dict, int]:
         """同期状態のactionを実行し、本文とHTTP互換statusを返す。"""
 
         # action と現在時刻を取得
         action = str(payload.get("action") or "").strip().lower()
         now = time.time()
+
+        if action == "enqueue_google_webhook":
+            from google_webhook_queue import queue_action
+            return await queue_action(self.ctx.storage, payload)
+        if action == "clear_google_webhook_queue":
+            from google_webhook_queue import clear_queue
+            return await clear_queue(self.ctx.storage, payload)
 
         # ロック要求処理
         if action == "acquire":
@@ -192,7 +203,7 @@ class SyncCoordinator(DurableObject):
             from e2e_watch_shared_probe import watch_rpc
             return await watch_rpc(self.ctx.storage, payload)
 
-        if action == "mark_google_message_seen":
+        if action in ("mark_google_message_seen", "claim_google_message", "finish_google_message"):
             channel_id = str(payload.get("channel_id") or "").strip()
             message_number = str(payload.get("message_number") or "").strip()
             if not channel_id or not message_number:
@@ -212,6 +223,19 @@ class SyncCoordinator(DurableObject):
             storage_key = f"gcal_msg:{channel_id}:{message_number}"
             current = _decode_json_record(await self.ctx.storage.get(storage_key))
             expires_at = float(current.get("expires_at") or 0.0)
+            if action == "finish_google_message":
+                if (not current or current.get("status") != "processing"
+                        or current.get("claim_owner") != payload.get("claim_owner")
+                        or expires_at <= now):
+                    return {"ok": False, "error": "google_message_claim_lost"}, 409
+                if payload.get("succeeded") is True:
+                    record = {"expires_at": now + ttl_seconds}
+                    if current.get("owner_run_id"):
+                        record["owner_run_id"] = current["owner_run_id"]
+                    await self.ctx.storage.put(storage_key, json.dumps(record, ensure_ascii=False))
+                else:
+                    await self.ctx.storage.delete(storage_key)
+                return {"ok": True}, 200
             if expires_at > now:
                 current_owner = str(current.get("owner_run_id") or "")
                 if owner_run_id and current_owner != owner_run_id:
@@ -219,7 +243,20 @@ class SyncCoordinator(DurableObject):
                         "ok": False,
                         "error": "google_message_owner_mismatch",
                     }, 409
+                if action == "claim_google_message":
+                    status = "busy" if current.get("status") == "processing" else "duplicate"
+                    return {"ok": True, "status": status}, 200
                 return {"ok": True, "duplicate": True, "expires_at": expires_at}, 200
+            if action == "claim_google_message":
+                claimant = str(payload.get("claim_owner") or "")
+                if not claimant:
+                    return {"ok": False, "error": "google_message_claim_required"}, 400
+                pending = {"status": "processing", "claim_owner": claimant,
+                           "expires_at": now + max(10.0, float(payload.get("lease_seconds") or 150))}
+                if owner_run_id:
+                    pending["owner_run_id"] = owner_run_id
+                await self.ctx.storage.put(storage_key, json.dumps(pending, ensure_ascii=False))
+                return {"ok": True, "status": "claimed"}, 200
             next_expires_at = now + ttl_seconds
             record: dict[str, float | str] = {"expires_at": next_expires_at}
             if owner_run_id:

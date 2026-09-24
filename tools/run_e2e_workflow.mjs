@@ -695,7 +695,9 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
             (index >= 20 && (manifest.stages?.google_matrix_pagination !== 200 || manifest.stages?.google_matrix_seven_inputs !== 200)) ||
             (index >= 24 && (manifest.stages?.google_matrix_notion_failure_injected !== 200 || manifest.stages?.google_matrix_notion_cursor_preserved !== 200)) ||
             (index >= 26 && (manifest.stages?.google_matrix_delete_failure_injected !== 200 || manifest.stages?.google_matrix_delete_cursor_preserved !== 200)))) ||
-          (options.webhookSync && (manifest.stages?.watch_shared_maintenance !== 200 || manifest.stages?.[`watch_shared_step_${index}`] !== 200)) ||
+          (options.webhookSync && (manifest.stages?.watch_shared_maintenance !== 200 || manifest.stages?.[`watch_shared_step_${index}`] !== 200 ||
+            (index > 0 && (manifest.stages?.[`watch_shared_alarm_${index}`] !== 200 ||
+              manifest.stages?.watch_shared_busy_retry_recovered !== 200 || manifest.stages?.watch_shared_failure_retry_recovered !== 200)))) ||
           (options.httpSync && index > 0 && manifest.stages?.[`all_http_dispatch_${index}`] !== 200) ||
           (options.allSync && ((index >= 4 && manifest.stages?.all_sync_failure_4 !== 200) ||
             (index >= 6 && manifest.stages?.all_sync_failure_6 !== 200) ||
@@ -712,7 +714,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   if (!cleanup.ok) { throw new E2eWorkflowError("cleanup_run_failed"); }
   const clean = await requireTool(callTool, "assert_external_state", { run_id: runId, service: "google_sync" });
   if (clean.manifest?.outcome !== "passed" ||
-      (options.webhookSync && clean.manifest?.stages?.watch_shared_cleanup !== 200) ||
+      (options.webhookSync && (clean.manifest?.stages?.watch_shared_cleanup !== 200 || clean.manifest?.stages?.watch_shared_queue_cleanup !== 200)) ||
       ((options.fullApply || options.httpSync) && clean.manifest?.stages?.google_sync_shared_cleanup !== 200) ||
       (options.matrix && clean.manifest?.stages?.google_matrix_series_cleanup !== 200)) {
     throw new E2eWorkflowError("google_sync_outcome_failed");

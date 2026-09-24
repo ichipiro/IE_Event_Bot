@@ -1522,7 +1522,7 @@ for (const failure of [null, "stage", "dispatch", "version", "cleanup", "outcome
 }
 
 
-for (const failure of [null, "maintenance", "callback", "cleanup"]) {
+for (const failure of [null, "maintenance", "callback", "alarm", "retry", "cleanup", "queue_cleanup"]) {
   test(`通常watchと共有Webhook workflow: ${failure ?? "success"}`, async () => {
     const steps = ["prepared", "drained", "updated", "drained"];
     let index = 0;
@@ -1536,9 +1536,13 @@ for (const failure of [null, "maintenance", "callback", "cleanup"]) {
           [`all_http_step_${index}`]: 200, [`all_http_dispatch_${index}`]: 200,
           watch_shared_maintenance: failure === "maintenance" ? undefined : 200,
           [`watch_shared_step_${index}`]: failure === "callback" ? undefined : 200,
+          [`watch_shared_alarm_${index}`]: failure === "alarm" ? undefined : 200,
+          watch_shared_busy_retry_recovered: failure === "retry" ? undefined : 200,
+          watch_shared_failure_retry_recovered: 200,
         } } } }),
       assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
         google_sync_shared_cleanup: 200, watch_shared_cleanup: failure === "cleanup" ? undefined : 200,
+        watch_shared_queue_cleanup: failure === "queue_cleanup" ? undefined : 200,
       } } }),
     }, "google_sync");
     if (failure) {

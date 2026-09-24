@@ -11,7 +11,8 @@ from workers import Response
 
 import e2e_google_sync_probe as google
 import google_watch
-from e2e_all_http_probe import HttpApplication, HttpEnv
+from e2e_all_http_probe import HttpEnv
+from entry import Application as HttpApplication
 from e2e_google_sync_state import GoogleKV, GoogleStateError, WATCH_KEYS, digest
 from entry import _header
 from state import StateStore
@@ -225,15 +226,18 @@ async def finish(env, store, owner, invoke):
     require(token, "token_required")
     from e2e_all_http_probe import dispatch
     await dispatch(env, store, owner, token, invoke)
+    owner["stages"][f"watch_shared_alarm_{owner['step']}"] = 200
     owner["stage"] = "ready"
     await google._save(store, owner)
     return {"ok": True, "dirty": True}
 
 
-async def callback(env, store, request):
+async def callback(env, store, request, *, deferred=False, expected_run=None, expected_step=None):
     owner = await store.get_e2e_manifest("google_sync")
     if not owner or not owner.get("dirty") or not owner.get("webhook_sync"):
         return None
+    if deferred and (owner["run_id"] != expected_run or owner["step"] != expected_step):
+        return Response("", status=204)
     cid, rid, msg, kind = [_header(request, key) for key in ("X-Goog-Channel-ID", "X-Goog-Resource-ID", "X-Goog-Message-Number", "X-Goog-Resource-State")]
     watch = next((w for w in owner["watches"] if w["channel_id"] == cid and not w["stopped"]), None)
     if not watch:
@@ -244,8 +248,12 @@ async def callback(env, store, request):
     if kind == "sync" or not owner.get("webhook_armed") or owner["stage"] != "working":
         return Response("", status=204)
 
+    if not deferred:
+        from google_webhook_queue import enqueue
+        return await enqueue(env, request, run_id=owner["run_id"], step=owner["step"])
+
     async def invoke(run_env, _state, _fetcher, **kwargs):
-        return await HttpApplication(run_env).fetch(request)
+        return await HttpApplication(run_env)._handle_gcal_webhook(request, StateStore(run_env))
 
     # triggerのHTTPがcontrol lockを解放するまで待つ。書込み段階自体は再送しない。
     for _ in range(20):
@@ -288,6 +296,9 @@ async def cleanup_watches(env, store, owner, token):
     require(owner["watch_url_sha256"] == digest(env.GCAL_WEBHOOK_URL), "cleanup_target")
     for watch in owner["watches"]:
         await stop(env, store, owner, watch, token)
+    from google_webhook_queue import clear_owned_queue
+    await clear_owned_queue(env, owner["run_id"])
+    owner["stages"]["watch_shared_queue_cleanup"] = 200
     observations = (await rpc(store, owner))["observations"]
     for cid, record in observations.items():
         for msg in record["messages"]:
@@ -298,7 +309,7 @@ async def cleanup_watches(env, store, owner, token):
 
 
 async def retry_controls(env, store, owner, run_env, kv):
-    """実行中通知とAPI拒否後の再送を観測する。通常コードの結果を改善せず記録する。"""
+    """実行中通知とAPI拒否後、同番号の再送が通常同期を完了することを確認する。"""
     watch = owner["watches"][-1]
     app = HttpApplication(run_env)
     before_epoch = await store.get_sync_last_epoch()
@@ -319,8 +330,8 @@ async def retry_controls(env, store, owner, run_env, kv):
             run_env.GOOGLE_API_BEARER_TOKEN = "e2e-invalid-bearer"
             run_env.SYNC_ALL_INCLUDE_DISCORD_NOTION = "false"
         try:
-            response = await app.fetch(request)
-            require(response.status == (204 if case == "busy" else 500), "control_response_" + case)
+            response = await app._handle_gcal_webhook(request, StateStore(run_env))
+            require(response.status == (503 if case == "busy" else 500), "control_response_" + case)
             if case == "failure":
                 result = (await StateStore(run_env).get_json("result:sync_all", {})) or {}
                 require(result.get("payload", {}).get("google_ok") is False, "api_rejection_missing")
@@ -330,11 +341,17 @@ async def retry_controls(env, store, owner, run_env, kv):
             if case == "failure":
                 del run_env.GOOGLE_API_BEARER_TOKEN
                 del run_env.SYNC_ALL_INCLUDE_DISCORD_NOTION
+        response = await app._handle_gcal_webhook(request, StateStore(run_env))
+        result = (await StateStore(run_env).get_json("result:sync_all", {})) or {}
+        epoch = await store.get_sync_last_epoch()
+        require(response.status == 204 and result.get("payload", {}).get("ok") is True
+                and epoch > before_epoch, "retry_not_recovered_" + case)
         hashes = dict(kv.hashes)
-        response = await app.fetch(request)
-        require(response.status == 204 and kv.hashes == hashes
-                and await store.get_sync_last_epoch() == before_epoch, "retry_behavior_changed_" + case)
-        owner["stages"]["watch_shared_" + case + "_retry_lost"] = 409
+        duplicate = await app._handle_gcal_webhook(request, StateStore(run_env))
+        require(duplicate.status == 204 and kv.hashes == hashes
+                and await store.get_sync_last_epoch() == epoch, "retry_duplicate_applied_" + case)
+        before_epoch = epoch
+        owner["stages"]["watch_shared_" + case + "_retry_recovered"] = 200
     await google._save(store, owner)
 
 

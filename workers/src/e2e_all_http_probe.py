@@ -7,22 +7,8 @@ from urllib.parse import quote
 import e2e_google_sync_probe as google
 from e2e_all_sync_probe import AllEnv, _require
 from e2e_google_sync_state import GoogleKV, MAX_BASELINE_DELETED
-from entry import Default as ApplicationDefault
 from google_apply_sync import _build_discord_description
 from state import StateStore
-
-
-class HttpApplication:
-    """通常entryのメソッドを、リクエスト限定のbinding viewでそのまま実行する。"""
-
-    def __init__(self, env):
-        self.env = env
-
-    def __getattr__(self, name):
-        descriptor = ApplicationDefault.__dict__.get(name)
-        if descriptor is None:
-            raise AttributeError(name)
-        return descriptor.__get__(self, type(self))
 
 
 class HttpEnv:

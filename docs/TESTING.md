@@ -534,17 +534,18 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 
 `deploy-and-watch-shared-smoke` は専用環境の所有予定2件を使う。`prepare_webhook` で通常の `ensure_watch_active` を通常HTTP入口から実行し、登録、有効時の無更新、期限しきい値による更新、期限欠損、token変更と復元、停止後の再登録を確認する。期限の経過を待つ試験ではなく、しきい値と所有するwatch状態を設定する試験である。6個のchannel IDはAPI呼出し前に所有記録へ保存し、初回 `sync` のresource IDはwatch応答より先に届いてもDOへ保存する。
 
-各 `webhook_trigger` は所有Google予定のprivate propertyを更新する。Googleから実際に届いた `exists` が通常 `entry.fetch` → Webhook認証・重複抑止 → 通常同期dispatchへ入り、通常名の共有KV、global DOのロック・成功時刻、通常のGoogle/Notion/Discord処理を使う。Google全件入力は事前に所有予定と既知の削除履歴だけであることを確認する。3回の実通知で全体同期の往復と共有状態の別HTTP読戻しを確認する。各回で受信した同じrequestを内部再送し、KVと成功時刻が変化しないことを確認する。これはGoogle自身による同一通知の再配信を保証しない。
+各 `webhook_trigger` は所有Google予定のprivate propertyを更新する。Googleから実際に届いた `exists` を認証後にrun所有DOへ保存し、Alarm → 通常Webhook handlerのlease・重複抑止 → 通常同期dispatchへ入り、通常名の共有KV、global DOのロック・成功時刻、通常のGoogle/Notion/Discord処理を使う。Google全件入力は事前に所有予定と既知の削除履歴だけであることを確認する。3回の実通知で全体同期の往復と共有状態の別HTTP読戻しを確認する。各回で受信した同じrequestを内部再送し、KVと成功時刻が変化しないことを確認する。これはGoogle自身による同一通知の再配信を保証しない。
 
-初回同期の前には、所有channelの別通知番号で次の現行動作を観測する。
+初回同期の前には、所有channelの別通知番号で次の再試行を確認する。
 
-- 同期ロック取得中の通知は204となり、ロック解放後の同じ通知番号も重複として204となる。同期は再実行されない。
-- 固定の無効bearerによるGoogle取得失敗は500となるが、有効bearerへ戻した後の同じ通知番号は204となる。同期は再実行されない。
+- 同期ロック取得中は503となり、ロック解放後の同じ通知番号で同期成功・成功時刻更新を確認する。
+- 固定の無効bearerによるGoogle取得失敗は500となり、有効bearerへ戻した後の同じ通知番号で同期成功・成功時刻更新を確認する。
 
-これらは再試行欠落の検出であり、復旧成功ではない。manifestの `watch_shared_busy_retry_lost=409` と `watch_shared_failure_retry_lost=409` に記録する。シナリオの `passed` は正常系とこの観測が期待どおりだったことを示し、再試行保証を意味しない。その後、実通知の通常処理で成功状態へ戻す。本番の同期ロジックは変更しない。
+復旧を `watch_shared_busy_retry_recovered=200` と `watch_shared_failure_retry_recovered=200` に記録する。成功後の同番号通知では共有KVと成功時刻が変化しないことも確認する。異常系は内部生成通知であり、Google自身による同一通知の再配信や自然なAPI障害を観測する試験ではない。実Google通知による正常同期3回には `watch_shared_alarm_<step>=200` も必須とする。
+
 
 旧channelと所有外channelの拒否はE2E入口の所有権ガードによる。通常Workerでの旧channel拒否を証明しない。token変更中の初回通知は通常token検証で拒否され、最終channelの `sync` を別HTTPで確認する。実Cron、本番Worker、自然な期限切れ、Googleの再送間隔は対象外。
 
-回収はwatch停止を先に行い、所有通知のdedupeと観測記録、Google予定・Discord予定・Notionページ、watchを含む共有KVの順で確認する。共有値が所有記録と一致しない場合は削除せず、`dirty=true` を維持する。global DOの成功時刻は実行履歴として残す。
+回収はwatch停止を先に行い、所有DO通知キューとAlarm、所有通知のdedupeと観測記録、Google予定・Discord予定・Notionページ、watchを含む共有KVの順で確認する。共有値が所有記録と一致しない場合は削除せず、`dirty=true` を維持する。global DOの成功時刻は実行履歴として残す。
 
 2026-09-25の[実行記録](E2E-WATCH-SHARED-20260925.md)では通常watch維持と再試行欠落2ケースを確認したが、最初の実変更通知による同期は完了せず、E2E全体は失敗した。上記の3回の正常同期・往復確認は未達であり、シナリオの実装と実環境で確認できた範囲を区別する。

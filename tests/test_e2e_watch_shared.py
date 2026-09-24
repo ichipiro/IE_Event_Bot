@@ -80,8 +80,15 @@ class WatchScenario(AllScenario):
         cid = self.owner()["watches"][-1]["channel_id"]
         response = asyncio.run(self.worker.fetch(self.request(cid, str(step + 1))))
         assert response.status == 204, self.owner()
+        self.drain_alarm()
         status, payload = self.call("verify")
         assert status == 200, payload
+
+    def drain_alarm(self):
+        from google_webhook_queue import queue_name
+        stub = self.env.SYNC_COORDINATOR.getByName(queue_name(self.owner()["run_id"]))
+        stub.durable_object.env = self.env
+        asyncio.run(stub.durable_object.alarm())
 
 
 def test_watch_maintenance_real_ingress_shared_sync_and_cleanup(monkeypatch):
@@ -99,8 +106,8 @@ def test_watch_maintenance_real_ingress_shared_sync_and_cleanup(monkeypatch):
     status, payload = test.call("cleanup")
     assert status == 200, payload
     assert test.owner()["outcome"] == "passed"
-    assert test.owner()["stages"]["watch_shared_busy_retry_lost"] == 409
-    assert test.owner()["stages"]["watch_shared_failure_retry_lost"] == 409
+    assert test.owner()["stages"]["watch_shared_busy_retry_recovered"] == 200
+    assert test.owner()["stages"]["watch_shared_failure_retry_recovered"] == 200
     assert len(test.stops) == 6
     assert test.env.STATE_KV.data == before
     assert not test.discord
@@ -172,32 +179,17 @@ def test_existing_watch_is_rejected_before_fixture_creation(monkeypatch):
     assert test.env.STATE_KV.data["gcal_watch_state"] == "foreign"
 
 
-def test_callback_remains_registered_after_client_cancellation(monkeypatch):
-    from types import SimpleNamespace
-
+def test_callback_is_persisted_before_response_and_completed_by_alarm(monkeypatch):
     test = WatchScenario(monkeypatch)
-
-    async def scenario():
-        entered, proceed = asyncio.Event(), asyncio.Event()
-        retained = []
-        setattr(test.worker, "ctx", SimpleNamespace(waitUntil=retained.append))
-
-        async def callback(*args):
-            entered.set()
-            await proceed.wait()
-            return Response("", status=204)
-
-        monkeypatch.setattr(probe, "callback", callback)
-        request = asyncio.create_task(test.worker.fetch(test.request("test")))
-        await entered.wait()
-        request.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await request
-        assert len(retained) == 1 and not retained[0].done()
-        proceed.set()
-        assert (await retained[0]).status == 204
-
-    asyncio.run(scenario())
+    test.prepare()
+    assert test.call("watch/trigger")[0] == 200
+    owner = test.owner()
+    response = asyncio.run(test.worker.fetch(test.request(owner["watches"][-1]["channel_id"], "77")))
+    assert response.status == 204
+    assert "watch_shared_callback_1" not in test.owner()["stages"]
+    test.drain_alarm()
+    assert test.owner()["stages"]["watch_shared_callback_1"] == 204
+    assert test.call("cleanup")[0] == 200
 
 
 def test_cleanup_reclaims_expired_global_lock_without_forced_release(monkeypatch):

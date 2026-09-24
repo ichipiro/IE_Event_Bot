@@ -433,12 +433,7 @@ class Default(ApplicationDefault):
             if str(getattr(self.env, "E2E_WATCH_SHARED_ENABLED", "false")).lower() == "true":
                 from e2e_watch_shared_probe import callback
                 try:
-                    import asyncio
-                    task = asyncio.create_task(callback(self.env, state, request))
-                    context = getattr(self, "ctx", None)
-                    if context is not None:
-                        context.waitUntil(task)
-                    shared_response = await asyncio.shield(task)
+                    shared_response = await callback(self.env, state, request)
                 except Exception:
                     return Response("webhook unavailable", status=503)
                 if shared_response is not None:
@@ -799,7 +794,7 @@ class Default(ApplicationDefault):
                 from google_apply_sync import apply_google_events
 
                 if normal_http:
-                    from e2e_all_http_probe import HttpApplication
+                    from entry import Application as HttpApplication
                     return await HttpApplication(probe_env).fetch(request)
 
                 async def fetch_owned(_env, state, *, commit_cursor):

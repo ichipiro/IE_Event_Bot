@@ -86,9 +86,11 @@ StateStore
 ### Google Webhook
 
 1. `/gcal/webhook` で通知を受け、`X-Goog-Channel-Token` を検証する。
-2. `X-Goog-Channel-ID` と `X-Goog-Message-Number` を使って重複を判定する。
-3. 未処理なら全体同期を実行する。
-4. 正常時は本文なしの `204` を返す。
+2. `SYNC_COORDINATOR` の `gcal-webhook` インスタンスへ通知とAlarm予約を保存してから `204` を返す。保存失敗・キュー満杯は `503` とする。token値は保存しない。
+3. Alarmが通常Webhook handlerを呼ぶ。`global` の通知単位の短期leaseで処理中を区別し、同期成功後だけ処理済みにする。
+4. 同期中・クールダウン・失敗時は通知を保持してAlarmを再予約する。成功した通知だけ永続キューから除去する。
+
+通知キューは最大128件、失敗時の通常再試行は60秒後。送信元のHTTP接続終了に依存せず継続する。[CloudflareのAlarm仕様](https://developers.cloudflare.com/durable-objects/api/alarms/)は少なくとも一度の実行であり、外部API反映とDO保存の間の応答喪失を含め、厳密に一度だけの外部書込みは保証しない。DOなしの旧構成は従来の同期HTTP処理とKV重複記録を維持し、通知の永続キューと強整合leaseは利用できない。
 
 ### Cron
 

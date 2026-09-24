@@ -144,6 +144,14 @@ class Default(WorkerEntrypoint):
 
         # Google Calendar webhook 通知の受信口
         if path == "/gcal/webhook":
+            if str(request.method or "GET").upper() != "POST":
+                return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
+            token_status = _gcal_webhook_token_status(self.env, request)
+            if token_status:
+                return Response("webhook unavailable" if token_status == 503 else "unauthorized", status=token_status)
+            if getattr(self.env, "SYNC_COORDINATOR", None) is not None:
+                from google_webhook_queue import enqueue
+                return await enqueue(self.env, request)
             return await self._handle_gcal_webhook(request, state)
 
         # Q&A 未回答更新通知ジョブを実行
@@ -362,25 +370,39 @@ class Default(WorkerEntrypoint):
         if token_status:
             return Response("unauthorized", status=401)
 
-        if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
-            goog_channel = _header(request, "X-Goog-Channel-ID")
-            goog_msg = _header(request, "X-Goog-Message-Number")
-            duplicated = await state.mark_google_message_seen(
-                goog_channel or "",
-                goog_msg or "",
+        claim = None
+        finished = False
+        try:
+            if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
+                claim = await state.claim_google_message(
+                    _header(request, "X-Goog-Channel-ID") or "",
+                    _header(request, "X-Goog-Message-Number") or "",
+                    self._sync_lock_ttl_seconds() + 30,
+                )
+                if claim["status"] == "duplicate":
+                    return Response("", status=204)
+                if claim["status"] == "busy":
+                    return Response("sync in progress", status=503)
+            sync_resp = await self._run_sync_dispatch(
+                request, state, source="webhook", google_applier=google_applier,
             )
-            if duplicated:
+            succeeded = 200 <= int(sync_resp.status) < 300
+            if claim:
+                await state.finish_google_message(claim, succeeded=succeeded)
+                finished = True
+            if succeeded:
                 return Response("", status=204)
-
-        sync_resp = await self._run_sync_dispatch(
-            request,
-            state,
-            source="webhook",
-            google_applier=google_applier,
-        )
-        if int(sync_resp.status) >= 500:
-            return Response("sync failed", status=500)
-        return Response("", status=204)
+            return Response("sync failed", status=500 if int(sync_resp.status) == 500 else 503)
+        except Exception:
+            # 例外時に成功応答を返さず、通知の再送を許す。
+            return Response("sync unavailable", status=503)
+        finally:
+            if claim and claim.get("status") == "claimed" and not finished:
+                try:
+                    await state.finish_google_message(claim, succeeded=False)
+                except Exception:
+                    # DO障害時も処理済みにはせず、短期leaseの期限後に再取得可能。
+                    pass
 
     def _authorized(self, request) -> bool:
         """
@@ -443,7 +465,7 @@ class Default(WorkerEntrypoint):
                     "interval_seconds": sync_interval,
                     "source": source,
                 },
-                status=200,
+                status=503 if source == "webhook" else 200,
             )
         lock_owner = None
         # Durable Object ロック要求(別の実行がまだ進行中なら失敗)
@@ -459,7 +481,7 @@ class Default(WorkerEntrypoint):
                         "source": source,
                         "lock": acquired,
                     },
-                    status=200,
+                    status=503 if source == "webhook" else 200,
                 )
             lock_owner = acquired.get("owner")
         try:
@@ -789,3 +811,16 @@ class Default(WorkerEntrypoint):
         # 最初の値だけ使う
         value = str(values[0]).strip().lower()
         return value in ("1", "true", "yes", "on")
+
+
+class Application:
+    """Alarmと検証から通常アプリケーション処理を呼ぶbinding view。"""
+
+    def __init__(self, env):
+        self.env = env
+
+    def __getattr__(self, name):
+        descriptor = Default.__dict__.get(name)
+        if descriptor is None:
+            raise AttributeError(name)
+        return descriptor.__get__(self, type(self))

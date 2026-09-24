@@ -4,6 +4,7 @@
 
 - [実行35980469928](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35980469928)はcommit `fa5fcd87072928ec414221204337fb958b5bcf08`、run `E2E-20260924T092101Z-dcf6de0a` でstep 0〜10のverifyに成功した。step 11のadvanceで `google_sync_release_failed`、続く回収8回は `google_sync_busy` となり、manifestはready・dirty=true。実行成功・回収完了とは扱わない。
 - ロック解放失敗の根本原因はartifactだけでは確定できない。ロックTTLは300秒。既存回収workflowがreadyを拒否する条件を再現し、同run・version・他資源cleanの照合を維持してreadyから回収できるよう修正した。Node 227件成功。実環境の回収と18step再実行は未完了。
+- 回収用commit `b7a9786` の[実行35981499346](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35981499346)はLocal validationに成功し、GitHub Environment `e2e` のrequired reviewer承認待ち。既存runだけを回収し、新規fixtureは作成しない。承認前のため、回収完了・dirty=falseは未確認。
 
 ## 2026-09-24: Google matrixの複数失敗と分割再試行を追加
 

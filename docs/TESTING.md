@@ -546,3 +546,5 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 旧channelと所有外channelの拒否はE2E入口の所有権ガードによる。通常Workerでの旧channel拒否を証明しない。token変更中の初回通知は通常token検証で拒否され、最終channelの `sync` を別HTTPで確認する。実Cron、本番Worker、自然な期限切れ、Googleの再送間隔は対象外。
 
 回収はwatch停止を先に行い、所有通知のdedupeと観測記録、Google予定・Discord予定・Notionページ、watchを含む共有KVの順で確認する。共有値が所有記録と一致しない場合は削除せず、`dirty=true` を維持する。global DOの成功時刻は実行履歴として残す。
+
+2026-09-25の[実行記録](E2E-WATCH-SHARED-20260925.md)では通常watch維持と再試行欠落2ケースを確認したが、最初の実変更通知による同期は完了せず、E2E全体は失敗した。上記の3回の正常同期・往復確認は未達であり、シナリオの実装と実環境で確認できた範囲を区別する。

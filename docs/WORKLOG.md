@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-24: 全件E2Eは共有KVの開始条件で停止
+
+- `ea6044e63dd329aebc95d55ed789cf4674519497` の[実行35962599536](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35962599536)を実行した。Local validation成功、Environment承認後のE2E Worker deployとversion照合が成功した。run IDは `E2E-20260924T060357Z-380a526d`。
+- `prepare_full` は `google_sync_shared_not_empty`（409）で停止した。共有6キーの少なくとも1つに既存値があり、新規fixture・所有manifest・共有状態を書き込む前の拒否である。既存値の内容・由来は未確認で、削除していない。Calendar・Guild・DBの空状態確認と全件適用には到達していない。
+- 通常とalwaysのcleanupは計8回とも `google_sync_run_mismatch`（409）だった。google_syncのmanifestは前回成功run `E2E-20260924T051801Z-2198a0b3` のclean記録であり、今回の所有記録はない。全service/scenarioのmanifestが `dirty=false` のままであることをartifactで確認した。今回の回収成功・全件適用成功とは扱わない。
+- 監査20行・10操作（deploy 1、prepare 1、cleanup 8）、run/version/commit・clean checkout、JUnit 659件・失敗/エラー/skip 0を独立照合した。実行の結論はfailure。成果物は `test-results/google-full-35962599536/` に保存した。
+- 再実行には共有6キーが欠損したE2E専用KVが必要である。Calendarの削除記録を含む空状態検査も引き続き必要。既存の共有値を所有証拠なしに回収する変更や、空状態検査の緩和は行わない。
+
 ## 2026-09-24: Google同期の共有KV・全件モードを実装
 
 - 空の専用環境に3件を用意し、通常取得の全入力を間引かず適用する `prepare_full` を追加した。共有KVの固定6キー、4段階と別HTTP検証、所有外入力の拒否を既存probeへ接続した。

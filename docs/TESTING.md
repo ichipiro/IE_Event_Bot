@@ -410,6 +410,8 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 
 workflowは全入力確認・共有キーの開始時欠損・回収の各stageとversionを照合し、失敗時も既存のcleanupと監査収集を使う。[test_e2e_google_full.py](../tests/test_e2e_google_full.py) では取得順の逆転・複数ページ・全段階、既存データ保護、所有外入力、書込み応答喪失、回収再試行、他scenarioとの競合、設定・manifestの差替え拒否を代替APIと実DOロジックで検証する。実サービスの全件モードは未実行であり、任意件数・繰返し予定など全入力形式への対応を実証したものではない。
 
+2026-09-24の初回[実行35962599536](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35962599536)は `ea6044e` のLocal validationとdeploy成功後、`google_sync_shared_not_empty` で停止した。新規検証資源の作成・共有KV書込み・全件適用には到達していない。cleanupは前回runのclean manifestに対するrun不一致として8回拒否された。監査20行・10操作、version/commit/run一致、全manifest `dirty=false` と前回所有記録の保持、JUnit 659件成功を確認した。今回の全件モードは未検証のままであり、再実行には空のE2E専用共有KVが必要である。
+
 ### 分割後の状態障害E2Eの実行結果
 
 2026-09-14、fork作業ブランチ `feature/sync-fault-request-split` の `c1740e2f0a5d11dedefe4c06df24f318110ef1f2` を使い、[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)を実行した。Local validation成功とEnvironment承認後、専用Workerを1回deployした。run ID `E2E-20260914T120901Z-7c8d0e77`、Worker version tag、deployと最終version fingerprint、対象commit、実行checkoutのclean状態を照合した。

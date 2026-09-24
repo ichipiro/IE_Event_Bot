@@ -451,7 +451,7 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 
 小さいページサイズはE2Eから渡すfetch callbackだけで設定し、通常運用の `maxResults=2500` を維持する。[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)の `nextPageToken` に従って実APIを読み、ページ内の欠落・重複や所有外入力、想定したページ数の不足は適用前に拒否する。Notion更新とDiscord削除の固定注入では対象操作を実行せず失敗値を返し、通常適用のエラー・queue保存分岐を通す。サービス障害やHTTP 5xxを観測した証拠とは扱わず、その後の再試行と他の適用・読戻し・回収には実APIを使う。callbackを渡さない通常処理の動作は維持する。
 
-28step版のローカル検証は完了し、実サービス実行と成果物の照合は未完了である。
+28step版は[実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)（commit `e8e7e9d3208fc010e7089281359c2c37126dc981`）で実サービス検証も成功した。所有7件のページ送り、queueの5→3→1→0、Notion更新／Discord削除の固定失敗後の部分反映・cursor保護・次HTTPでの回復・既存ID維持、全28段階と各verify、全所有資源と共有KVの回収を確認した。監査118行・59操作、run/version/commit一致、passed・全manifest dirty=false、JUnit 754件成功をartifactで照合した。通信失敗・ロック解放失敗は再発せず、再試行・診断の実障害による発動は未確認である。
 
 初回の[実行36001946180](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36001946180)はstep 6のadvance後、verifyのfetchが例外となり `worker_request_failed`・status 0で停止した。回収200・`failed_clean`・全manifest `dirty=false`、監査34行・17操作とversion一致を照合済み。7件への拡張段階には未到達。HTTP応答未取得の通信例外であり、詳細原因は旧記録から特定できない。
 

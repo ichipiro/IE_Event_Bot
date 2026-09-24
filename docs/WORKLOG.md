@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Google同期28段階の実サービス検証と回収が成功
+
+- 承認後の[実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)はcommit `e8e7e9d3208fc010e7089281359c2c37126dc981` で成功した。run `E2E-20260924T130739Z-0e7fcd4c` の28段階と各verifyが成功し、監査118行・59操作を独立照合した。
+- 削除済み2件を含む所有7件の複数ページ取得、共有queueの5→3→1→0、Notion更新・Discord削除の固定失敗後の部分反映、cursor保護、次HTTPのqueue回復と既存ID維持を確認した。従来のDiscord HTTP 400拒否4件と再試行も成功した。Notion更新／Discord削除は固定失敗の注入であり、実サービス障害の観測とは扱わない。
+- 繰返し親・所有予定・Notion・Discord・共有KVの回収、`outcome=passed`・全service/scenario manifest `dirty=false`、run／version tag／deployと最終version fingerprint／commit一致、clean checkoutを確認した。削除済み資源の404／410は回収処理の許容応答であり、失敗とは扱わない。
+- Local validationとApproved E2Eが成功し、JUnit 754件（失敗・エラー・skip 0件）を照合した。通信失敗・ロック解放失敗は0件で、通信再試行と診断出力の実障害による発動は未確認。以前の両障害の詳細原因は未確定のまま保持する。
+
 ## 2026-09-24: 28step初回の確認通信失敗と回収、再試行を追加
 
 - 承認後の[実行36001946180](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36001946180)はcommit `3eef09528767ff966f7df09901066934845c3f81` でLocal validationとdeployが成功し、step 0〜5のverify、step 6のadvanceまで200だった。続くverifyは27 msで `worker_request_failed`・status 0となった。NodeのfetchがHTTP応答を返す前に例外となったことは確認できるが、元の例外を保存していないためDNS・TLS・接続切断などの詳細原因は不明。Workerへの未到達や、以前のロック解放失敗との同一原因を断定しない。

@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: Googleロック診断のログ照会が403で停止
+
+- ユーザー承認後の[診断実行35987968532](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35987968532)は、commit `49fc180a77a0c18d669699ed4c41c7754a211bfe` のLocal validationに成功し、ログ照会で失敗した。artifactの `report.json` は `diagnostic_http_403`。過去ログは取得できていない。
+- Cloudflare APIによるアクセス拒否までは確定したが、403だけではトークンの権限不足・対象アカウント・その他の利用制限を区別できない。照会に必要な `Workers Observability Write` と対象アカウントの許可を、GitHub Environment `e2e` の `CLOUDFLARE_API_TOKEN` に対応するCloudflare側設定で確認する必要がある。トークン値の読取り・権限変更は行っていない。
+- run ID作成・deploy・fixture操作・cleanupの各stepはskipされた。元の `google_sync_release_failed` の原因は未確定のまま保持する。設定確認前の同条件再実行は行わない。
+
 ## 2026-09-24: Google matrixのロック解放失敗を調査
 
 - 失敗runのstep 11は09:26:45.483〜09:26:58.359 UTCの12.876秒だった。phase上限90秒・制御ロックTTL300秒への到達とは一致しない。後続cleanupは約10秒以内の8回すべてbusy。成功runの同stepは10.966秒だった。

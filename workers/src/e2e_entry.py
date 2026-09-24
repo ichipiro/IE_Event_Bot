@@ -1083,7 +1083,7 @@ class Default(ApplicationDefault):
                     result = await run_reminder_normal(self.env, state, run_id, _REMINDER_NORMAL_PHASES[path], request)
                 except Exception as exc:
                     code = str(exc)
-                    result = {"ok": False, "dirty": True, "error": code if re.fullmatch(r"[a-z_]{1,80}", code) else "reminder_normal_failed"}
+                    result = {"ok": False, "dirty": True, "error": code if re.fullmatch(r"[a-z0-9_]{1,80}", code) else "reminder_normal_failed"}
             elif path == _REMINDER_CLEANUP_PATH:
                 result = await cleanup_reminder_probe(
                     self.env,

@@ -201,6 +201,7 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
             "headers": {
                 "Authorization": f"Bot {token}",
                 "Content-Type": "application/json",
+                "User-Agent": "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)",
             },
             "body": body,
         },
@@ -359,13 +360,13 @@ async def _list_discord_events(env):
     if not guild_id:
         return []
     # Discord REST API イベント情報リクエスト
-    result, _status = await _discord_api_request(
+    result, status = await _discord_api_request(
         env,
         "GET",
         f"/guilds/{guild_id}/scheduled-events?with_user_count=false",
     )
-    if not isinstance(result, list):
-        return []
+    if not 200 <= status < 300 or not isinstance(result, list):
+        raise RuntimeError(f"discord_event_list_failed_{status}")
     return result
 
 
@@ -504,14 +505,25 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
             }
         return True
 
-    events = await _list_discord_events(env)
-    return await _run_reminder_events(
+    try:
+        events = await _list_discord_events(env)
+    except RuntimeError as exc:
+        code = str(exc)
+        if not code.startswith("discord_event_list_failed_"):
+            raise
+        if return_detail:
+            return {"ok": False, "error": code}
+        return False
+    result = await _run_reminder_events(
         env,
         state,
         events,
         now_utc=datetime.now(timezone.utc),
         return_detail=return_detail,
     )
+    if isinstance(result, dict):
+        result["listed_count"] = len(events)
+    return result
 
 
 def _utc_now():

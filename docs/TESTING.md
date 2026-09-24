@@ -591,3 +591,8 @@ KVアダプターはキー・run所有権・値のdigestを検証し、DOには�
 失敗時も作成応答を失った予定をpayloadとmarkerで再発見し、所有予定・通知・共有KVだけを回収する。
 既存の `deploy-and-reminder-smoke` は1件と実行内cacheの試験として残す。
 このモードは実Cron配信、API実障害、通知失敗後の通常ジョブ再試行、KVの全リージョン一貫性を証明しない。
+
+通常リマインドはDiscord一覧取得のHTTP失敗・不正形式を空一覧として成功扱いせず、失敗statusを返す。
+通常DiscordジョブのHTTP呼出しには[公式形式のUser-Agent](https://docs.discord.com/developers/reference#user-agent)を付与する。
+初回36032380828は通知後verifyで停止し、所有資源・共有KVの回収と `failed_clean`・全manifest `dirty=false` を確認した。
+初回は一覧のHTTP statusを記録していないため、User-Agent不足との因果関係は確定していない。

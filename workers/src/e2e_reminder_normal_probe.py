@@ -122,7 +122,7 @@ async def _verify(env, store, owner):
     completed = owner["completed"]
     if completed in ("notify", "duplicate"):
         cache = await store.get_json("reminder_cache", {})
-        _require(cache == owner["cache"] and set(cache) == set(owner["eligible"]),
+        _require(cache == owner.get("cache") and set(cache) == set(owner["eligible"]),
                  "reminder_normal_cache_not_ready")
         result = await store.get_last_result("job_reminder")
         detail = (result or {}).get("payload", {})
@@ -206,8 +206,11 @@ async def _job(env, store, owner, phase, request):
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/reminder", method="POST", headers=request.headers)
     response = await Application(_JobEnv(env, _OwnedKV(store, owner))).fetch(job_request)
     detail = json.loads(await response.text())
+    error = str(detail.get("error") or "reminder_normal_job_failed")
     _require(response.status == 200 and detail.get("ok") is True
-             and detail.get("failed_count") == 0, "reminder_normal_job_failed")
+             and detail.get("failed_count") == 0, error)
+    _require(detail.get("listed_count") == 4, "reminder_normal_list_count_failed")
+    _require(set(owner.get("cache", {})) == set(owner["eligible"]), "reminder_normal_cache_missing")
     owner["stages"][f"reminder_normal_{phase}"] = 200
 
 

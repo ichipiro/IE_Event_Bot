@@ -208,3 +208,22 @@ def test_partial_failure_retains_owner_and_can_cleanup(monkeypatch, failure):
     assert not events and not messages
     manifest = run(StateStore(env).get_e2e_manifest(normal.SERVICE))
     assert manifest and manifest["outcome"] == "failed_clean"
+
+
+def test_normal_list_failure_is_not_reported_as_success(monkeypatch):
+    env, _, _ = setup(monkeypatch)
+    async def rejected(*args, **kwargs):
+        return None, 429
+    monkeypatch.setattr(jobs, "_discord_api_request", rejected)
+    result = run(jobs.run_day_before_reminder_job(env, StateStore(env), return_detail=True))
+    assert isinstance(result, dict) and result["ok"] is False
+    assert result["error"] == "discord_event_list_failed_429"
+
+
+def test_discord_job_request_includes_bot_user_agent(monkeypatch):
+    env, _, _ = setup(monkeypatch)
+    async def require_agent(url, options):
+        assert options["headers"].get("User-Agent", "").startswith("DiscordBot (")
+        return Response("[]", status=200)
+    monkeypatch.setattr(jobs, "fetch", require_agent)
+    assert run(jobs._list_discord_events(env)) == []

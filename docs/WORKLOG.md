@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-24: 新規KVでの全件E2EはCalendar開始条件で停止
+
+- ユーザーがE2E用STATE_KVを新規namespaceへ更新した。変更はE2E設定のIDだけで、`952f27f9a1c068661d25f196ffccf70e38decec0` として保存・pushし、[実行35963510311](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35963510311)を実行した。
+- Local validation、承認後のdeploy、共有KVの空状態検査は通過した。run IDは `E2E-20260924T062252Z-08da9194`。続くCalendar検査が `google_sync_calendar_not_empty`（409）で停止し、新規fixture作成・全件適用には到達していない。
+- このエラーはGoogle取得失敗と、削除済み予定を含む取得結果が空でない場合の両方に使われる。現状のartifactでは予定の残存・削除履歴・取得失敗を特定できない。KVの切替失敗と扱わず、空の専用Calendarと取得条件を次の確認対象とする。
+- 通常とalwaysのcleanupは計8回とも前回runのclean記録との不一致で拒否された。監査20行・10操作、run/version/commit・clean checkout、JUnit 659件成功を照合した。全service/scenario manifestは `dirty=false` で、google_syncは前回成功runの記録を保持している。今回の新規所有資源はなく、共有値や外部予定を削除していない。
+- 全件適用の実サービス検証は未完了。結果を成功や回収成功へ読み替えない。
+
 ## 2026-09-24: 全件E2Eは共有KVの開始条件で停止
 
 - `ea6044e63dd329aebc95d55ed789cf4674519497` の[実行35962599536](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35962599536)を実行した。Local validation成功、Environment承認後のE2E Worker deployとversion照合が成功した。run IDは `E2E-20260924T060357Z-380a526d`。

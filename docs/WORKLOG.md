@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Google matrix E2Eの実サービス検証が成功
+
+- [実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)で、終日1件・通常2件・繰返し2回の計5件、上限2件での繰越、日時・説明更新、個別削除、共有queueでのAPI拒否・再試行の全14段階と各verifyが成功した。
+- 実行commit `1ca952b9a5297e4dcbe5de837ac0669d3af66a20`、run `E2E-20260924T085514Z-61014564`、Worker version fingerprint `5673c28f6fa825fd9044e02b2189d0514a170d3558d2feff896b4c8c01e5de0c` を照合した。監査62行・31操作はすべて成功し、checkoutはclean、JUnitは701件・失敗0だった。
+- `google_matrix_step_0`〜`13`、全入力・cursor保護・繰返し親回収・共有KV回収の各stageは200、意図したDiscord入力拒否は400だった。通常とalwaysのcleanupが成功し、今回runの `outcome=passed` と全service/scenario manifestの `dirty=false` を確認した。
+- 対応するE2E計画項目を完了にした。専用環境の有限5件・14段階の検証であり、任意件数・繰返し規則、サービス停止・回線断、通常Cronの検証は含めない。
+
 ## 2026-09-24: Google全件E2Eの予定形式・件数・共有再試行を拡張
 
 - 通常2件・終日1件・繰返し2回の5件を14stepで処理するmatrixモードを追加した。Google発行のinstance IDを親ID・元時刻・markerで照合して固定し、作成をHTTP単位へ分割した。上限2件の繰越、日時・説明更新、終日と個別回の削除、共有KVでの400拒否・cursor保護・queueだけの再試行、親を含む回収を実装した。既存2件・3件モードは維持する。

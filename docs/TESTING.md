@@ -443,7 +443,7 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 
 回収は所有する繰返し親・各回・対応先を区別する。親のrecurrence・各回の所属とmarkerを再確認してから親を削除し、通常予定とNotion/Discord、共有KVも回収する。未知の親・回・変更された繰返し規則ではdirtyを維持する。親作成後の応答喪失やinstanceのmarker更新途中でも、記録済み親と元の開始時刻から所有範囲を確認する。32 KiB manifestの境界を含め、既存削除履歴100件での全段階をローカル検証する。
 
-[test_e2e_google_matrix.py](../tests/test_e2e_google_matrix.py) は実DOロジックと代替APIによる検証である。実サービス実行は別途必要。今回の14stepは上記の有限ケースを対象とし、無制限の件数・繰返し規則・サービス停止や回線断の観測を証明しない。400応答は入力検証によるAPI拒否であり、サービス障害ではない。
+[test_e2e_google_matrix.py](../tests/test_e2e_google_matrix.py) は実DOロジックと代替APIによる検証である。実サービスでは2026-09-24の[実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)（commit `1ca952b9a5297e4dcbe5de837ac0669d3af66a20`）で、全14段階と各verify、API拒否後の共有queue再試行、繰返し親・共有KVを含む回収が成功した。監査62行・31操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` をartifactで照合した。今回の14stepは上記の有限ケースを対象とし、無制限の件数・繰返し規則・サービス停止や回線断の観測を証明しない。400応答は入力検証によるAPI拒否であり、サービス障害ではない。
 
 ### 分割後の状態障害E2Eの実行結果
 

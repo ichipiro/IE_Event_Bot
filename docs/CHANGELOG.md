@@ -1,5 +1,9 @@
 # 文書変更履歴
 
+## 2026-09-24: Google matrix E2Eの成功を記録
+
+- [実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)の全14段階、共有queue再試行、繰返し親・共有KVの回収、passed・全記録dirty=falseを記録し、対応するE2E計画項目を完了にした。
+
 ## 2026-09-24: Google matrix E2E
 
 - 予定形式と5件・複数回繰越・共有KV再試行のmatrixモード、14stepのverify・所有記録・繰返し親の回収、MCP・workflowと検証境界を文書化した。

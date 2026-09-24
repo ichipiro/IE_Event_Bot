@@ -79,7 +79,7 @@
 
 ## 7. 通常ジョブ
 
-- [ ] Q&Aの全件取得・質問番号補完・共有cache・通知を検証する。
+- [x] Q&Aの全件取得・質問番号補完・共有cache・通知を検証する。[実行36030243998](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36030243998)で専用DBの3件、通常HTTPハンドラ、採番・初回抑止・未回答2件の通知・回答済み抑止・重複抑止、全5段階と別HTTP読戻し、所有資源・共有KVの回収が成功した。監査26行・13操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit825件成功を照合済み。実Cron・通知失敗再試行は対象外。
 - [ ] リマインドの全件取得・対象選別・共有cache・通知を検証する。
 - [ ] Notion cleanupの全件取得・期限判定・共有最終時刻・実行間隔を検証する。
 - [ ] 各ジョブの再試行、重複抑止、所有資源回収を検証する。

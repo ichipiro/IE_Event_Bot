@@ -571,3 +571,5 @@ MCPの `trigger_job(job="qa_normal_<phase>")` は認証・run/version照合・gl
 
 これは3件の通常ジョブ処理の検証である。実Cron配信、100件超のページ送り、通知失敗後の再試行、一度限りの配信保証は含まない。
 外部から通常URLへ直接到達する検証ではなく、保護された管理routeから通常HTTPハンドラへ委譲する。
+
+2026-09-25（JST）の[実行36030243998](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36030243998)で成功した。対象commit `ee87f2591c9848f4ef5ac529539b3b3f661121c3`、run `E2E-20260924T165255Z-4ee17edc`、Worker version tagとdeploy／最終version fingerprint、clean checkoutを照合した。全5段階と各verify、通常ハンドラ3回、Notion3ページのarchive・Discord2通知の削除・共有KV2キーの回収が成功した。監査26行・13操作はすべて成功し、`outcome=passed`・全manifest `dirty=false`、JUnit825件成功を独立確認した。ローカルMCP・workflowテスト297件、Ruff・Pyright・設定検査・E2E dry-runも成功した。マスク済み成果物と独立照合結果は `test-results/qa-normal-36030243998/` に保存した。

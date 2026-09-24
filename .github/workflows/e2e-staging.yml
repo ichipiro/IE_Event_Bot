@@ -23,6 +23,7 @@ on:
           - deploy-and-sync-faults-smoke
           - deploy-and-google-calendar-check
           - deploy-and-google-full-smoke
+          - deploy-and-google-matrix-smoke
           - deploy-and-google-sync-smoke
           - deploy-and-google-sync-recovery
           - deploy-and-discord-delta-recovery
@@ -155,6 +156,7 @@ jobs:
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
           inputs.mode == 'deploy-and-google-calendar-check' ||
           inputs.mode == 'deploy-and-google-full-smoke' ||
+          inputs.mode == 'deploy-and-google-matrix-smoke' ||
           inputs.mode == 'deploy-and-google-sync-smoke' ||
           inputs.mode == 'deploy-and-google-sync-recovery' ||
           inputs.mode == 'deploy-and-discord-delta-recovery' ||
@@ -192,6 +194,7 @@ jobs:
           inputs.mode == 'deploy-and-sync-lock-smoke' ||
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
           inputs.mode == 'deploy-and-google-full-smoke' ||
+          inputs.mode == 'deploy-and-google-matrix-smoke' ||
           inputs.mode == 'deploy-and-google-sync-smoke' ||
           inputs.mode == 'deploy-and-google-sync-recovery' ||
           inputs.mode == 'deploy-and-discord-delta-recovery' ||

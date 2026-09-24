@@ -633,6 +633,9 @@ async def _phase(env, store, run_id, phase, invoke):
     if full_apply:
         phase = "prepare"
     owner = await store.get_e2e_manifest(SERVICE)
+    if phase == "prepare_matrix" or (owner and owner.get("dirty") and owner.get("matrix")):
+        from e2e_google_matrix_probe import run_phase
+        return await run_phase(env, store, run_id, phase, invoke, owner)
     if (await _lock_state(store)).get("owner"):
         raise GoogleStateError("google_sync_busy")
     if phase == "cleanup" and (not owner or not owner.get("dirty")):
@@ -826,6 +829,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not RUN_PATTERN.fullmatch(run_id) or phase not in (
         "prepare",
         "prepare_full",
+        "prepare_matrix",
         "inspect",
         "advance",
         "verify",
@@ -860,7 +864,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             return {"ok": False, "dirty": False, "run_id": run_id,
                     "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
     existing = await store.get_e2e_manifest(SERVICE)
-    full_mode = phase == "prepare_full" or bool(existing and existing.get("dirty") and existing.get("full_apply"))
+    full_mode = phase in ("prepare_full", "prepare_matrix") or bool(existing and existing.get("dirty") and existing.get("full_apply"))
     if full_mode:
         # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。
         disabled = (

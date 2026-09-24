@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: Google全件E2Eの予定形式・件数・共有再試行を拡張
+
+- 通常2件・終日1件・繰返し2回の5件を14stepで処理するmatrixモードを追加した。Google発行のinstance IDを親ID・元時刻・markerで照合して固定し、作成をHTTP単位へ分割した。上限2件の繰越、日時・説明更新、終日と個別回の削除、共有KVでの400拒否・cursor保護・queueだけの再試行、親を含む回収を実装した。既存2件・3件モードは維持する。
+- ローカルでは全段階、履歴100件、途中回収、日時の不一致、不正instance、親規則の変更、所有記録の差替え拒否を確認した。実サービスの成功は未確認。
+- Python 701件・Node 218件、Ruff・Pyright、E2E設定・workflow・secret hygiene検査、E2E Workerのdeploy dry-runが成功した。
+
 ## 2026-09-24: Google共有KV・全件E2Eの実サービス検証が成功
 
 - [実行35969469480](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35969469480)で、既存の削除履歴を保護した3件の全件適用、pending・drained・updated・deletedの全4段階と各verify、共有KVを含む回収が成功した。

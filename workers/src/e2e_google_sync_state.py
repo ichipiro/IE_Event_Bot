@@ -20,7 +20,7 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix")
 # 32 KiBのmanifestにfixture・KV書込み記録の余地を残す。
 MAX_BASELINE_DELETED = 100
 
@@ -39,6 +39,9 @@ def final_step(owner):
 
 
 def valid_google_transition(previous, value):
+    if value.get("matrix") or previous.get("matrix"):
+        from e2e_google_matrix_state import valid_transition
+        return valid_transition(previous, value)
     if value["dirty"]:
         slots = value.get("fixtures")
         hashes = value.get("hashes")

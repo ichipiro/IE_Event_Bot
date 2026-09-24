@@ -483,7 +483,7 @@ export async function runGoogleSyncRecovery(callTool, runId) {
   const owner = before.scenarios?.google_sync;
   if (before.mode !== "e2e" || before.orchestrated_writes_enabled !== false ||
       before.worker_version?.tag !== runId || !owner?.present || !owner.dirty ||
-      owner.run_id !== runId || owner.stage !== "cleanup" ||
+      owner.run_id !== runId || !["cleanup", "ready"].includes(owner.stage) ||
       Object.values(before.services ?? {}).some(item => item.dirty) ||
       Object.entries(before.scenarios ?? {}).some(([key, item]) => key !== "google_sync" && item.dirty)) {
     throw new E2eWorkflowError("google_sync_recovery_owner_mismatch");

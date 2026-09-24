@@ -1,5 +1,10 @@
 # 作業履歴
 
+## 2026-09-24: Google matrixのロック解放失敗と回収経路
+
+- [実行35980469928](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35980469928)はcommit `fa5fcd87072928ec414221204337fb958b5bcf08`、run `E2E-20260924T092101Z-dcf6de0a` でstep 0〜10のverifyに成功した。step 11のadvanceで `google_sync_release_failed`、続く回収8回は `google_sync_busy` となり、manifestはready・dirty=true。実行成功・回収完了とは扱わない。
+- ロック解放失敗の根本原因はartifactだけでは確定できない。ロックTTLは300秒。既存回収workflowがreadyを拒否する条件を再現し、同run・version・他資源cleanの照合を維持してreadyから回収できるよう修正した。Node 227件成功。実環境の回収と18step再実行は未完了。
+
 ## 2026-09-24: Google matrixの複数失敗と分割再試行を追加
 
 - 3日間の終日予定とUTCの日跨ぎ予定を含む5件へ変更し、残存3件のDiscord入力拒否、共有queueを上限1件で3→2→1→0へ消化する18stepを実装した。各拒否の400とcursor保護、各HTTPの処理件数・残件・対応ID・部分反映を独立に照合する。

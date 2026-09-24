@@ -456,3 +456,7 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケース、別HTTP読戻しがすべて200となった。ケース要求の最大時間は15.191秒、TTLケースは14.051秒、verifyは13.133秒だった。読戻しの再試行は発生していない。run内と `always()` のcleanupが200、`outcome=passed`、全資源 `dirty=false` を確認した。artifact監査24行・完了12操作とmanifest、JUnit 570件・失敗0・エラー0・skip 0を独立照合した。
 
 古い値・保存失敗は固定注入、外部同期は代替runnerである。実KVの伝播遅延や実サービス障害、重複反映の解消を証明しない。TTLケースは1 HTTP内の手動同期共通処理であり、実Cron・別Workerリクエスト間の競合は対象外。実行時点で修正版は未マージで、本番デプロイは行っていない。
+
+### Google同期のready段階からの回収
+
+`deploy-and-google-sync-recovery` は、同run・稼働version tag・他資源cleanを確認し、`cleanup` または処理済みの `ready` 段階から所有資源だけを回収する。処理中の `working` は拒否し、制御ロックのTTLと所有確認を維持する。新規fixtureは作成せず、`failed_clean` と全資源cleanを必須にする。実行35980469928でready段階のロック解放失敗を観測したため拡張した。

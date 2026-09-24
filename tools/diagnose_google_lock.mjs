@@ -25,6 +25,61 @@ const CLASSIFIERS = {
 const number = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
 const pick = (value, allowed) => allowed.includes(value) ? value : "unknown";
 
+export function redactApiError(data) {
+  const errors = Array.isArray(data?.errors) ? data.errors.slice(0, 10) : [];
+  const messages = errors.map((item) => typeof item?.message === "string" ? item.message : "").join("\n");
+  const patterns = {
+    authentication: /authenticat|invalid.*token|invalid.*credential/i,
+    permission: /permission|not authorized|unauthorized|access denied|forbidden/i,
+    account: /account/i,
+    ip_restriction: /(?:ip|address).*(?:restrict|allow|denied|invalid)/i,
+    expired: /expired|expiration/i,
+    unsupported: /not supported|unsupported/i,
+    observability: /observability/i,
+    telemetry: /telemetry/i,
+  };
+  return {
+    codes: errors.map((item) => item?.code).filter((code) => Number.isSafeInteger(code) && code >= 0),
+    categories: Object.entries(patterns).filter(([, pattern]) => pattern.test(messages)).map(([key]) => key),
+    message_present: messages.length > 0,
+  };
+}
+
+async function readJson(response) {
+  try { return await response.json(); } catch { return null; }
+}
+
+async function verifyCredential(account, token, request) {
+  const results = [];
+  // 所有形態が不明なので両verifyを照会する。片方の拒否だけで無効とは判定しない。
+  for (const [kind, path] of [["user", "user/tokens/verify"], ["account", `accounts/${account}/tokens/verify`]]) {
+    try {
+      const response = await request(`https://api.cloudflare.com/client/v4/${path}`, {
+        method: "GET", redirect: "error", signal: AbortSignal.timeout(15000),
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await readJson(response);
+      results.push({ kind, http_status: number(response.status), success: response.ok && data?.success === true,
+        token_status: response.ok && data?.success === true ? pick(data?.result?.status, ["active", "disabled", "expired"]) : "unknown",
+        ...redactApiError(data) });
+    } catch { results.push({ kind, error: "verification_request_failed" }); }
+  }
+  return results;
+}
+
+class DiagnosticHttpError extends Error {
+  constructor(status, detail) {
+    super(`diagnostic_http_${status}`);
+    this.detail = detail;
+  }
+}
+
+export function failureReport(error) {
+  const code = error instanceof Error && /^diagnostic_(?:http_\d{3}|credentials_missing|response_invalid|scope_mismatch|time_mismatch|cursor_invalid)$/.test(error.message)
+    ? error.message : "diagnostic_request_failed";
+  return { error: code, ...(error instanceof DiagnosticHttpError ? { api_failure: error.detail } : {}) };
+}
+
 export function queryBody(label, from, to, offset) {
   return {
     queryId: `google-lock-${label}`, dry: true, view: "events", limit: 2000,
@@ -70,7 +125,13 @@ export async function diagnose(env, request = fetch) {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(queryBody(label, from, to, offset)),
       });
-      if (!response.ok) throw new Error(`diagnostic_http_${response.status}`);
+      if (!response.ok) {
+        const detail = { ...redactApiError(await readJson(response)) };
+        if ([401, 403].includes(response.status)) {
+          detail.credential_checks = await verifyCredential(account, token, request);
+        }
+        throw new DiagnosticHttpError(response.status, detail);
+      }
       const data = await response.json();
       const events = data.result?.events?.events;
       if (data.success !== true || !Array.isArray(events)) throw new Error("diagnostic_response_invalid");
@@ -94,9 +155,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   let report;
   try { report = await diagnose(process.env); }
   catch (error) {
-    const code = error instanceof Error && /^diagnostic_(?:http_\d{3}|credentials_missing|response_invalid|scope_mismatch|time_mismatch|cursor_invalid)$/.test(error.message)
-      ? error.message : "diagnostic_request_failed";
-    report = { error: code };
+    report = failureReport(error);
     process.exitCode = 1;
   }
   await mkdir("test-results/google-lock-diagnostics", { recursive: true });

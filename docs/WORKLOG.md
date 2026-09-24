@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: 権限追加後もログ診断403が継続
+
+- ユーザーは既存トークンへ権限を追加したと報告した。[診断実行35987968532のattempt 2](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35987968532/attempts/2)も `diagnostic_http_403` で停止し、過去ログは取得できなかった。
+- 診断側の情報不足を補うため、APIエラーの数値コード・固定分類をartifactへ追加した。401/403時だけ、使用中トークンをuser用・対象account用のverify APIで検証し、HTTP statusとactive／disabled／expiredだけを残す。生の本文・token値・token IDは保存しない。片方のverify拒否だけで無効とは判定せず、verify成功もログ閲覧権限の証明とは扱わない。
+- Node 236件、エラー本文の非出力・user/account両所有形態・不正応答のテストが成功した。Worker実装・デプロイ・外部fixture操作・権限変更は含めない。元のロック解放失敗と403の詳細原因は未確定。
+
 ## 2026-09-24: Googleロック診断のログ照会が403で停止
 
 - ユーザー承認後の[診断実行35987968532](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35987968532)は、commit `49fc180a77a0c18d669699ed4c41c7754a211bfe` のLocal validationに成功し、ログ照会で失敗した。artifactの `report.json` は `diagnostic_http_403`。過去ログは取得できていない。

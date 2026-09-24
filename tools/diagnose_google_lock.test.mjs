@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { diagnose, queryBody, redactEvent } from "./diagnose_google_lock.mjs";
+import { diagnose, failureReport, queryBody, redactApiError, redactEvent } from "./diagnose_google_lock.mjs";
 
 const credentials = { CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: "fake-token" };
 function event(timestamp = Date.parse("2026-09-24T09:26:58Z")) {
@@ -46,9 +46,63 @@ test("2つの固定時間帯とE2E Workerだけを保存なしで照会する", 
   assert.ok(!JSON.stringify(report).includes("secret-test-value"));
 });
 
-test("認証拒否時にAPIのエラー本文を読み出さない", async () => {
-  await assert.rejects(diagnose(credentials, async () => ({ ok: false, status: 403,
-    json: () => { throw new Error("must not read body"); } })), /diagnostic_http_403/);
+test("403では数値コードと分類だけを残し、有効トークンと拒否を区別する", async () => {
+  const calls = [];
+  let report;
+  try {
+    await diagnose(credentials, async (url, options) => {
+      calls.push({ url, options });
+      if (url.endsWith("/user/tokens/verify")) {
+        return { ok: true, status: 200, json: async () => ({ success: true,
+          result: { status: "active", id: "private-token-id", value: "private-token-value" } }) };
+      }
+      return { ok: false, status: 403, json: async () => ({ success: false,
+        errors: [{ code: 10000, message: "Authentication error private-token-value" }] }) };
+    });
+  } catch (error) { report = failureReport(error); }
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1].options.method, "GET");
+  assert.match(calls[2].url, /\/accounts\/[a-f0-9]{32}\/tokens\/verify$/);
+  assert.equal(report.error, "diagnostic_http_403");
+  assert.deepEqual(report.api_failure.codes, [10000]);
+  assert.deepEqual(report.api_failure.categories, ["authentication"]);
+  assert.equal(report.api_failure.credential_checks[0].token_status, "active");
+  assert.equal(report.api_failure.credential_checks[1].token_status, "unknown");
+  assert.ok(!JSON.stringify(report).includes("private-token"));
+});
+
+test("エラー応答がHTMLでも元のHTTP状態を保持する", async () => {
+  let report;
+  try {
+    await diagnose(credentials, async () => ({ ok: false, status: 403,
+      json: () => { throw new Error("private-response"); } }));
+  } catch (error) { report = failureReport(error); }
+  assert.equal(report.error, "diagnostic_http_403");
+  assert.deepEqual(report.api_failure.codes, []);
+  assert.ok(!JSON.stringify(report).includes("private-response"));
+});
+
+test("account所有tokenのverify成功をuser側拒否で隠さない", async () => {
+  let report;
+  try {
+    await diagnose(credentials, async (url) => {
+      if (/\/accounts\/[^/]+\/tokens\/verify$/.test(url)) {
+        return { ok: true, status: 200, json: async () => ({ success: true, result: { status: "active" } }) };
+      }
+      return { ok: false, status: 403, json: async () => ({ success: false, errors: [] }) };
+    });
+  } catch (error) { report = failureReport(error); }
+  assert.equal(report.api_failure.credential_checks[0].success, false);
+  assert.equal(report.api_failure.credential_checks[1].token_status, "active");
+});
+
+test("任意エラー詳細や不正コードをartifactへ流さない", () => {
+  const result = redactApiError({ errors: [null, { code: "private-value", message: "private-value" },
+    { code: 1234, message: "Account permission denied: Workers Observability private-value" }] });
+  assert.deepEqual(result.codes, [1234]);
+  assert.deepEqual(result.categories, ["permission", "account", "observability"]);
+  assert.ok(!JSON.stringify(result).includes("private-value"));
+  assert.deepEqual(failureReport(new Error("private-value")), { error: "diagnostic_request_failed" });
 });
 
 test("不正応答・時間帯外のイベントを成功として扱わない", async () => {

@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Google同期の共有KV・全件モードを実装
+
+- 空の専用環境に3件を用意し、通常取得の全入力を間引かず適用する `prepare_full` を追加した。共有KVの固定6キー、4段階と別HTTP検証、所有外入力の拒否を既存probeへ接続した。
+- KV書込み予定のdigestを先にDOへ保存し、途中失敗・応答喪失後の回収と未知の値の保護を追加した。DOはモード変更と他scenarioのdirty所有との併存を拒否する。
+- MCP・手動workflow `deploy-and-google-full-smoke`、通常・失敗時cleanup、監査とstage照合を接続した。実サービス実行・デプロイ・PR・マージはこの変更に含まれない。
+- 検証: Python 659件・Node 195件、Ruff、Pyright、依存import、MCP設定・workflow・secret hygiene検査、通常/E2E Wrangler dry-runが成功した。dry-runは秘密情報を含まない追跡ソースのコピーと空envで実行した。文書の相対リンク13件と差分を確認した。
+
 ## 2026-09-24: 不正日時のAPI拒否とqueue再試行を実サービスで確認
 
 - `d184a2aac578b9f20e05ba0bc960726574880285` の[実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で、Local validation成功とEnvironment承認後に専用Workerをdeployした。run IDは `E2E-20260924T051801Z-2198a0b3`。

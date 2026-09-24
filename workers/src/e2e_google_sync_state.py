@@ -20,7 +20,7 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply")
 
 
 def digest(value):
@@ -56,7 +56,9 @@ def valid_google_transition(previous, value):
                 for v in value["target_fingerprints"].values()
             )
             and isinstance(slots, list)
-            and len(slots) == 2
+            and len(slots) == (3 if value.get("full_apply") else 2)
+            and type(value.get("full_apply", False)) is bool
+            and (not value.get("full_apply") or not value.get("retry_enabled"))
             and isinstance(hashes, dict)
             and set(hashes) <= set(KEYS)
             and all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in hashes.values())
@@ -68,6 +70,26 @@ def valid_google_transition(previous, value):
             and value.get("stage") in ("working", "ready", "verified", "cleanup")
         ):
             return False
+        writes = value.get("shared_writes", {})
+        if not isinstance(writes, dict) or set(writes) - set(KEYS):
+            return False
+        if any(
+            not isinstance(items, list) or not items or len(items) > 32
+            or any(not re.fullmatch(r"[0-9a-f]{64}", str(item)) for item in items)
+            for items in writes.values()
+        ) or (writes and not value.get("full_apply")):
+            return False
+        if value.get("full_apply"):
+            pending = value.get("pending_ids", [])
+            if (
+                not isinstance(pending, list)
+                or any(not isinstance(event_id, str) for event_id in pending)
+                or len(set(pending)) != len(pending)
+                or not set(pending) <= {slot.get("google_event_id") for slot in slots if isinstance(slot, dict)}
+                or (value["stage"] in ("ready", "verified")
+                    and len(pending) != (len(slots) - 1 if value["step"] == 0 else 0))
+            ):
+                return False
         for index, slot in enumerate(slots):
             if not isinstance(slot, dict) or slot.get("google_event_id") != source_id(
                 value["run_id"], index
@@ -108,6 +130,13 @@ def valid_google_transition(previous, value):
         if previous.get("retry_enabled", False) != value.get("retry_enabled", False):
             return False
         if previous.get("api_rejection_enabled", False) != value.get("api_rejection_enabled", False):
+            return False
+        old_writes = previous.get("shared_writes", {})
+        if any(writes.get(key, [])[:len(items)] != items for key, items in old_writes.items()):
+            return False
+        if previous["stage"] != "working" and value.get("pending_ids") != previous.get("pending_ids"):
+            return False
+        if previous["stage"] != "working" and writes != old_writes:
             return False
         if previous["stage"] != "working" and hashes != previous["hashes"]:
             return False
@@ -152,6 +181,7 @@ def valid_google_transition(previous, value):
         and value["step"] == 0
         and value["stage"] == "working"
         and not value["hashes"]
+        and not value.get("shared_writes")
     )
 
 
@@ -165,7 +195,8 @@ class GoogleKV:
         self.hashes = dict(owner["hashes"])
         # 通常の読取りcacheではなく、APIから得た所有IDをDOへ記録するために使う。
         self.references = {}
-        self.prefix = f"e2e:google_sync:{owner['run_id']}:{owner['scope_id']}:"
+        self.prefix = "" if owner.get("full_apply") else f"e2e:google_sync:{owner['run_id']}:{owner['scope_id']}:"
+        self.shared_writes = deepcopy(owner.get("shared_writes", {}))
 
     async def check(self, key, *, writing=False):
         current = await self.store.get_e2e_manifest(SERVICE)
@@ -211,11 +242,21 @@ class GoogleKV:
             else:
                 valid = (
                     isinstance(data, list)
-                    and len(data) <= 2
+                    and len(data) <= len(ids)
                     and all(isinstance(e, dict) and e.get("id") in ids for e in data)
                 )
             if not valid:
                 raise GoogleStateError("google_sync_state_invalid")
+        if self.owner.get("full_apply"):
+            # KV応答喪失でも回収できるよう、書込み予定のdigestを先にDOへ保存する。
+            current = await self.store.get_e2e_manifest(SERVICE)
+            writes = deepcopy(current.get("shared_writes", {}))
+            values = writes.setdefault(key, [])
+            if digest(value) not in values:
+                values.append(digest(value))
+            current["shared_writes"] = writes
+            await self.store.put_e2e_manifest(SERVICE, current)
+            self.shared_writes = writes
         await self.store.env.STATE_KV.put(self.prefix + key, value)
         self.hashes[key] = digest(value)
         if key in (KEYS[1], KEYS[2]):

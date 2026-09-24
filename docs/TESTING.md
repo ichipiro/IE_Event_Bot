@@ -398,6 +398,18 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 
 追加したretry_pending / retriedは固定注入モデルであり、Discordの実障害・回線断の観測ではない。注入はE2E呼出し内のcallbackだけを使い、モジュール共有状態を書き換えない。通常dispatchの想定500、残件、cursor保護を確認した場合だけシナリオHTTPを200とし、想定外の失敗は回収へ進む。6段階版は[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)で成功した。prepare 1回・advance 5回・verify 6回、読戻し再試行なし。注入段階27.218秒・queue回復26.944秒で、通常dispatchの想定500、cursor/最終成功時刻保護、queue回復の固定stageを確認した。監査30行・15操作とmanifest、run・version・commit、JUnit 610件・失敗0、通常とalwaysの回収、passed・全資源dirty=falseを独立照合した。
 
+### Google同期の共有KV・全件モード
+
+`POST /admin/e2e/google-sync/full`、MCPの `trigger_sync(scenario="google_sync", sync_phase="prepare_full")` で開始する。手動workflowは `deploy-and-google-full-smoke` を選ぶ。通常の2件・6段階モードは維持し、全件モードは3件・4段階（pending → drained → updated → deleted）で検証する。advance・verify・cleanupは既存経路を使う。
+
+開始前に、通常Google全ページ取得が空、Discord予定一覧が空、Notion内部DBの有効ページが空、共有KVの固定6キーが欠損していることを確認する。空文字も既存値として拒否する。Calendarの削除済み予定も既存データに含むため、過去のE2Eの削除記録が返るCalendarでは開始できない。既存データを消して条件を満たす操作は行わない。専用環境で他の書込み主体がいないことが前提である。
+
+準備で検証予定3件を作成し、通常取得が返した全入力を順序も含めて維持して適用する。所有確認は絞込みに使わず、不明な予定・重複ID・不正な内容があれば全入力を拒否する。初回上限1件による残件2件、別HTTPでの消化、更新、削除を通常dispatch・適用処理で検証する。cursor・Notion/Discord対応表・queue・結果はrun prefixのない共有キーへ保存する。最終成功時刻は既存probeと同じKV fallbackを使う。共通DOは通常dispatchの排他とE2E所有記録を担い、通常DOの最終成功時刻を変更する検証は含まない。
+
+全件モードの変更をDOで禁止し、他scenarioのdirty manifestとの併存を拒否する。通常書込みrouteと全Cronのフラグは無効を必須にする。KVへ書く前に値のdigestをDOへ追記し、回収時は記録済みdigestと一致する値だけを削除する。未知の値は保持してdirtyを維持する。KV書込みの応答喪失・削除途中失敗でも記録から回収を再試行できる。削除後の欠損読戻しを必須にするが、KVの全拠点への削除伝播や読取りと削除の原子性は保証しない。
+
+workflowは全入力確認・共有キーの開始時欠損・回収の各stageとversionを照合し、失敗時も既存のcleanupと監査収集を使う。[test_e2e_google_full.py](../tests/test_e2e_google_full.py) では取得順の逆転・複数ページ・全段階、既存データ保護、所有外入力、書込み応答喪失、回収再試行、他scenarioとの競合、設定・manifestの差替え拒否を代替APIと実DOロジックで検証する。実サービスの全件モードは未実行であり、任意件数・繰返し予定など全入力形式への対応を実証したものではない。
+
 ### 分割後の状態障害E2Eの実行結果
 
 2026-09-14、fork作業ブランチ `feature/sync-fault-request-split` の `c1740e2f0a5d11dedefe4c06df24f318110ef1f2` を使い、[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)を実行した。Local validation成功とEnvironment承認後、専用Workerを1回deployした。run ID `E2E-20260914T120901Z-7c8d0e77`、Worker version tag、deployと最終version fingerprint、対象commit、実行checkoutのclean状態を照合した。

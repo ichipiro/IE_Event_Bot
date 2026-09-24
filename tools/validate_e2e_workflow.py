@@ -90,6 +90,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-discord-batch-smoke") == 3, "discord_batch_mode_contract_changed")
     _expect(errors, text.count("deploy-and-discord-batch-google-smoke") == 3, "discord_batch_google_mode_contract_changed")
     _expect(errors, text.count("deploy-and-sync-lock-smoke") == 3, "sync_lock_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-full-smoke") == 3, "google_full_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-sync-smoke") == 3, "google_sync_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-sync-recovery") == 3, "google_sync_recovery_contract_changed")
     _expect(errors, text.count("deploy-and-sync-faults-smoke") == 3, "sync_faults_mode_contract_changed")

@@ -115,6 +115,11 @@ class Scenario:
                 return Response(json.dumps(self.discord[event_id]))
             self.calls.append(("notion", method))
             if path.endswith("/query"):
+                if "filter" not in payload:
+                    return Response(json.dumps({
+                        "results": [page for page in self.pages.values() if not page.get("archived")],
+                        "has_more": False,
+                    }))
                 filt = payload["filter"]
                 matches = [
                     page

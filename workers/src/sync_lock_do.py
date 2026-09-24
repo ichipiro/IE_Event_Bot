@@ -794,6 +794,17 @@ class SyncCoordinator(DurableObject):
             run_id = str(manifest.get(run_id_key) or "")
             if not _E2E_RUN_ID_PATTERN.fullmatch(run_id):
                 return {"ok": False, "error": "invalid_e2e_manifest_run_id"}, 400
+            # 専用環境の共有状態を使う間は、他scenarioの所有開始と競合させない。
+            full_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:google_sync"))
+            if service != "google_sync" and full_owner.get("dirty") and full_owner.get("full_apply"):
+                return {"ok": False, "error": "google_sync_shared_busy"}, 409
+            if service == "google_sync" and manifest.get("dirty") and manifest.get("full_apply") and not full_owner.get("dirty"):
+                for other in _E2E_MANIFEST_KINDS:
+                    if other == service:
+                        continue
+                    active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
+                    if active.get("dirty"):
+                        return {"ok": False, "error": "google_sync_shared_busy"}, 409
             if service in ("discord_batch", "discord_batch_google", "discord_batch_notification"):
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 if not valid_batch_transition(previous, manifest):

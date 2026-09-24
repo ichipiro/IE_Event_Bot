@@ -1321,3 +1321,33 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase",
     assert.deepEqual(touchedServicesFromAudit([{ run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "google_sync" }], RUN_ID), ["google_sync"]);
   });
 }
+
+for (const failure of [null, "input", "shared", "cleanup", "advance"]) {
+  test(`Google全件workflow: ${failure ?? "success"}`, async () => {
+    let index = 0;
+    const steps = ["pending", "drained", "updated", "deleted"];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async (args) => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: !(failure === "advance" && index === 1), error: "google_sync_failed",
+          status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`google_sync_${steps[index]}`]: 200,
+            google_sync_full_input: failure === "input" ? undefined : 200,
+            google_sync_shared_empty: failure === "shared" ? undefined : 200 } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed",
+        stages: { google_sync_shared_cleanup: failure === "cleanup" ? undefined : 200 } } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { fullApply: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { fullApply: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_full", "resume", ...Array(3).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.ok(COMMANDS.includes("deploy-and-google-full-smoke"));
+  });
+}

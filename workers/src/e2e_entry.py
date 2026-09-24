@@ -131,6 +131,7 @@ _SYNC_LOCK_PHASES = {
 }
 _GOOGLE_SYNC_PHASES = {
     "/admin/e2e/google-sync": "prepare",
+    "/admin/e2e/google-sync/full": "prepare_full",
     "/admin/e2e/google-sync/advance": "advance",
     "/admin/e2e/google-sync/verify": "verify",
     "/admin/e2e/google-sync/cleanup": "cleanup",
@@ -759,6 +760,15 @@ class Default(ApplicationDefault):
                 or _worker_version_summary(self.env).get("id_sha256") != expected_version_id
             ):
                 return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
+        if (not google_sync_route
+                and str(getattr(self.env, "E2E_GOOGLE_SYNC_ENABLED", "false")).lower() == "true"
+                and StateStore(self.env).e2e_manifest_enabled()):
+            try:
+                google_owner = await StateStore(self.env).get_e2e_manifest("google_sync")
+            except Exception:
+                return _json_response({"ok": False, "error": "google_sync_owner_unavailable"}, status=503)
+            if google_owner and google_owner.get("dirty") and google_owner.get("full_apply"):
+                return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
             async def invoke(probe_env, probe_state, fetcher, discord_syncer=None):
                 from google_apply_sync import apply_google_events

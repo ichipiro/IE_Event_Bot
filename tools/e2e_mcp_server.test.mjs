@@ -1765,3 +1765,28 @@ for (const status of ["pending", "deleted", "retry_pending", "retried"]) {
     assert.equal(audit.find(entry => entry.phase === "finish").execution_status, status);
   });
 }
+
+test("全件prepareはGoogle専用routeと監査へ接続する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url) => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_full",
+    } }));
+    assert.equal(result.ok, true);
+    for (const scenario of ["discord_delta", "sync_faults", "google_notion"]) {
+      const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario, sync_phase: "prepare_full",
+      } }));
+      assert.equal(refused.error, "sync_phase_forbidden");
+    }
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/full"]);
+  assert.equal(audit.length, 2);
+  assert.ok(audit.every(entry => entry.sync_phase === "prepare_full"));
+});

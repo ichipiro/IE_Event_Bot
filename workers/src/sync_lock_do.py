@@ -864,6 +864,16 @@ class SyncCoordinator(DurableObject):
                     active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
                     if active.get("dirty"):
                         return {"ok": False, "error": "reminder_normal_shared_busy"}, 409
+            notion_cleanup_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:notion_cleanup"))
+            if service != "notion_cleanup" and notion_cleanup_owner.get("normal") and notion_cleanup_owner.get("dirty"):
+                return {"ok": False, "error": "cleanup_normal_shared_busy"}, 409
+            if service == "notion_cleanup" and manifest.get("normal") and manifest.get("dirty") and not notion_cleanup_owner.get("dirty"):
+                for other in _E2E_MANIFEST_KINDS:
+                    if other == service:
+                        continue
+                    active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
+                    if active.get("dirty"):
+                        return {"ok": False, "error": "cleanup_normal_shared_busy"}, 409
             full_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:google_sync"))
             if service != "google_sync" and full_owner.get("dirty") and (full_owner.get("full_apply") or full_owner.get("all_sync")):
                 return {"ok": False, "error": "google_sync_shared_busy"}, 409

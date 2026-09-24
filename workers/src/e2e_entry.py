@@ -173,6 +173,11 @@ _REMINDER_NORMAL_PHASES = {
     f"/admin/e2e/reminder-normal/{phase}": phase
     for phase in ("prepare", "notify", "duplicate", "verify")
 }
+_CLEANUP_NORMAL_PHASES = {
+    f"/admin/e2e/notion-cleanup-normal/{phase}": phase
+    for phase in ("prepare", "execute", "duplicate", "verify")
+}
+
 _REMINDER_PATH = "/admin/e2e/reminder"
 _REMINDER_CLEANUP_PATH = "/admin/e2e/reminder/cleanup"
 _STATUS_PATH = "/admin/e2e/status"
@@ -519,7 +524,7 @@ class Default(ApplicationDefault):
         notion_cleanup_route = path in (
             _NOTION_AUTO_CLEAN_PATH,
             _NOTION_AUTO_CLEAN_CLEANUP_PATH,
-        )
+        ) or path in _CLEANUP_NORMAL_PHASES
         status_route = path == _STATUS_PATH
         webhook_route = path in (
             _TRIGGER_WEBHOOK_PATH,
@@ -771,7 +776,7 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
-        if (path in _QA_NORMAL_PHASES or path in _REMINDER_NORMAL_PHASES) and (
+        if (path in _QA_NORMAL_PHASES or path in _REMINDER_NORMAL_PHASES or path in _CLEANUP_NORMAL_PHASES) and (
             expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
         ):
             return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
@@ -1096,6 +1101,13 @@ class Default(ApplicationDefault):
                     state,
                     run_id=run_id,
                 )
+            elif path in _CLEANUP_NORMAL_PHASES:
+                from e2e_notion_cleanup_normal import run as run_cleanup_normal
+                try:
+                    result = await run_cleanup_normal(self.env, state, run_id, _CLEANUP_NORMAL_PHASES[path], request)
+                except Exception as exc:
+                    code = str(exc)
+                    result = {"ok": False, "dirty": True, "error": code if re.fullmatch(r"[a-z0-9_]{1,80}", code) else "cleanup_normal_failed"}
             elif path == _NOTION_AUTO_CLEAN_CLEANUP_PATH:
                 result = await cleanup_notion_cleanup_probe(
                     self.env,

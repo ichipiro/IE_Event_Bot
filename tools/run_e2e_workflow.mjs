@@ -66,6 +66,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-qa-notification-smoke",
   "deploy-and-qa-normal-smoke",
   "deploy-and-reminder-normal-smoke",
+  "deploy-and-notion-cleanup-normal-smoke",
   "deploy-and-reminder-smoke",
   "deploy-and-notion-cleanup-smoke",
   "deploy-and-webhook-simulation-smoke",
@@ -967,6 +968,53 @@ export async function runDeployAndReminderNormalSmoke(callTool, runId, options =
 }
 
 
+export async function runDeployAndNotionCleanupNormalSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+  const pause = options.sleepImpl ?? sleep;
+  let primaryError = null;
+  try {
+    for (const phase of ["prepare", "execute", "duplicate"]) {
+      const operation = await requireTool(callTool, "trigger_job", {
+        run_id: runId, job: `cleanup_normal_${phase}`,
+      });
+      if (operation.stages?.[`cleanup_normal_${phase}`] !== 200) {
+        throw new E2eWorkflowError("cleanup_normal_stage_missing");
+      }
+      for (let attempt = 0; attempt < STATE_VERIFY_ATTEMPTS; attempt += 1) {
+        const verified = await toolOutcome(callTool, "trigger_job", { run_id: runId, job: "cleanup_normal_verify" });
+        if (verified.ok && verified.payload.stages?.[`cleanup_normal_verify_${phase}`] === 200) {
+          break;
+        }
+        if (attempt === STATE_VERIFY_ATTEMPTS - 1 ||
+            !["cleanup_normal_kv_not_ready"].includes(verified.error)) {
+          throw new E2eWorkflowError(verified.error ?? "cleanup_normal_verify_failed");
+        }
+        await pause(STATE_VERIFY_DELAY_MS);
+      }
+    }
+  } catch (error) {
+    primaryError = error;
+  }
+  const cleanup = await cleanupServices(callTool, runId, ["notion_cleanup"], options.cleanup);
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  const assertion = await requireTool(callTool, "assert_external_state", {
+    run_id: runId, service: "notion_cleanup",
+  });
+  if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.cleanup_normal_cleanup !== 200) {
+    throw new E2eWorkflowError("cleanup_normal_evidence_missing");
+  }
+  return { ok: true, scenarios: ["notion_cleanup"] };
+}
+
+
 export async function runDeployAndQaNotificationSmoke(callTool, runId, options = {}) {
   await requireTool(callTool, "deploy_e2e", {
     run_id: runId,
@@ -1200,7 +1248,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "google_notion",
           ].includes(entry.target)) ||
         (entry.tool === "trigger_job" &&
-          ["reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_check", "reminder", "cleanup", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
+          ["cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_check", "reminder", "cleanup", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
         (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch") ||
         (entry.tool === "trigger_webhook_delivery" &&
           entry.target === "webhook_delivery") ||
@@ -1210,6 +1258,10 @@ export function touchedServicesFromAudit(entries, runId) {
     ) {
       const jobService = {
         qa_check: "qa_notification",
+        cleanup_normal_prepare: "notion_cleanup",
+        cleanup_normal_execute: "notion_cleanup",
+        cleanup_normal_duplicate: "notion_cleanup",
+        cleanup_normal_verify: "notion_cleanup",
         reminder_normal_prepare: "reminder",
         reminder_normal_notify: "reminder",
         reminder_normal_duplicate: "reminder",
@@ -1449,6 +1501,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-discord-smoke") {
       await runDeployAndGoogleDiscordSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-notion-cleanup-normal-smoke") {
+      await runDeployAndNotionCleanupNormalSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-reminder-normal-smoke") {

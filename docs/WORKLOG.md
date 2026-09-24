@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: API拒否E2Eの失敗と所有資源の回収対策
+
+- `33f5e487efa99a56b93fd9285523712dc9f45732` の[実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)で、Environment承認後に専用Workerをdeployした。run IDは `E2E-20260924T040614Z-fdf4a42c`。作成・繰越消化・更新・削除と各verifyは成功したが、API拒否段階が `google_sync_partial_failure_mismatch` で失敗した。
+- run内とalwaysの回収8回は `google_sync_discord_owner_mismatch` で失敗し、manifestは `cleanup`・`dirty=true` のままである。監査36行・18操作、run/version/commit・clean checkoutを独立照合した。回収済み、E2E成功とは扱わない。
+- Discordが空名更新を受理したモデルで回収409をローカル再現した。旧API拒否段階に限り、DOに記録済みの2件目のID・Guild・run markerと空名を照合して回収できるよう修正した。ID・Guild・marker・名前の不一致は拒否する。新規試験は所有確認に使う名前と説明を変更せず、不正な日時によるAPI拒否へ切り替えた。
+- `deploy-and-google-sync-recovery` を追加した。既存run・稼働tag・cleanup段階と他のdirty資源がないことを確認後、修正版を同じrun IDでdeployし、対象資源だけを回収する。新規fixtureは作成せず、`failed_clean` と全体preflightを必須にする。実環境の回収確認はこの記録時点で未完了。
+
 ## 2026-09-24: Google同期のHTTP失敗後の残件保持とAPI拒否E2E
 
 - 通常dispatch・StateStore・HTTPラッパーを通す再現テストで、Notion照会・取得・作成・archive・Discord ID書戻し、Discord削除の403・429・503とsubrequest上限の19ケースが失敗した。失敗時のqueue・対応ID・cursor保護と未着手分の保存を修正し、空の新規取得から同じ資源へ再試行できることを確認した。Discord削除済み404とDiscord由来取消の互換性も確認した。

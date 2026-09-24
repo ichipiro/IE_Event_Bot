@@ -53,6 +53,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-sync-lock-smoke",
   "deploy-and-sync-faults-smoke",
   "deploy-and-google-sync-smoke",
+  "deploy-and-google-sync-recovery",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
@@ -113,7 +114,7 @@ function sleep(delayMs) {
 
 
 export function selectWorkflowRunId(mode, recoveryRunId = "") {
-  if (mode === "deploy-and-discord-delta-recovery") {
+  if (["deploy-and-discord-delta-recovery", "deploy-and-google-sync-recovery"].includes(mode)) {
     if (!RUN_ID_PATTERN.test(recoveryRunId)) {
       throw new E2eWorkflowError("recovery_run_id_invalid");
     }
@@ -472,6 +473,29 @@ export async function runDiscordDeltaRecovery(callTool, runId) {
   });
   await runPreflight(callTool, runId);
   return { ok: true, recovered: "discord_delta" };
+}
+
+export async function runGoogleSyncRecovery(callTool, runId) {
+  const before = await requireTool(callTool, "read_status", { run_id: runId });
+  const owner = before.scenarios?.google_sync;
+  if (before.mode !== "e2e" || before.orchestrated_writes_enabled !== false ||
+      before.worker_version?.tag !== runId || !owner?.present || !owner.dirty ||
+      owner.run_id !== runId || owner.stage !== "cleanup" ||
+      Object.values(before.services ?? {}).some(item => item.dirty) ||
+      Object.entries(before.scenarios ?? {}).some(([key, item]) => key !== "google_sync" && item.dirty)) {
+    throw new E2eWorkflowError("google_sync_recovery_owner_mismatch");
+  }
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  const cleanup = await cleanupServices(callTool, runId, ["google_sync"]);
+  if (!cleanup.ok) { throw new E2eWorkflowError("google_sync_recovery_failed"); }
+  const result = await requireTool(callTool, "assert_external_state", { run_id: runId, service: "google_sync" });
+  if (result.manifest?.outcome !== "failed_clean") {
+    throw new E2eWorkflowError("google_sync_recovery_outcome_mismatch");
+  }
+  await runPreflight(callTool, runId);
+  return { ok: true, recovered: "google_sync" };
 }
 
 const SYNC_FAULT_CASE_COUNT = 8;
@@ -1151,6 +1175,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-sync-smoke") {
       await runDeployAndGoogleSyncSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-google-sync-recovery") {
+      await runGoogleSyncRecovery(callTool, runId);
       return;
     }
     if (command === "deploy-and-sync-faults-smoke") {

@@ -8,7 +8,7 @@ from uuid import uuid4
 from e2e_discord_batch_state import slot_run_id
 from e2e_discord_delta_probe import _DeltaEnv
 from e2e_discord_google_probe import _verify_calendar
-from e2e_discord_probe import _find_event_by_run, _request_stage as discord_request
+from e2e_discord_probe import _event_has_run, _find_event_by_run, _request_stage as discord_request
 from e2e_google_discord_probe import (
     _event_payload,
     _discord_event_is_owned,
@@ -90,6 +90,32 @@ def _page_owned(env, page, slot):
     )
 
 
+def _discord_owned(env, event, owner, slot):
+    event_id = slot.get("discord_event_id")
+    if _discord_event_is_owned(
+        event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+        run_id=slot["run_id"],
+    ):
+        return True
+    # 旧API拒否試験の空名更新が受理された場合だけ、記録済みIDから回収する。
+    # 再探索だけで得たID、別run、別Guild、別marker、他の名前変更は許可しない。
+    recovered = (
+        owner.get("stage") == "cleanup"
+        and owner.get("step") == 4
+        and owner.get("api_rejection_enabled") is True
+        and slot is owner["fixtures"][1]
+        and bool(event_id)
+        and event.get("name") == ""
+        and _event_has_run(
+            event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+            run_id=slot["run_id"],
+        )
+    )
+    if recovered:
+        owner["stages"]["google_sync_empty_name_recovered"] = 200
+    return recovered
+
+
 async def _discover(env, store, owner, slot):
     """応答喪失時もmarkerを照合し、曖昧な資源を推測で回収しない。"""
     stages = owner["stages"]
@@ -136,11 +162,12 @@ async def _discover(env, store, owner, slot):
             "GET",
             _discord_path(env, event_id),
         )
-        if status != 200 or not _discord_event_is_owned(
-            event,
-            event_id=event_id,
-            guild_id=env.DISCORD_GUILD_ID,
-            run_id=slot["run_id"],
+        # 通常の再探索では、まだmanifestにIDがないことを許容する。
+        if status != 200 or not (
+            _discord_event_is_owned(
+                event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+                run_id=slot["run_id"],
+            ) or _discord_owned(env, event, owner, slot)
         ):
             raise GoogleStateError("google_sync_discord_owner_mismatch")
         slot["discord_event_id"] = event_id
@@ -225,11 +252,13 @@ async def _apply(env, store, owner, token, invoke):
                 run_id=slot["run_id"],
             ):
                 raise GoogleStateError("google_sync_discord_owner_mismatch")
-            # 名前は1文字以上が必須。所有予定への不正な更新1回をAPIで拒否させる。
+            # 所有権に使う名前・説明を変えず、不正な日時の更新を1回だけ送る。
             status, rejected = await discord_request(
                 env, owner["stages"], {}, "google_sync_discord_invalid_update",
-                "PATCH", _discord_path(env, event_id), payload={"name": ""},
+                "PATCH", _discord_path(env, event_id), payload={"scheduled_start_time": "not-a-date"},
             )
+            # 想定外に受理された場合も、応答statusを回収前の証跡に残す。
+            await _save(store, owner)
             if status != 400 or not isinstance(rejected, dict) or rejected.get("code") != 50035:
                 raise GoogleStateError("google_sync_discord_rejection_mismatch")
             owner["stages"]["google_sync_discord_rejection_verified"] = 200
@@ -430,12 +459,7 @@ async def _cleanup(env, store, owner, token):
                 path,
             )
             if status != 404:
-                if status != 200 or not _discord_event_is_owned(
-                    event,
-                    event_id=slot["discord_event_id"],
-                    guild_id=env.DISCORD_GUILD_ID,
-                    run_id=slot["run_id"],
-                ):
+                if status != 200 or not _discord_owned(env, event, owner, slot):
                     raise GoogleStateError("google_sync_cleanup_owner_mismatch")
                 status, _ = await discord_request(
                     env,

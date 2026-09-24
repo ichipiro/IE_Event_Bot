@@ -376,13 +376,17 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 | advance → drained | 前段階の検証済み状態を再確認し、上限2件で残件を消化。重複取得された予定の更新は通常処理に従う |
 | advance → updated | 先頭の所有Google予定の説明を更新し、通常差分取得・適用からNotion・Discordへの反映を確認 |
 | advance → deleted | 同じ所有Google予定を削除し、通常取得のcancelledからNotion archive・Discord削除・対応表除去を確認 |
-| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後、所有Discord予定の名前を空にするPATCHを1回送り、HTTP 400・code 50035を必須とする。通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
+| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後、所有Discord予定へ `scheduled_start_time="not-a-date"` のPATCHを1回送り、HTTP 400・code 50035を必須とする。通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
 | advance → retried | 通常取得後の入力を空にして保存queueだけを通常適用へ渡し、同じNotion/Discord IDへの反映・残件0・成功結果を確認 |
 | cleanup | Google予定・Notionページ・Discord予定の所有を再確認して回収し、run別KVの固定6キーを削除 |
 
 各advanceの前にverifyを必須とする。専用制御DOロックはphase全体を保護し、通常dispatchは既存の共通同期ロックを使用する。1 HTTPは50秒を上限とする。書込み前に `working` を保存し、途中失敗したphaseは再送せずcleanupへ進む。所有IDが未保存でもrun markerで一意に再発見し、曖昧・所有不一致ならdirtyを維持する。ID衝突で作成していない既存予定は回収しない。検証の再実行が失敗した場合も成功判定を取り消す。
 
-新規runの `api_rejection_enabled=true` はDO manifestで変更不可とする。API拒否前にはDiscord予定をGETしてID・Guild・名前・run markerを再照合する。400以外、または400でもcodeが50035でない応答は試験成功にせず回収へ進む。workflowは `google_sync_discord_invalid_update=400` と `google_sync_discord_rejection_verified=200` を必須にする。旧manifestは従来の固定注入・所有資源回収を維持する。この入力検証エラーは実サービス障害・回線断の観測ではなく、通常の共有名前空間と任意予定の全件適用も含まない。実環境での追加経路は未検証である。名前の制約は[Discord Scheduled Event仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)に基づく。
+新規runの `api_rejection_enabled=true` はDO manifestで変更不可とする。API拒否前にはDiscord予定をGETしてID・Guild・名前・run markerを再照合する。400以外、または400でもcodeが50035でない応答は試験成功にせず回収へ進む。workflowは `google_sync_discord_invalid_update=400` と `google_sync_discord_rejection_verified=200` を必須にする。旧manifestは従来の固定注入・所有資源回収を維持する。この入力検証エラーは実サービス障害・回線断の観測ではなく、通常の共有名前空間と任意予定の全件適用も含まない。日時の形式は[Discord Scheduled Event仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)に基づく。
+
+初回の[実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)は空の名前を使う旧要求でAPI拒否段階と回収に失敗した。空名が受理されるモデルをローカルで再現し、新規要求を不正な日時へ変更した。旧runの回収に限り、`api_rejection_enabled=true`・step 4・cleanup段階・2件目の記録済みDiscord ID・Guild・run marker・空の名前のすべてが一致する資源を許可する。未知のIDを名前から推測して削除しない。
+
+`deploy-and-google-sync-recovery` は `recovery_run_id` を必須とし、同runのcleanup段階と稼働tag、他のdirty資源がないことをdeploy前に確認する。修正版を同run IDでdeployした後にgoogle_syncだけを回収し、`failed_clean`、通常とalwaysのcleanup、全資源cleanのpreflight、マスク済みartifactを確認する。fixture作成・同期再開・失敗した試験のpassed化は行わない。
 
 MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 5回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
 

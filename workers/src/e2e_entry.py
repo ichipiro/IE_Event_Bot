@@ -132,6 +132,7 @@ _SYNC_LOCK_PHASES = {
 _GOOGLE_SYNC_PHASES = {
     "/admin/e2e/google-sync": "prepare",
     "/admin/e2e/google-sync/full": "prepare_full",
+    "/admin/e2e/google-sync/inspect": "inspect",
     "/admin/e2e/google-sync/advance": "advance",
     "/admin/e2e/google-sync/verify": "verify",
     "/admin/e2e/google-sync/cleanup": "cleanup",

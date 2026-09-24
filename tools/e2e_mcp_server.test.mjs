@@ -1790,3 +1790,26 @@ test("全件prepareはGoogle専用routeと監査へ接続する", async () => {
   assert.equal(audit.length, 2);
   assert.ok(audit.every(entry => entry.sync_phase === "prepare_full"));
 });
+
+for (const classification of ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed"]) {
+  test(`Calendar診断MCPは固定分類${classification}だけを監査する`, async () => {
+    const audit = [];
+    await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+      fetchImpl: async (url) => {
+        assert.equal(new URL(url).pathname, "/admin/e2e/google-sync/inspect");
+        return jsonResponse({ ok: true, dirty: false, run_id: RUN_ID, status: classification, events: [{ summary: "private" }] });
+      },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "inspect",
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.execution_status, classification);
+      assert.equal(result.dirty, false);
+      assert.ok(!JSON.stringify(result).includes("private"));
+    });
+    assert.ok(audit.every(entry => entry.sync_phase === "inspect"));
+    assert.equal(audit[1].execution_status, classification);
+    assert.ok(!JSON.stringify(audit).includes("private"));
+  });
+}

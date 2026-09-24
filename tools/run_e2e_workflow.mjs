@@ -54,6 +54,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-sync-faults-smoke",
   "deploy-and-google-sync-smoke",
   "deploy-and-google-full-smoke",
+  "deploy-and-google-calendar-check",
   "deploy-and-google-sync-recovery",
   "deploy-and-discord-delta-recovery",
   "deploy-and-google-discord-smoke",
@@ -603,6 +604,29 @@ async function runDiscordKvSmoke(callTool, runId, scenario, verifiedStage, optio
 }
 
 
+export async function runGoogleCalendarCheck(callTool, runId, options = {}) {
+  const deployed = await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  if (!/^[0-9a-f]{64}$/.test(String(deployed.version_sha256 ?? ""))) {
+    throw new E2eWorkflowError("google_sync_version_missing");
+  }
+  await runPreflight(callTool, runId, options.preflight);
+  const result = await requireTool(callTool, "trigger_sync", {
+    run_id: runId, scenario: "google_sync", sync_phase: "inspect",
+  });
+  if (result.status !== 200 || result.dirty !== false || result.run_id !== runId ||
+      !["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed"].includes(result.execution_status)) {
+    throw new E2eWorkflowError("google_sync_inspect_invalid");
+  }
+  const status = await requireTool(callTool, "read_status", { run_id: runId });
+  if (status.worker_version?.tag !== runId || status.worker_version?.id_sha256 !== deployed.version_sha256) {
+    throw new E2eWorkflowError("google_sync_version_mismatch");
+  }
+  return result;
+}
+
+
 export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {}) {
   const deployed = await requireTool(callTool, "deploy_e2e", {
     run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
@@ -1010,7 +1034,7 @@ export function touchedServicesFromAudit(entries, runId) {
       (
         (entry.tool === "cleanup_run" && entry.target === "discord_delta") ||
         (entry.tool === "seed_fixture" && SERVICES.includes(entry.target)) ||
-        (entry.tool === "trigger_sync" &&
+        (entry.tool === "trigger_sync" && entry.sync_phase !== "inspect" &&
           [
             "discord_google",
             "discord_notion",
@@ -1179,6 +1203,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-discord-delta-smoke") {
       await runDeployAndDiscordDeltaSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-google-calendar-check") {
+      await runGoogleCalendarCheck(callTool, runId);
       return;
     }
     if (command === "deploy-and-google-full-smoke") {

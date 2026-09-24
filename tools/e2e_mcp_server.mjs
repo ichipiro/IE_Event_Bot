@@ -297,7 +297,7 @@ function versionEvidence(value) {
 
 
 function sanitizeExecutionStatus(value) {
-  return ["partial", "prepared", "pending", "updated", "drained", "deleted", "retry_pending", "retried", "retry_drained", "already_completed"].includes(value) ? value : null;
+  return ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed", "partial", "prepared", "pending", "updated", "drained", "deleted", "retry_pending", "retried", "retry_drained", "already_completed"].includes(value) ? value : null;
 }
 
 
@@ -316,7 +316,7 @@ export async function appendAuditEntry(entry) {
     run_id: entry.run_id,
     tool: entry.tool,
     target: entry.target,
-    sync_phase: ["run", "prepare", "prepare_full", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+    sync_phase: ["run", "prepare", "prepare_full", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
@@ -372,7 +372,7 @@ export async function readAuditEntries(runId) {
           run_id: runId,
           tool: entry.tool,
           target: entry.target,
-          sync_phase: ["run", "prepare", "prepare_full", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+          sync_phase: ["run", "prepare", "prepare_full", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
@@ -895,6 +895,9 @@ function operationRoute(tool, target, syncPhase = "run") {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
+    if (target === "google_sync" && syncPhase === "inspect") {
+      return `${SCENARIO_ROUTES.google_sync}/inspect`;
+    }
     if (target === "google_sync" && syncPhase === "prepare_full") {
       return `${SCENARIO_ROUTES.google_sync}/full`;
     }
@@ -1219,7 +1222,7 @@ export function createE2eMcpServer(options = {}) {
       description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しadvanceで更新後に保存しresumeで完了する。",
       inputSchema: {
         run_id: runIdField, scenario: scenarioField,
-        sync_phase: z.enum(["run", "prepare", "prepare_full", "advance", "resume"]).default("run"),
+        sync_phase: z.enum(["run", "prepare", "prepare_full", "inspect", "advance", "resume"]).default("run"),
         version_sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
         response_mode: z.enum(["read", "discard_after_headers"]).default("read"),
       },
@@ -1234,7 +1237,7 @@ export function createE2eMcpServer(options = {}) {
       if (responseMode !== "read" && (scenario !== "discord_delta" || syncPhase !== "advance" || !versionSha256)) {
         return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
       }
-      if ((syncPhase === "prepare_full" && scenario !== "google_sync") ||
+      if ((["prepare_full", "inspect"].includes(syncPhase) && scenario !== "google_sync") ||
           (["sync_lock", "discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
           (["google_sync", "sync_faults", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && versionSha256) ||
           (!["google_sync", "sync_faults", "sync_lock", "discord_delta", "discord_state", "discord_kv", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
@@ -1269,6 +1272,13 @@ export function createE2eMcpServer(options = {}) {
                   ? (scenario === "discord_batch_notification" ? ["retry_drained", "drained"] : ["drained"])
                   : ["prepared"]).includes(response.payload.status)))) {
             return { ...sanitized, ok: false, error: `${scenario}_not_ready` };
+          }
+          if (scenario === "google_sync" && syncPhase === "inspect") {
+            if (sanitized.ok && (response.payload.dirty !== false ||
+                !["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed"].includes(sanitized.execution_status))) {
+              return { ...sanitized, ok: false, error: "google_sync_inspect_invalid" };
+            }
+            return sanitized;
           }
           if (sanitized.ok && scenario === "google_sync" &&
               (response.payload.dirty !== true || !["pending", "drained", "updated", "deleted", "retry_pending", "retried"].includes(response.payload.status) ||

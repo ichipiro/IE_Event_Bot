@@ -747,10 +747,45 @@ async def _phase(env, store, run_id, phase, invoke):
     }
 
 
+async def _inspect_calendar(env, run_id):
+    """予定本文を要求せず、全ページのstatusだけを読む。状態は保存しない。"""
+    token = await get_google_access_token(env, StateStore(_DeltaEnv(env)))
+    if not token:
+        raise GoogleStateError("google_sync_token_required")
+    url = _event_collection_url(env.GOOGLE_CALENDAR_ID) + (
+        "?singleEvents=true&showDeleted=true&maxResults=2500&fields=items(status),nextPageToken"
+    )
+    statuses = set()
+    seen = set()
+    page = ""
+    while True:
+        status, data = await _google_request("GET", url + page, token)
+        if status != 200:
+            code = status if type(status) is int and 100 <= status <= 599 else 0
+            raise GoogleStateError(f"google_sync_calendar_http_{code}")
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise GoogleStateError("google_sync_calendar_response_invalid")
+        for event in data["items"]:
+            value = event.get("status") if isinstance(event, dict) else None
+            if value not in ("confirmed", "tentative", "cancelled"):
+                raise GoogleStateError("google_sync_calendar_response_invalid")
+            statuses.add("deleted" if value == "cancelled" else "active")
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+        if not isinstance(page_token, str) or page_token in seen:
+            raise GoogleStateError("google_sync_calendar_page_invalid")
+        seen.add(page_token)
+        page = "&pageToken=" + quote(page_token, safe="")
+    classification = "mixed" if len(statuses) == 2 else next(iter(statuses), "empty")
+    return {"ok": True, "dirty": False, "run_id": run_id, "status": f"calendar_{classification}"}
+
+
 async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not RUN_PATTERN.fullmatch(run_id) or phase not in (
         "prepare",
         "prepare_full",
+        "inspect",
         "advance",
         "verify",
         "cleanup",
@@ -777,6 +812,12 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
         and not StateStore.is_kv_sync_cooldown_enabled(env)
     ):
         return {"ok": False, "error": "google_sync_configuration_invalid"}
+    if phase == "inspect":
+        try:
+            return await asyncio.wait_for(_inspect_calendar(env, run_id), 50)
+        except Exception as exc:
+            return {"ok": False, "dirty": False, "run_id": run_id,
+                    "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
     existing = await store.get_e2e_manifest(SERVICE)
     if phase == "prepare_full" or (existing and existing.get("dirty") and existing.get("full_apply")):
         # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。

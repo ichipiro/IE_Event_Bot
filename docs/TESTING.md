@@ -414,6 +414,8 @@ workflowは全入力確認・共有キーの開始時欠損・回収の各stage�
 
 新規KVへの切替後の[実行35963510311](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35963510311)は `952f27f` のdeployと共有キーの空状態検査を通過し、Calendarの開始条件で停止した。`google_sync_calendar_not_empty` は取得失敗にも使われるため、artifactだけでは残存予定・削除履歴・取得失敗を区別できない。新規fixture・共有状態書込みは未実施、全manifestは前回のclean記録を保持した。全件適用の実サービス検証は未完了である。
 
+Calendarの開始条件を切り分ける読み取り専用経路は `POST /admin/e2e/google-sync/inspect`。MCPは `trigger_sync(scenario="google_sync", sync_phase="inspect")`、手動workflowは `deploy-and-google-calendar-check` を使う。専用Workerをdeployしてversion照合後、同じCalendarを `singleEvents=true&showDeleted=true`・全ページで読み、`fields=items(status),nextPageToken` により予定本文やIDを要求しない。結果は `calendar_empty`・`calendar_active`・`calendar_deleted`・`calendar_mixed` の固定分類、API失敗は `google_sync_calendar_http_<status>` として監査へ保存する。診断はKV・manifest・外部予定を書き換えず、回収対象にも追加しない。全件モードの空状態ガードは維持する。Googleの[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)では `showDeleted=true` により `cancelled` が取得対象になる。
+
 ### 分割後の状態障害E2Eの実行結果
 
 2026-09-14、fork作業ブランチ `feature/sync-fault-request-split` の `c1740e2f0a5d11dedefe4c06df24f318110ef1f2` を使い、[実行34841715250](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34841715250)を実行した。Local validation成功とEnvironment承認後、専用Workerを1回deployした。run ID `E2E-20260914T120901Z-7c8d0e77`、Worker version tag、deployと最終version fingerprint、対象commit、実行checkoutのclean状態を照合した。

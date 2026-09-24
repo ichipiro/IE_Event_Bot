@@ -20,6 +20,7 @@ import {
   runDeployAndSyncLockSmoke,
   runDeployAndSyncFaultsSmoke,
   runDeployAndGoogleSyncSmoke,
+  runGoogleCalendarCheck,
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
   runDeployAndDiscordBatchGoogleSmoke,
@@ -1351,3 +1352,26 @@ for (const failure of [null, "input", "shared", "cleanup", "advance"]) {
     assert.ok(COMMANDS.includes("deploy-and-google-full-smoke"));
   });
 }
+
+for (const classification of ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed", "invalid"]) {
+  test(`Calendar診断: ${classification}を照合しcleanupを送らない`, async () => {
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async () => ({ ok: true, status: 200, dirty: false, run_id: RUN_ID, execution_status: classification }),
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) } }),
+    });
+    if (classification === "invalid") {
+      await assert.rejects(runGoogleCalendarCheck(callTool, RUN_ID), /google_sync_inspect_invalid/);
+    } else {
+      assert.equal((await runGoogleCalendarCheck(callTool, RUN_ID)).execution_status, classification);
+    }
+    assert.equal(calls.filter(c => c.name === "trigger_sync")[0].args.sync_phase, "inspect");
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 0);
+  });
+}
+
+
+test("読み取り専用Calendar診断は回収対象へ追加しない", () => {
+  assert.deepEqual(touchedServicesFromAudit([
+    { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "google_sync", sync_phase: "inspect" },
+  ], RUN_ID), []);
+});

@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: Calendar開始条件の読み取り専用診断を追加
+
+- 既存artifactにはCalendarの失敗理由を区別する情報がなく、接続済みCalendarツールにも対象fingerprintが一致するCalendarがなかったため、専用Worker自身で診断する経路を追加した。
+- 全ページのstatusだけを読み、空・通常予定のみ・削除履歴のみ・混在・HTTP失敗を固定値で監査する。KV・manifest・外部予定への書込みとcleanupは行わない。通常全件モードの開始条件は維持した。
+- Python 668件、Node 205件、Ruff・Pyright、MCP設定・workflow・secret hygiene検査、E2E Workerのdeploy dry-runが成功した。実環境の診断結果は別途記録する。
+
 ## 2026-09-24: 新規KVでの全件E2EはCalendar開始条件で停止
 
 - ユーザーがE2E用STATE_KVを新規namespaceへ更新した。変更はE2E設定のIDだけで、`952f27f9a1c068661d25f196ffccf70e38decec0` として保存・pushし、[実行35963510311](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35963510311)を実行した。

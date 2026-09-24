@@ -600,3 +600,6 @@ KVアダプターはキー・run所有権・値のdigestを検証し、DOには�
 2回目36033000148は通常一覧取得のHTTP 429を記録し、通知前に停止して全資源を回収した。
 通常ジョブのDiscord GETに限り、`retry_after` が有限かつ0〜10秒の場合に最大4回まで試行する。
 POST・不正待機値・上限超過は再試行しない。継続する429も成功扱いにしない。
+
+[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)（commit `cc97b8b`）で、専用Guildの予定4件を通常HTTPハンドラから全件取得し、対象2件の通知・範囲外2件の抑止・共有cache・別HTTPでの重複抑止を確認した。全3段階と各verify、所有予定・通知・共有KVの回収が成功した。監査18行・9操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合済み。実Cronと通知失敗後の再送は対象外。
+証跡は `test-results/reminder-normal-36033540656/evidence/`、独立照合結果は同runディレクトリの `verification.json` に保存した。

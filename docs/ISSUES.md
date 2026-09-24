@@ -124,3 +124,9 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 全体同期の追加: 所有Google予定2件とrun別KVで、Google適用→Discordポーリング、往復時のID維持、両方向の固定部分失敗・queue回復、クールダウンとmanual／webhook／cron sourceの排他を9段階へ分割した。MCP・専用workflow、途中回収をローカル検証済み。[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)で全9段階・各verify・回収が成功し、監査42行・21操作、run/version/commit一致、passed・全manifest dirty=falseを独立照合した。通常共有KV・実Webhook・実Cron・別Workerリクエスト間競合は含まない。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)
+
+## 2026-09-25: 通常リマインドの検証結果
+
+[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)（commit `cc97b8b`）で、専用Guildの予定4件を通常HTTPハンドラから全件取得し、対象2件の通知・範囲外2件の抑止・共有cache・別HTTPでの重複抑止を確認した。全3段階と各verify、所有予定・通知・共有KVの回収が成功した。監査18行・9操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合済み。実Cronと通知失敗後の再送は対象外。
+
+通常Discord一覧取得のHTTP失敗を成功扱いする問題は修正済み。HTTP 429へのGET再試行を追加した。実Cron、通知POST失敗後の再試行、Notion cleanupの通常ジョブE2Eは未完了として維持する。

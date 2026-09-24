@@ -107,6 +107,7 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 追加実装: `prepare_matrix` と `deploy-and-google-matrix-smoke` により、終日・通常・繰返しの5件、上限2件での繰越、個別変更・削除、共有queueのAPI拒否・再試行を14stepへ分割した。日時読戻し・instance所有確認・途中回収をローカル検証済み。[実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)で全14段階と各verify、共有queue再試行、繰返し親・共有KV回収が成功した。監査62行・31操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` を照合済み。
 - 追加実装: matrixを3日間の終日・UTC日跨ぎ予定と18stepへ拡張した。残存3件のDiscord API拒否、上限1件の共有queue再試行、途中回収をローカル検証済み。件数1・2・5・17と上限1・2・5の12組も確認した。実サービス実行は未完了。
 - 18step初回: [実行35980469928](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35980469928)はstep 11のロック解放で失敗し、直後の回収もbusyで拒否された。step 0〜10はverify成功、manifestはready・dirty=true。readyから所有資源を回収するworkflow修正はローカル検証済み。根本原因、実環境回収、再実行は未完了。
+- 上記の回収結果: [実行35981499346](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35981499346)で繰返し親・各予定・Notion page・共有KVを回収し、`failed_clean`・全manifest `dirty=false` を照合した。ロック解放失敗の根本原因は未確定。18stepは再実行待ち。
 - 暫定対応: 未対応の通常同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で `404` にする。read-only preflight、service CRUD、所有資源限定のサービス間scenario、QA通知scenario、前日リマインドscenario、Notion期限cleanup scenario、Webhook simulation scenario、Google Webhook初回実配信scenario、Google変更起因Webhook scenarioは別routeで継続する。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)

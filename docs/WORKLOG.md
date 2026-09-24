@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: Google matrixの残存資源を回収
+
+- [回収実行35981499346](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35981499346)はcommit `b7a978677bfdbc661cff53e26c93e46547dd5c05`、既存run `E2E-20260924T092101Z-dcf6de0a` で成功した。繰返し親とGoogle予定、Discord予定、Notion page、共有KVの回収stage、`failed_clean`・全service/scenario manifestの `dirty=false` を確認した。
+- 監査4行・2操作、run/version/commit・clean checkout、JUnit 719件成功をartifactで独立照合した。Worker version fingerprintは `0c650740e7f58be2685375175c7e25db917ba3743be19988270c9d2ae4b8a044`。新規fixtureは作成していない。
+- 元の18step実行は失敗として保持する。ロック解放失敗の根本原因は未確定であり、回収成功を原因修正や18step成功と扱わない。専用環境で再実行する。
+
 ## 2026-09-24: Google matrixのロック解放失敗と回収経路
 
 - [実行35980469928](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35980469928)はcommit `fa5fcd87072928ec414221204337fb958b5bcf08`、run `E2E-20260924T092101Z-dcf6de0a` でstep 0〜10のverifyに成功した。step 11のadvanceで `google_sync_release_failed`、続く回収8回は `google_sync_busy` となり、manifestはready・dirty=true。実行成功・回収完了とは扱わない。

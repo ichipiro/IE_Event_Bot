@@ -180,7 +180,7 @@ def test_callback_remains_registered_after_client_cancellation(monkeypatch):
     async def scenario():
         entered, proceed = asyncio.Event(), asyncio.Event()
         retained = []
-        test.worker.ctx = SimpleNamespace(waitUntil=retained.append)
+        setattr(test.worker, "ctx", SimpleNamespace(waitUntil=retained.append))
 
         async def callback(*args):
             entered.set()

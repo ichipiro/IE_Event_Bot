@@ -35,6 +35,7 @@ on:
           - deploy-and-google-notion-smoke
           - deploy-and-qa-notification-smoke
           - deploy-and-qa-normal-smoke
+          - deploy-and-reminder-normal-smoke
           - deploy-and-reminder-smoke
           - deploy-and-notion-cleanup-smoke
           - deploy-and-webhook-simulation-smoke
@@ -187,6 +188,7 @@ jobs:
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||
           inputs.mode == 'deploy-and-qa-normal-smoke' ||
+          inputs.mode == 'deploy-and-reminder-normal-smoke' ||
           inputs.mode == 'deploy-and-reminder-smoke' ||
           inputs.mode == 'deploy-and-notion-cleanup-smoke' ||
           inputs.mode == 'deploy-and-webhook-simulation-smoke' ||
@@ -229,6 +231,7 @@ jobs:
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||
           inputs.mode == 'deploy-and-qa-normal-smoke' ||
+          inputs.mode == 'deploy-and-reminder-normal-smoke' ||
           inputs.mode == 'deploy-and-reminder-smoke' ||
           inputs.mode == 'deploy-and-notion-cleanup-smoke' ||
           inputs.mode == 'deploy-and-webhook-simulation-smoke' ||

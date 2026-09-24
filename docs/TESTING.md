@@ -108,6 +108,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
 | `deploy-and-qa-normal-smoke` | 空の専用Q&A DBに3件を作り、通常HTTPハンドラによる全件取得・採番・共有cache・通知・重複抑止と回収を検証する |
+| `deploy-and-reminder-normal-smoke` | 空の専用Guildへ4予定を作成し、通常HTTPハンドラの全件取得・2件選別・共有KV・通知・別HTTP重複抑止を検証して回収する |
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
@@ -573,3 +574,20 @@ MCPの `trigger_job(job="qa_normal_<phase>")` は認証・run/version照合・gl
 外部から通常URLへ直接到達する検証ではなく、保護された管理routeから通常HTTPハンドラへ委譲する。
 
 2026-09-25（JST）の[実行36030243998](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36030243998)で成功した。対象commit `ee87f2591c9848f4ef5ac529539b3b3f661121c3`、run `E2E-20260924T165255Z-4ee17edc`、Worker version tagとdeploy／最終version fingerprint、clean checkoutを照合した。全5段階と各verify、通常ハンドラ3回、Notion3ページのarchive・Discord2通知の削除・共有KV2キーの回収が成功した。監査26行・13操作はすべて成功し、`outcome=passed`・全manifest `dirty=false`、JUnit825件成功を独立確認した。ローカルMCP・workflowテスト297件、Ruff・Pyright・設定検査・E2E dry-runも成功した。マスク済み成果物と独立照合結果は `test-results/qa-normal-36030243998/` に保存した。
+
+
+## 通常リマインドの全件取得と共有KV
+
+`deploy-and-reminder-normal-smoke` は空の専用Guildへrun marker付き予定4件を作成する。
+実時刻から24時間8分後・10分後の2件を通知対象、23時間後・25時間後の2件を範囲外とする。
+`prepare → notify → duplicate` の各段階を別HTTPで実行し、各段階後に別HTTPの `verify` を行う。
+通常 `Application.fetch` の `/jobs/reminder` 分岐は予定一覧を加工せず全件取得し、
+通常 `StateStore` が `reminder_cache` と `result:job_reminder` を専用環境の実KVへ保存する。
+KVアダプターはキー・run所有権・値のdigestを検証し、DOには回収用の所有記録を保存する。
+
+本文・対象roleのみのmention・対象2件だけのcache・同一message IDの維持・cache書込み1回を確認する。
+2回目も通知時刻内であることを確保するため、開始から6分を超えたジョブ実行は拒否する。
+初期状態が空でない場合、所有外予定、別run、異なるWorker revision、順序外の実行も拒否する。
+失敗時も作成応答を失った予定をpayloadとmarkerで再発見し、所有予定・通知・共有KVだけを回収する。
+既存の `deploy-and-reminder-smoke` は1件と実行内cacheの試験として残す。
+このモードは実Cron配信、API実障害、通知失敗後の通常ジョブ再試行、KVの全リージョン一貫性を証明しない。

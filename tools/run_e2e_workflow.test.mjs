@@ -33,6 +33,7 @@ import {
   runDeployAndNotionCleanupSmoke,
   runDeployAndQaNotificationSmoke,
   runDeployAndQaNormalSmoke,
+  runDeployAndReminderNormalSmoke,
   runDeployAndReminderSmoke,
   runDeployAndWebhookSimulationSmoke,
   runDeployAndWebhookDeliverySmoke,
@@ -77,6 +78,42 @@ for (const failure of [null, "notify", "missing_stage"]) {
     assert.deepEqual(touchedServicesFromAudit(calls.filter(c => c.name === "trigger_job").map(c => ({
       run_id: RUN_ID, phase: "start", tool: c.name, target: c.args.job,
     })), RUN_ID), ["qa_notification"]);
+  });
+}
+
+for (const failure of [null, "notify", "missing_stage"]) {
+  test(`通常リマインドの段階実行・読戻し・回収: ${failure}`, async () => {
+    let phase = "";
+    let reads = 0;
+    const sleeps = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        if (job === "reminder_normal_verify") {
+          if (++reads === 1) {
+            return { ok: false, error: "reminder_normal_kv_not_ready" };
+          }
+          return { ok: true, stages: { [`reminder_normal_verify_${phase}`]: 200 } };
+        }
+        phase = job.replace("reminder_normal_", "");
+        if (phase === failure) {
+          return { ok: false, error: "reminder_normal_job_failed" };
+        }
+        return { ok: true, stages: failure === "missing_stage" ? {} : { [`reminder_normal_${phase}`]: 200 } };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { reminder_normal_cleanup: 200 } } }),
+    });
+    const task = runDeployAndReminderNormalSmoke(callTool, RUN_ID, { sleepImpl: async (ms) => sleeps.push(ms) });
+    if (failure) {
+      await assert.rejects(task, /reminder_normal_/);
+    } else {
+      assert.deepEqual(await task, { ok: true, scenarios: ["reminder"] });
+      assert.deepEqual(sleeps, [3000]);
+      assert.equal(calls.filter(c => c.args.job === "reminder_normal_prepare").length, 1);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(calls.filter(c => c.name === "trigger_job").map(c => ({
+      run_id: RUN_ID, phase: "start", tool: c.name, target: c.args.job,
+    })), RUN_ID), ["reminder"]);
   });
 }
 

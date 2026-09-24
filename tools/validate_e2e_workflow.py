@@ -93,6 +93,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-google-calendar-check") == 2, "google_calendar_check_contract_changed")
     _expect(errors, text.count("deploy-and-watch-shared-smoke") == 3, "watch_shared_mode_contract_changed")
     _expect(errors, text.count("deploy-and-qa-normal-smoke") == 3, "qa_normal_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-reminder-normal-smoke") == 3, "reminder_normal_mode_contract_changed")
     _expect(errors, text.count("deploy-and-all-http-smoke") == 3, "all_http_mode_contract_changed")
     _expect(errors, text.count("deploy-and-all-sync-smoke") == 3, "all_sync_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-matrix-smoke") == 3, "google_matrix_mode_contract_changed")

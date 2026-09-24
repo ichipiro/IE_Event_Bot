@@ -169,6 +169,10 @@ _QA_NORMAL_PHASES = {
     for phase in ("prepare", "first", "update", "notify", "duplicate", "verify")
 }
 _QA_NOTIFICATION_CLEANUP_PATH = "/admin/e2e/qa-notification/cleanup"
+_REMINDER_NORMAL_PHASES = {
+    f"/admin/e2e/reminder-normal/{phase}": phase
+    for phase in ("prepare", "notify", "duplicate", "verify")
+}
 _REMINDER_PATH = "/admin/e2e/reminder"
 _REMINDER_CLEANUP_PATH = "/admin/e2e/reminder/cleanup"
 _STATUS_PATH = "/admin/e2e/status"
@@ -511,7 +515,7 @@ class Default(ApplicationDefault):
             _QA_NOTIFICATION_PATH,
             _QA_NOTIFICATION_CLEANUP_PATH,
         ) or path in _QA_NORMAL_PHASES
-        reminder_route = path in (_REMINDER_PATH, _REMINDER_CLEANUP_PATH)
+        reminder_route = path in (_REMINDER_PATH, _REMINDER_CLEANUP_PATH) or path in _REMINDER_NORMAL_PHASES
         notion_cleanup_route = path in (
             _NOTION_AUTO_CLEAN_PATH,
             _NOTION_AUTO_CLEAN_CLEANUP_PATH,
@@ -767,7 +771,7 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
-        if path in _QA_NORMAL_PHASES and (
+        if (path in _QA_NORMAL_PHASES or path in _REMINDER_NORMAL_PHASES) and (
             expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
         ):
             return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
@@ -796,6 +800,9 @@ class Default(ApplicationDefault):
             if google_owner and google_owner.get("dirty") and (google_owner.get("full_apply") or google_owner.get("all_sync")):
                 return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
+            reminder_owner = await StateStore(self.env).get_e2e_manifest("reminder")
+            if reminder_owner and reminder_owner.get("dirty") and reminder_owner.get("normal"):
+                return _json_response({"ok": False, "error": "reminder_normal_shared_busy"}, status=409)
             qa_owner = await StateStore(self.env).get_e2e_manifest("qa_notification")
             if qa_owner and qa_owner.get("dirty") and qa_owner.get("normal"):
                 return _json_response({"ok": False, "error": "qa_normal_shared_busy"}, status=409)
@@ -1070,6 +1077,13 @@ class Default(ApplicationDefault):
                     state,
                     run_id=run_id,
                 )
+            elif path in _REMINDER_NORMAL_PHASES:
+                from e2e_reminder_normal_probe import run as run_reminder_normal
+                try:
+                    result = await run_reminder_normal(self.env, state, run_id, _REMINDER_NORMAL_PHASES[path], request)
+                except Exception as exc:
+                    code = str(exc)
+                    result = {"ok": False, "dirty": True, "error": code if re.fullmatch(r"[a-z_]{1,80}", code) else "reminder_normal_failed"}
             elif path == _REMINDER_CLEANUP_PATH:
                 result = await cleanup_reminder_probe(
                     self.env,

@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: account tokenの有効性とログ照会拒否を分離
+
+- [追加診断35991322986](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35991322986)はcommit `6a2674b4575d3425600fa661ae07484cea8999de` で実行され、ログ照会がHTTP 403・code 10000・authentication分類で拒否された。
+- 同じtokenの対象account用verifyはHTTP 200・success=true・status=active。user用verifyの401・code 1000と合わせ、使用中のaccount tokenが有効であることを確認した。ログ照会権限や個別Workerへの許可までは証明しない。過去ログと元のロック解放失敗の根本原因は引き続き未取得・未確定。
+- ユーザー報告では既存tokenへ権限追加済み。現在の権限名・Read/Editの確認を依頼した。[公式の権限一覧](https://developers.cloudflare.com/workers/authorization/workers/#legacy-workers-permissions)には `Workers Observability Edit` と `Workers Observability Telemetry Edit` が別項目として掲載されているため、両者を同一項目と推測しない。設定の確認前に同条件の診断を繰り返さない。
+
 ## 2026-09-24: 権限追加後もログ診断403が継続
 
 - ユーザーは既存トークンへ権限を追加したと報告した。[診断実行35987968532のattempt 2](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35987968532/attempts/2)も `diagnostic_http_403` で停止し、過去ログは取得できなかった。

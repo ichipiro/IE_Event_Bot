@@ -112,6 +112,7 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 解放失敗の調査: step 11は12.876秒で失敗し、phase上限90秒・TTL300秒とは一致しない。制御DOのrelease削除前障害は後続busyをローカル再現し、正常release後のstatus障害ではbusyにならなかった。RPC例外・不正応答・所有者異常が同一エラーに集約されるため、実環境の原因確定には追加証拠が必要。失敗・成功時の限定ログを照会する `read-only-google-lock-diagnostics` を追加し、ログ取得は未完了。
 - 診断のアクセス拒否: 承認済み[実行35987968532](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35987968532)のartifactは `diagnostic_http_403`。Cloudflareログ照会が拒否され、元の障害のログは取得できていない。使用トークンの `Workers Observability Write` 権限と対象アカウントの許可を確認する必要がある。403だけでは権限不足の詳細までは断定できない。
 - 上記の再実行: ユーザー報告では既存トークンへ権限追加済みだが、attempt 2も403だった。APIエラーの数値コード・固定分類と、401/403時のuser/account token verifyを追加した。追加診断の実環境結果は未確認。token値・ID・生のエラー本文はartifactへ保存しない。
+- 追加診断結果: [実行35991322986](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35991322986)でログ照会403・code 10000に対し、対象account用token verifyは200・activeを確認した。使用中account token自体は有効だがログ照会は拒否される。現在のObservability／Observability Telemetryの権限名とRead/Editを確認中。元のロック解放失敗の原因は未確定。
 - 暫定対応: 未対応の通常同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で `404` にする。read-only preflight、service CRUD、所有資源限定のサービス間scenario、QA通知scenario、前日リマインドscenario、Notion期限cleanup scenario、Webhook simulation scenario、Google Webhook初回実配信scenario、Google変更起因Webhook scenarioは別routeで継続する。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)

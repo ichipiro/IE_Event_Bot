@@ -1,5 +1,10 @@
 # 作業履歴
 
+## 2026-09-24: Telemetry権限の追加案内を撤回
+
+- ユーザーの画面には `Workers Observability Telemetry` の設定項目が存在しない。旧権限一覧の名称を現在の設定画面で選択可能と推測した案内は誤りとして撤回する。既存の「Workersの可観測性 編集」だけでは不足すると断定しない。
+- 診断で使われたのは有効なaccount token。編集したtokenが「アカウントの管理」のaccount tokenか、「マイプロフィール」のuser tokenかを確認する。403・code 10000だけで両者の不一致を断定せず、同条件の再実行や追加権限の要求は行わない。
+
 ## 2026-09-24: account tokenの有効性とログ照会拒否を分離
 
 - [追加診断35991322986](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35991322986)はcommit `6a2674b4575d3425600fa661ae07484cea8999de` で実行され、ログ照会がHTTP 403・code 10000・authentication分類で拒否された。

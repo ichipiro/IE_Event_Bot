@@ -11,6 +11,26 @@ import google_calendar_sync
 from e2e_google_sync_state import GoogleKV, KEYS
 from tests.test_e2e_google_sync_probe import Scenario
 from tests.test_e2e_sync_lock_probe import RUN, request
+import e2e_google_sync_probe as probe
+
+
+def test_full_allows_slow_phase_and_releases_control(monkeypatch):
+    test = Scenario(monkeypatch)
+
+    async def slow_phase(coro, timeout):
+        result = await coro
+        # API待ちを含めて61秒かかった場合を、実時間を待たずに再現する。
+        if timeout <= 61:
+            raise TimeoutError
+        assert timeout < 120  # 通常同期ロックの有効期限内で打ち切る。
+        return result
+
+    monkeypatch.setattr(probe.asyncio, "wait_for", slow_phase)
+    status, payload = test.call("full")
+    assert status == 200, payload
+    assert test.call("verify")[0] == 200
+    assert test.call("cleanup")[0] == 200
+    assert not test.owner()["dirty"]
 
 
 def test_full_input_shared_keys_and_cleanup(monkeypatch):

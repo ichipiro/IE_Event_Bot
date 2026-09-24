@@ -42,6 +42,12 @@ from google_calendar_sync import run_google_delta_fetch
 from state import StateStore
 
 
+_PHASE_TIMEOUT_SECONDS = 50
+# 全件3件の作成・適用・読戻しは2件モードよりAPI待ちが長い。
+# 通常同期ロック120秒と制御ロック300秒より短くし、解放の余地を残す。
+_FULL_PHASE_TIMEOUT_SECONDS = 90
+
+
 class GoogleEnv(_DeltaEnv):
     DISCORD_SYNC_ENABLED = "true"
     NOTION_EVENT_ID = ""
@@ -854,7 +860,8 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             return {"ok": False, "dirty": False, "run_id": run_id,
                     "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
     existing = await store.get_e2e_manifest(SERVICE)
-    if phase == "prepare_full" or (existing and existing.get("dirty") and existing.get("full_apply")):
+    full_mode = phase == "prepare_full" or bool(existing and existing.get("dirty") and existing.get("full_apply"))
+    if full_mode:
         # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。
         disabled = (
             "E2E_ORCHESTRATED_WRITES_ENABLED", "CRON_ENABLE_SYNC",
@@ -871,7 +878,10 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not lock or lock.get("ok") is not True:
         return {"ok": False, "error": "google_sync_busy"}
     try:
-        result = await asyncio.wait_for(_phase(env, store, run_id, phase, invoke), 50)
+        result = await asyncio.wait_for(
+            _phase(env, store, run_id, phase, invoke),
+            _FULL_PHASE_TIMEOUT_SECONDS if full_mode else _PHASE_TIMEOUT_SECONDS,
+        )
     except TimeoutError:
         result = {"ok": False, "dirty": True, "error": "google_sync_timeout"}
     except Exception as exc:

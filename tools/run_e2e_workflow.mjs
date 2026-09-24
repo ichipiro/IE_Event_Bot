@@ -1179,7 +1179,8 @@ async function withE2eClient(callback) {
     return await callback(async (name, args) => await client.callTool({
       name,
       arguments: args,
-    }));
+    }, undefined, (args.scenario === "google_sync" || args.service === "google_sync")
+      ? { timeout: 180_000 } : undefined));
   } finally {
     await client.close();
     await server.close();

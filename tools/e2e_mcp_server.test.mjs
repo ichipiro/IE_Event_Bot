@@ -49,6 +49,30 @@ const PLAYWRIGHT_ARGS = [
   "--timeout-navigation",
   "60000",
 ];
+
+for (const phase of ["prepare_full", "advance", "resume", "cleanup", "inspect"]) {
+  test(`Google同期${phase}のHTTP待機時間はWorkerの上限を上回る`, async (t) => {
+    const budgets = new WeakMap();
+    t.mock.method(AbortSignal, "timeout", (milliseconds) => {
+      const signal = new AbortController().signal;
+      budgets.set(signal, milliseconds);
+      return signal;
+    });
+    let observedBudget;
+    await withClient({ env: ENV, auditImpl: async () => {},
+      fetchImpl: async (url, options) => {
+        observedBudget = budgets.get(options.signal);
+        return jsonResponse({ ok: true, dirty: phase !== "cleanup" && phase !== "inspect", run_id: RUN_ID,
+          status: phase === "inspect" ? "calendar_deleted" : "pending", stage: "google_pending_verified" });
+      },
+    }, async (client) => {
+      await client.callTool({ name: phase === "cleanup" ? "cleanup_run" : "trigger_sync",
+        arguments: phase === "cleanup" ? { run_id: RUN_ID, service: "google_sync", confirmation: `cleanup:google_sync:${RUN_ID}` }
+          : { run_id: RUN_ID, scenario: "google_sync", sync_phase: phase } });
+    });
+    assert.equal(observedBudget, phase === "inspect" ? 60_000 : 120_000);
+  });
+}
 const PLAYWRIGHT_ALLOWED_TOOLS = [
   "browser_close",
   "browser_console_messages",

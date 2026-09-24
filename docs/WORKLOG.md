@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: 全件E2Eの50秒タイムアウトと回収を確認
+
+- [実行35968760516](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35968760516)は `be790581aaff3136f0fe032556d091541e013186` でdeploy・削除履歴照合・3件作成・初回dispatchまで成功し、phase完了前に `google_sync_timeout`（409）で停止した。runは `E2E-20260924T071821Z-3ed8ab4c`、Worker version fingerprintは `b69e4505698e2fa025954b1cc13f573c4e844bae13e6ff12fd0fb294c7dfed7c`。
+- 監査8行・4操作、run/version/commit一致を確認した。通常・alwaysのcleanupが成功し、今回runの `failed_clean`、共有KV回収stage成功、全manifest `dirty=false` を照合した。全件4段階は未完了。
+- 3件の作成・適用・読戻しを従来の50秒に収められなかったため、全件phaseだけ90秒へ延長した。Google同期routeのHTTP待機を120秒、workflowのGoogle同期MCP呼出しを180秒に揃え、通常同期ロック120秒・制御ロック300秒より前にphaseを打ち切る。通常2件モードのphase上限50秒は維持する。
+- 61秒相当のphaseが旧設定で失敗するテストを先に実行し、修正後の成功・後続verify・回収を確認した。Python 678件・Node 210件、Ruff・Pyright、E2E設定・workflow・secret hygiene検査、E2E Workerのdeploy dry-runが成功した。実サービスでの再実行は別途記録する。
+
 ## 2026-09-24: 削除履歴のある専用Calendarの再利用を修正
 
 - 削除履歴でprepare_fullが停止する4ケースを先に再現した。開始時に履歴のID・内容のハッシュをDOへ記録し、不変の履歴だけを通常適用から除外する。既存履歴は適用・queue・回収へ渡さず、通常予定・新しい履歴・内容変更や復元は拒否する。同じCalendarの連続2回実行、複数ページと取得順、履歴上限、manifestの差替え拒否をローカル検証した。実サービスの再実行結果は別途記録する。

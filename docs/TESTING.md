@@ -400,6 +400,8 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 
 ### Google同期の共有KV・全件モード
 
+全件modeのphase上限は90秒（通常2件modeは50秒）。Google同期routeのMCP→Worker HTTP待機は120秒、workflow→MCPの待機は180秒とし、Workerの制御ロック解放・結果取得を待つ。phaseの上限は通常同期ロック120秒・制御ロック300秒より短い。
+
 `POST /admin/e2e/google-sync/full`、MCPの `trigger_sync(scenario="google_sync", sync_phase="prepare_full")` で開始する。手動workflowは `deploy-and-google-full-smoke` を選ぶ。通常の2件・6段階モードは維持し、全件モードは3件・4段階（pending → drained → updated → deleted）で検証する。advance・verify・cleanupは既存経路を使う。
 
 開始前に、通常Google全ページ取得に有効な予定がなく、Discord予定一覧が空、Notion内部DBの有効ページが空、共有KVの固定6キーが欠損していることを確認する。空文字も既存値として拒否する。Calendarの削除履歴はIDと内容のSHA-256をDO manifestへ保存し、実行中の変更を禁止する。32 KiBのmanifest容量に余地を残すため履歴は100件までとし、超過・ID欠損・重複IDはfixture作成前に拒否する。既存データを消して条件を満たす操作は行わない。専用環境で他の書込み主体がいないことが前提である。
@@ -417,6 +419,8 @@ workflowは全入力確認・共有キーの開始時欠損・回収の各stage�
 Calendarの開始条件を切り分ける読み取り専用経路は `POST /admin/e2e/google-sync/inspect`。MCPは `trigger_sync(scenario="google_sync", sync_phase="inspect")`、手動workflowは `deploy-and-google-calendar-check` を使う。専用Workerをdeployしてversion照合後、同じCalendarを `singleEvents=true&showDeleted=true`・全ページで読み、`fields=items(status),nextPageToken` により予定本文やIDを要求しない。結果は `calendar_empty`・`calendar_active`・`calendar_deleted`・`calendar_mixed` の固定分類、API失敗は `google_sync_calendar_http_<status>` として監査へ保存する。診断はKV・manifest・外部予定を書き換えず、回収対象にも追加しない。全件モードの空状態ガードは維持する。Googleの[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)では `showDeleted=true` により `cancelled` が取得対象になる。
 
 [診断実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は `83cd4b3` で成功した。HTTP 200・`calendar_deleted` により、取得対象に通常予定はなく削除履歴だけ残ることを確認した。監査4行・deployとinspectの2操作、run/version/commit一致、全service/scenario manifestが前回と同一で `dirty=false` を照合した。予定・KVは変更していない。当時の実装では削除履歴のないCalendarが必要だったが、その後、記録済みの履歴だけを保護して除外する方式へ修正した。これは診断の成功であり、修正版の全件適用は実サービスでの再検証が必要である。
+
+[実行35968760516](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35968760516)は削除履歴照合・3件作成・初回dispatchを通過したが、旧50秒上限で `google_sync_timeout` となった。監査8行・4操作、run/version/commit一致、今回runの `failed_clean`・全manifest `dirty=false`・共有KV回収成功を照合した。タイムアウトを調整した版の全件4段階は再検証待ち。
 
 ### 分割後の状態障害E2Eの実行結果
 

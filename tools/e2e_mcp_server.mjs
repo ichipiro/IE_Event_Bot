@@ -32,6 +32,8 @@ const AUDIT_ROOT = resolve(REPO_ROOT, "test-results");
 const AUDIT_DIR = resolve(AUDIT_ROOT, "e2e-mcp");
 const MAX_RESPONSE_BYTES = 65_536;
 const WORKER_TIMEOUT_MS = 60_000;
+// Workerの全件phase上限90秒に、制御ロック解放と応答時間を加える。
+const GOOGLE_SYNC_TIMEOUT_MS = 120_000;
 const DEPLOY_TIMEOUT_MS = 300_000;
 const DEPLOY_VERIFY_ATTEMPTS = 20;
 const DEPLOY_VERIFY_INTERVAL_MS = 3_000;
@@ -442,7 +444,11 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
       method,
       headers,
       redirect: "error",
-      signal: AbortSignal.timeout(WORKER_TIMEOUT_MS),
+      signal: AbortSignal.timeout(
+        method === "POST" &&
+        ["", "/full", "/advance", "/verify", "/cleanup"].some(suffix => route === `${SCENARIO_ROUTES.google_sync}${suffix}`)
+          ? GOOGLE_SYNC_TIMEOUT_MS : WORKER_TIMEOUT_MS,
+      ),
     });
   } catch {
     return { ok: false, status: 0, error: "worker_request_failed", payload: {} };

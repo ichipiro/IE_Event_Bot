@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: 全体同期9段階の実サービス検証と回収が成功
+
+- 承認後の[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)はcommit `a2b1af5b657099627db074e0c2c97c335b718491` で成功した。run `E2E-20260924T134151Z-6a59b394` の全9段階と各verify、監査42行・21操作を独立照合した。
+- 所有2件のGoogle→Notion・Discord、Discord→Google・Notion、往復時の本文・ID維持、両方向の固定失敗後のqueue回復、cursor・最終成功時刻・結果、クールダウン、共通dispatchのsource間排他を確認した。
+- Google予定・Discord予定・Notionページ各2件と所有KVの回収、今回runの `passed`・全manifest `dirty=false`、run／version tag／deployと最終version fingerprint／commit一致、実行checkoutのclean状態を確認した。通常cleanupと常時cleanupの2操作が成功した。
+- Local validationとApproved E2Eが成功し、JUnit 774件（失敗・エラー・skip 0件）を照合した。状態はrun別KV、部分失敗は固定注入、排他は1 HTTP内の共通dispatch呼出しである。通常共有KV、実サービス障害、実Webhook受信、実Cron起動、別Workerリクエスト間競合は未検証。本番デプロイは含まない。
+
 ## 2026-09-24: 全体同期9段階のE2Eを実装
 
 - `deploy-and-all-sync-smoke` と `prepare_all` を追加した。所有2件で通常のGoogle取得・適用→Discord差分同期を実行し、往復のID・本文、両方向の固定失敗・queue回復、最終成功時刻・結果、クールダウン、source間排他を検査する。

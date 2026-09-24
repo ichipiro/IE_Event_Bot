@@ -489,7 +489,7 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 
 ## 全体同期の往復・部分失敗E2E
 
-`deploy-and-all-sync-smoke` は、既存の `google_sync` manifestと回収経路を使う9段階のシナリオである。`POST /admin/e2e/google-sync/all`（MCPの `scenario=google_sync, sync_phase=prepare_all`）で開始し、既存の `advance`・`verify`・`cleanup` へ接続する。実サービス実行は未確認。
+`deploy-and-all-sync-smoke` は、既存の `google_sync` manifestと回収経路を使う9段階のシナリオである。`POST /admin/e2e/google-sync/all`（MCPの `scenario=google_sync, sync_phase=prepare_all`）で開始し、既存の `advance`・`verify`・`cleanup` へ接続する。[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)で全9段階と各verify、監査42行・21操作、全所有資源とKVの回収、passed・全manifest dirty=false、run/version/commit一致を確認した。
 
 開始前に専用Calendar・Guild・Notion内部DBの空状態と共有Google同期KVの空状態を確認する。Calendarの既存削除履歴だけを不変のfingerprintで保護する。Google予定2件を所有し、通常dispatchのGoogle取得・適用に続けて通常Discordポーリングを実行する。KVの8キー（Google同期の6キーと `discord:snapshot`・`sync:discord_notion_queue`）はrun・scope別に隔離し、別HTTPでdigestと内容を読み戻す。通常の共有KVを使う全体同期を検証済みとは扱わない。
 

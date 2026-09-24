@@ -67,9 +67,10 @@
 ## 5. 全体同期
 
 - [x] 所有2件・run別KVの9段階を実装し、両方向の通常処理、往復時のID維持、固定部分失敗・queue回復、クールダウンとsource間排他、途中回収をローカル検証する。MCP・専用手動workflowへ接続済み。
-- [ ] `deploy-and-all-sync-smoke` を専用環境で実行し、全9段階・各verify・回収とartifactを照合する。
-- [ ] Google・Discordの両同期、反映の往復、部分失敗を検証する。
-- [ ] クールダウン、最終時刻・結果、手動・Webhook・Cron間の排他を検証する。
+- [x] `deploy-and-all-sync-smoke` を専用環境で実行し、全9段階・各verify・回収とartifactを照合する。[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)で監査42行・21操作、run/version/commit一致、passed・全manifest dirty=falseを確認した。
+- [x] 所有2件・run別KVでGoogle・Discordの両同期、反映の往復、固定部分失敗と回復を検証する。
+- [ ] 通常共有状態と通常入口を使う全体同期へ検証を広げる。
+- [x] クールダウン、最終時刻・結果、manual／webhook／cron sourceの共通dispatch間の排他を検証する。1 HTTP内の競合であり、実Webhook・実Cronと別Workerリクエスト間の競合は含まない。
 
 ## 6. watch維持とWebhook
 

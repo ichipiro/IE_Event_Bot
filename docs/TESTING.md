@@ -527,3 +527,5 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 回収は所有予定・ページ・共有KVの記録済みdigestだけを対象にする。DOの最終成功時刻は通常同期の実行履歴として維持する。Google認証はリクエスト内、作成通知と実Cronは無効。途中失敗を回収成功でpassedに変えず、4段階verify後だけpassedとする。本番環境、通常通知、実Cron、実Webhook、障害回復はこのモードの対象外である。
 
 初回[実行36010039102](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010039102)は最初の通常HTTPで `google_sync_state_invalid` となり、所有資源・共有KVを回収して `failed_clean` になった。通常処理がDiscord由来の削除履歴を対応表へ残すケースで同じ拒否をローカル再現した。E2Eの許容範囲へ開始前に確認した履歴の対応ID fingerprintを加え、未知・改変された対応は引き続き拒否する。通常同期の挙動と取得一覧は変更しない。状態形式の拒否では、値を含めずmap／queue／snapshotの固定分類を返す。
+
+再実行[36010723441](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010723441)（commit `02bc807275c03cf9dddfa3aa7367dd5ae91100cb`、run `E2E-20260924T141102Z-1f6eb5a4`）は実サービス検証に成功した。監査22行・11操作から通常 `/sync/all` 3回と各verifyを確認し、4段階の完了、対応IDと本文、共有queue・snapshot・結果、DO成功時刻を照合した。既知削除履歴の対応を含む通常処理が通り、所有資源と共有KVを回収した。成果物からrun・稼働version・commit・clean checkoutの一致、`passed`、全manifest `dirty=false`、JUnit 790件成功を独立確認した。初回失敗の記録は維持し、この成功へ置き換えない。

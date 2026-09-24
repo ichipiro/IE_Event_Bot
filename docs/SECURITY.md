@@ -85,9 +85,9 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。Wranglerへrun IDをversion tagとして固定指定し、同じtagを専用Workerのversion metadataから読み戻せるまで外部書き込みscenarioを開始しない。規定回数内に反映を確認できなければ、旧revisionでscenarioを実行せず失敗させる。
 - preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
-- `trigger_sync` は任意 URL を受け取らず、通常の `/sync/all` ではなく、所有資源限定の Google→Notion / Discord と Discord→Notion / Google route だけを固定列挙から呼ぶ。
+- `trigger_sync` は任意 URL を受け取らず、所有資源限定の Google→Notion / Discord と Discord→Notion / Google routeを固定列挙から呼ぶ。通常 `/sync/all` は下記の通常HTTP全体同期モードだけで、準備済み所有runに限定して呼ぶ。
 - `trigger_job` の `qa_check`、`reminder`、`cleanup` は通常の `/jobs/*` ではなく、所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼ぶ。run-all は通常 route のまま既定拒否を維持する。
-- 通常の同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation、初回実配信、変更起因実配信は、それぞれ専用フラグと route で分離する。
+- 下記の通常HTTP全体同期を除く通常同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation、初回実配信、変更起因実配信は、それぞれ専用フラグと route で分離する。
 
 ## E2E GitHub Actions 境界
 

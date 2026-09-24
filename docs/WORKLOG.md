@@ -2,7 +2,7 @@
 
 ## 2026-09-24: 通常HTTP・共有KVの全体同期E2E
 
-通常 `/sync/all` のRequestを既存fetch・StateStore・同期runnerへ渡す4段階モードを追加。専用環境の所有2件、通常名のKV7キー、global DOの成功時刻を読戻し、所有資源・KVの回収を検証する。DO成功時刻は実行履歴として維持。ローカルPython 787件、Node 273件、Ruff、Pyright、E2E設定・Secret衛生・workflow検査、Wrangler dry-run、相対リンク・差分検査が成功。実サービス結果は実行後に記録する。
+通常 `/sync/all` のRequestを既存fetch・StateStore・同期runnerへ渡す4段階モードを追加。専用環境の所有2件、通常名のKV7キー、global DOの成功時刻を読戻し、所有資源・KVの回収を検証する。DO成功時刻は実行履歴として維持。ローカルPython 787件、Node 273件、Ruff、Pyright、E2E設定・Secret衛生・workflow検査、Wrangler dry-run、相対リンク・差分検査が成功。初回36010039102は状態形式の拒否で失敗し、全所有資源と共有KVを回収。Discord由来の既知削除履歴が通常対応表へ残るケースを再現し、E2Eのfingerprint検証を修正した。再実行[36010723441](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010723441)はcommit `02bc807` で成功。通常HTTP3回・全4段階verify・監査22行／11操作・全資源と共有KV回収・passed・全manifest dirty=false・run/version/commit一致・JUnit 790件成功を成果物で独立確認した。本番Workerのdeploy・mergeは行っていない。
 
 ## 2026-09-24: 全体同期9段階の実サービス検証と回収が成功
 

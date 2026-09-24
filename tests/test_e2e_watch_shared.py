@@ -211,7 +211,7 @@ def test_cleanup_reclaims_expired_global_lock_without_forced_release(monkeypatch
             test.store._sync_do_stub(test.env.SYNC_COORDINATOR), "acquire",
             {"owner": "interrupted-watch", "ttl_seconds": 10},
         ))
-        assert acquired["ok"]
+        assert acquired is not None and acquired["ok"]
     status, payload = test.call("cleanup")
     assert status == 200, payload
     assert test.owner()["outcome"] == "failed_clean"
@@ -221,7 +221,9 @@ def test_cleanup_does_not_release_live_global_lock(monkeypatch):
     test = WatchScenario(monkeypatch)
     test.prepare()
     stub = test.store._sync_do_stub(test.env.SYNC_COORDINATOR)
-    assert asyncio.run(test.store._sync_do_rpc(stub, "acquire", {"owner": "live", "ttl_seconds": 120}))["ok"]
+    acquired = asyncio.run(test.store._sync_do_rpc(stub, "acquire", {"owner": "live", "ttl_seconds": 120}))
+    assert acquired is not None and acquired["ok"]
     assert test.call("cleanup")[0] == 409
-    assert asyncio.run(test.store._sync_do_rpc(stub, "status"))["lock"]["owner"] == "live"
+    status = asyncio.run(test.store._sync_do_rpc(stub, "status"))
+    assert status is not None and status["lock"]["owner"] == "live"
     assert len(test.stops) == 5

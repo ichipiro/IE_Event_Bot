@@ -494,6 +494,7 @@ export async function runGoogleSyncRecovery(callTool, runId) {
   }
   await requireTool(callTool, "deploy_e2e", {
     run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+    previous_version_sha256: before.worker_version.id_sha256,
   });
   const cleanup = await cleanupServices(callTool, runId, ["google_sync"]);
   if (!cleanup.ok) { throw new E2eWorkflowError("google_sync_recovery_failed"); }

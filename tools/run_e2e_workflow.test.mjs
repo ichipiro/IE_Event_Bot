@@ -50,7 +50,7 @@ for (const stage of ["cleanup", "ready", "working"]) {
       assert.throws(() => selectWorkflowRunId("deploy-and-google-sync-recovery", ""));
       const { calls, callTool } = stateWorkflowFixture({
         read_status: async () => ({ ok: true, mode: "e2e", orchestrated_writes_enabled: false,
-          worker_version: { tag: failure === "version" ? "other" : RUN_ID },
+          worker_version: { tag: failure === "version" ? "other" : RUN_ID, id_sha256: "a".repeat(64) },
           services: {}, scenarios: {
             google_sync: { present: true, dirty: true, run_id: failure === "run" ? "other" : RUN_ID,
               stage: failure === "stage" ? "unowned" : stage },
@@ -65,6 +65,7 @@ for (const stage of ["cleanup", "ready", "working"]) {
         assert.deepEqual(await runGoogleSyncRecovery(callTool, RUN_ID), { ok: true, recovered: "google_sync" });
         assert.deepEqual(calls.map(c => c.name), ["read_status", "deploy_e2e", "cleanup_run", "assert_external_state", "preflight"]);
         assert.equal(calls[2].args.confirmation, `cleanup:google_sync:${RUN_ID}`);
+        assert.equal(calls[1].args.previous_version_sha256, "a".repeat(64));
       }
     });
   }

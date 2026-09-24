@@ -1213,12 +1213,16 @@ export function createE2eMcpServer(options = {}) {
           if (previousVersion) {
             const response = await workerRequest(config, "/admin/e2e/status", "GET", runId, fetchImpl);
             const status = sanitizeStatus(response);
-            const manifest = status.scenarios.discord_delta;
+            const googleOwner = status.scenarios.google_sync;
+            const googleRecovery = googleOwner?.dirty && googleOwner.run_id === runId &&
+              ["working", "ready", "cleanup"].includes(googleOwner.stage);
+            const target = googleRecovery ? "google_sync" : "discord_delta";
+            const manifest = status.scenarios[target];
             if (!status.ok || status.mode !== "e2e" || !status.e2e_manifest_enabled ||
                 status.orchestrated_writes_enabled !== false || !status.worker_version.present ||
                 status.worker_version.tag !== runId ||
                 status.worker_version.id_sha256 !== previousVersion || !manifest.present ||
-                !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "delta_updated" ||
+                !manifest.dirty || manifest.run_id !== runId || (!googleRecovery && manifest.stage !== "delta_updated") ||
                 Object.values(status.services).some((item) => item.dirty) ||
                 Object.entries(status.scenarios).some(([key, item]) => key !== "discord_delta" && item.dirty)) {
               return { ok: false, status: 409, error: "redeploy_checkpoint_mismatch" };

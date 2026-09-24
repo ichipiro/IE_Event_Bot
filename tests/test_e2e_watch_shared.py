@@ -198,3 +198,30 @@ def test_callback_remains_registered_after_client_cancellation(monkeypatch):
         assert (await retained[0]).status == 204
 
     asyncio.run(scenario())
+
+
+def test_cleanup_reclaims_expired_global_lock_without_forced_release(monkeypatch):
+    import sync_lock_do
+
+    test = WatchScenario(monkeypatch)
+    test.prepare()
+    with monkeypatch.context() as old_clock:
+        old_clock.setattr(sync_lock_do.time, "time", lambda: 100.0)
+        acquired = asyncio.run(test.store._sync_do_rpc(
+            test.store._sync_do_stub(test.env.SYNC_COORDINATOR), "acquire",
+            {"owner": "interrupted-watch", "ttl_seconds": 10},
+        ))
+        assert acquired["ok"]
+    status, payload = test.call("cleanup")
+    assert status == 200, payload
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_cleanup_does_not_release_live_global_lock(monkeypatch):
+    test = WatchScenario(monkeypatch)
+    test.prepare()
+    stub = test.store._sync_do_stub(test.env.SYNC_COORDINATOR)
+    assert asyncio.run(test.store._sync_do_rpc(stub, "acquire", {"owner": "live", "ttl_seconds": 120}))["ok"]
+    assert test.call("cleanup")[0] == 409
+    assert asyncio.run(test.store._sync_do_rpc(stub, "status"))["lock"]["owner"] == "live"
+    assert len(test.stops) == 5

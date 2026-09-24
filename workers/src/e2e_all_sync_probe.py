@@ -269,6 +269,9 @@ async def _controls(env, store, owner, token, invoke):
 
 
 async def run_phase(env, store, run_id, phase, invoke, owner):
+    if phase == "cleanup" and owner and owner.get("dirty") and owner.get("webhook_sync"):
+        from e2e_watch_shared_probe import reclaim_expired_lock
+        await reclaim_expired_lock(env, store, owner, run_id)
     _require(not (await google._lock_state(store)).get("owner"), "busy")
     webhook_sync = phase == "prepare_webhook" or bool(owner and owner.get("dirty") and owner.get("webhook_sync"))
     if phase == "webhook_trigger":

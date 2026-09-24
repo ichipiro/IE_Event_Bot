@@ -89,6 +89,13 @@ const CLEANUP_ROUTES = Object.freeze({
   webhook_change: "/admin/e2e/google-webhook-change/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
+  qa_normal_prepare: "/admin/e2e/qa-normal/prepare",
+  qa_normal_first: "/admin/e2e/qa-normal/first",
+  qa_normal_update: "/admin/e2e/qa-normal/update",
+  qa_normal_notify: "/admin/e2e/qa-normal/notify",
+  qa_normal_duplicate: "/admin/e2e/qa-normal/duplicate",
+  qa_normal_verify: "/admin/e2e/qa-normal/verify",
+
   qa_check: "/admin/e2e/qa-notification",
   reminder: "/admin/e2e/reminder",
   cleanup: "/admin/e2e/notion-cleanup",
@@ -163,7 +170,7 @@ const cleanupTargetField = z.enum([
   "webhook_delivery",
   "webhook_change",
 ]);
-const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
+const jobField = z.enum(["qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify", "qa_check", "reminder", "cleanup", "run_all"]);
 
 
 function safeErrorCode(value, fallback = "worker_operation_failed") {
@@ -478,7 +485,7 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
   if (runId) {
     headers["X-E2E-Run-ID"] = runId;
   }
-  if (method === "POST" && (route === "/sync/all" || [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv, SCENARIO_ROUTES.discord_batch, SCENARIO_ROUTES.discord_batch_google, SCENARIO_ROUTES.discord_batch_notification, SCENARIO_ROUTES.sync_lock, SCENARIO_ROUTES.sync_faults, SCENARIO_ROUTES.google_sync].some((prefix) => route.startsWith(prefix))) &&
+  if (method === "POST" && (route === "/sync/all" || route.startsWith("/admin/e2e/qa-normal/") || [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv, SCENARIO_ROUTES.discord_batch, SCENARIO_ROUTES.discord_batch_google, SCENARIO_ROUTES.discord_batch_notification, SCENARIO_ROUTES.sync_lock, SCENARIO_ROUTES.sync_faults, SCENARIO_ROUTES.google_sync].some((prefix) => route.startsWith(prefix))) &&
       !route.endsWith("/cleanup")) {
     headers["X-E2E-Version-Tag"] = runId;
     if (versionSha256) {

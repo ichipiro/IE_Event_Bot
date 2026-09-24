@@ -64,6 +64,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
   "deploy-and-qa-notification-smoke",
+  "deploy-and-qa-normal-smoke",
   "deploy-and-reminder-smoke",
   "deploy-and-notion-cleanup-smoke",
   "deploy-and-webhook-simulation-smoke",
@@ -867,6 +868,57 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
 }
 
 
+export async function runDeployAndQaNormalSmoke(callTool, runId, options = {}) {
+  await requireTool(callTool, "deploy_e2e", {
+    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+  });
+  await runPreflight(callTool, runId, options.preflight);
+  const pause = options.sleepImpl ?? sleep;
+  let primaryError = null;
+  try {
+    for (const phase of ["prepare", "first", "update", "notify", "duplicate"]) {
+      // Notionの実更新時刻が変わるのを待ち、cache markerは作り替えない。
+      if (phase === "update") {
+        await pause(65_000);
+      }
+      const operation = await requireTool(callTool, "trigger_job", {
+        run_id: runId, job: `qa_normal_${phase}`,
+      });
+      if (operation.stages?.[`qa_normal_${phase}`] !== 200) {
+        throw new E2eWorkflowError("qa_normal_stage_missing");
+      }
+      for (let attempt = 0; attempt < STATE_VERIFY_ATTEMPTS; attempt += 1) {
+        const verified = await toolOutcome(callTool, "trigger_job", { run_id: runId, job: "qa_normal_verify" });
+        if (verified.ok && verified.payload.stages?.[`qa_normal_verify_${phase}`] === 200) {
+          break;
+        }
+        if (attempt === STATE_VERIFY_ATTEMPTS - 1 ||
+            !["qa_normal_kv_not_ready", "qa_normal_cache_not_ready", "qa_normal_message_count_failed"].includes(verified.error)) {
+          throw new E2eWorkflowError(verified.error ?? "qa_normal_verify_failed");
+        }
+        await pause(STATE_VERIFY_DELAY_MS);
+      }
+    }
+  } catch (error) {
+    primaryError = error;
+  }
+  const cleanup = await cleanupServices(callTool, runId, ["qa_notification"], options.cleanup);
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (!cleanup.ok) {
+    throw new E2eWorkflowError("cleanup_run_failed");
+  }
+  const assertion = await requireTool(callTool, "assert_external_state", {
+    run_id: runId, service: "qa_notification",
+  });
+  if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.qa_normal_cleanup !== 200) {
+    throw new E2eWorkflowError("qa_normal_evidence_missing");
+  }
+  return { ok: true, scenarios: ["qa_notification"] };
+}
+
+
 export async function runDeployAndQaNotificationSmoke(callTool, runId, options = {}) {
   await requireTool(callTool, "deploy_e2e", {
     run_id: runId,
@@ -1100,7 +1152,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "google_notion",
           ].includes(entry.target)) ||
         (entry.tool === "trigger_job" &&
-          ["qa_check", "reminder", "cleanup"].includes(entry.target)) ||
+          ["qa_check", "reminder", "cleanup", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
         (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch") ||
         (entry.tool === "trigger_webhook_delivery" &&
           entry.target === "webhook_delivery") ||
@@ -1110,6 +1162,13 @@ export function touchedServicesFromAudit(entries, runId) {
     ) {
       const jobService = {
         qa_check: "qa_notification",
+        qa_normal_prepare: "qa_notification",
+        qa_normal_first: "qa_notification",
+        qa_normal_update: "qa_notification",
+        qa_normal_notify: "qa_notification",
+        qa_normal_duplicate: "qa_notification",
+        qa_normal_verify: "qa_notification",
+
         reminder: "reminder",
         cleanup: "notion_cleanup",
       }[entry.target];
@@ -1338,6 +1397,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-discord-smoke") {
       await runDeployAndGoogleDiscordSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-qa-normal-smoke") {
+      await runDeployAndQaNormalSmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-qa-notification-smoke") {

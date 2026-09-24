@@ -893,6 +893,9 @@ async def cleanup_qa_notification_probe(
 
     expected_run_id = str(expected_run_id or "").strip()
     manifest = await state.get_e2e_manifest(QA_NOTIFICATION_MANIFEST_SERVICE)
+    if manifest and manifest.get("normal"):
+        from e2e_qa_normal_probe import cleanup
+        return await cleanup(env, state, expected_run_id)
     if not isinstance(manifest, dict) or manifest.get("dirty") is not True:
         last_run_id = str((manifest or {}).get("last_run_id") or "")
         if expected_run_id and last_run_id and last_run_id != expected_run_id:

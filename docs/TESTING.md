@@ -107,6 +107,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
+| `deploy-and-qa-normal-smoke` | 空の専用Q&A DBに3件を作り、通常HTTPハンドラによる全件取得・採番・共有cache・通知・重複抑止と回収を検証する |
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
@@ -549,3 +550,24 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 回収はwatch停止を先に行い、所有DO通知キューとAlarm、所有通知のdedupeと観測記録、Google予定・Discord予定・Notionページ、watchを含む共有KVの順で確認する。共有値が所有記録と一致しない場合は削除せず、`dirty=true` を維持する。global DOの成功時刻は実行履歴として残す。
 
 2026-09-25の[実行記録](E2E-WATCH-SHARED-20260925.md)に修正前の失敗と修正後の結果を記録する。修正後の実行36025938367では、実通知3回のAlarm・共有状態同期・往復、固定失敗後の同番号再試行、全所有資源と通知キュー・Alarmの回収が成功した。最終状態読取りの通信失敗でworkflow自体は失敗したため、読取りだけの限定再試行を追加した再実行36027225893はworkflow全体が成功した。監査104行・52操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit816件成功を照合済み。
+
+## 通常Q&Aジョブの共有状態E2E
+
+`deploy-and-qa-normal-smoke` は既存の専用Worker・Q&A DB・Discordチャンネルを使う。
+開始時にDBが空であり、通常名の `qa_cache` と `result:job_qa_check` が未設定であることを要求する。
+3件（回答済み・番号41が1件、未回答・番号未設定が2件）を作成し、次の5段階と各段階の別HTTP読戻しを実行する。
+
+1. `prepare`: 対象と空状態の確認、run marker付き3件の作成。
+2. `first`: 通常 `Application.fetch` の `/jobs/qa-check` 分岐を呼び、全件取得・42/43の採番・初回通知抑止・共有cacheを確認。
+3. `update`: 65秒待って3件の質問を更新し、実更新時刻の変化を確認。cacheの時刻は加工しない。
+4. `notify`: 同じ通常ハンドラを実行し、未回答2件の通知内容と回答済み1件の抑止、共有cache・結果を読み戻す。
+5. `duplicate`: 再実行後も同じ2通知だけが存在することを確認。
+
+MCPの `trigger_job(job="qa_normal_<phase>")` は認証・run/version照合・globalロック付きの固定管理routeを呼ぶ。
+通常ハンドラへ渡すDB一覧は加工しない。KVアダプターは通常名の2キーを実KVへ通し、DOに所有runと書込み予定digestを記録する。
+読戻しだけを待機再試行し、通知処理は自動再送しない。
+終了・途中失敗時は既存の `cleanup_run(service="qa_notification")` で所有page・message・KVだけを回収する。
+全段階の検証と回収が成功した場合だけ `outcome=passed`・`dirty=false` を保存する。
+
+これは3件の通常ジョブ処理の検証である。実Cron配信、100件超のページ送り、通知失敗後の再試行、一度限りの配信保証は含まない。
+外部から通常URLへ直接到達する検証ではなく、保護された管理routeから通常HTTPハンドラへ委譲する。

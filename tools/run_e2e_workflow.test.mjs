@@ -32,6 +32,7 @@ import {
   runDeployAndGoogleNotionSmoke,
   runDeployAndNotionCleanupSmoke,
   runDeployAndQaNotificationSmoke,
+  runDeployAndQaNormalSmoke,
   runDeployAndReminderSmoke,
   runDeployAndWebhookSimulationSmoke,
   runDeployAndWebhookDeliverySmoke,
@@ -42,6 +43,42 @@ import {
 
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
+
+for (const failure of [null, "notify", "missing_stage"]) {
+  test(`通常Q&Aの段階実行・読戻し・回収: ${failure}`, async () => {
+    let phase = "";
+    let reads = 0;
+    const sleeps = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        if (job === "qa_normal_verify") {
+          if (++reads === 1) {
+            return { ok: false, error: "qa_normal_kv_not_ready" };
+          }
+          return { ok: true, stages: { [`qa_normal_verify_${phase}`]: 200 } };
+        }
+        phase = job.replace("qa_normal_", "");
+        if (phase === failure) {
+          return { ok: false, error: "qa_normal_job_failed" };
+        }
+        return { ok: true, stages: failure === "missing_stage" ? {} : { [`qa_normal_${phase}`]: 200 } };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { qa_normal_cleanup: 200 } } }),
+    });
+    const task = runDeployAndQaNormalSmoke(callTool, RUN_ID, { sleepImpl: async (ms) => sleeps.push(ms) });
+    if (failure) {
+      await assert.rejects(task, /qa_normal_/);
+    } else {
+      assert.deepEqual(await task, { ok: true, scenarios: ["qa_notification"] });
+      assert.deepEqual(sleeps, [3000, 65000]);
+      assert.equal(calls.filter(c => c.args.job === "qa_normal_first").length, 1);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(calls.filter(c => c.name === "trigger_job").map(c => ({
+      run_id: RUN_ID, phase: "start", tool: c.name, target: c.args.job,
+    })), RUN_ID), ["qa_notification"]);
+  });
+}
 
 for (const stage of ["cleanup", "ready", "working"]) {
   for (const failure of [null, "run", "stage", "other_dirty", "version", "outcome"]) {

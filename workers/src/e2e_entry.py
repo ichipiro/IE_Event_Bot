@@ -164,6 +164,10 @@ _NOTION_CLEANUP_PATH = "/admin/e2e/notion-crud/cleanup"
 _NOTION_AUTO_CLEAN_PATH = "/admin/e2e/notion-cleanup"
 _NOTION_AUTO_CLEAN_CLEANUP_PATH = "/admin/e2e/notion-cleanup/cleanup"
 _QA_NOTIFICATION_PATH = "/admin/e2e/qa-notification"
+_QA_NORMAL_PHASES = {
+    f"/admin/e2e/qa-normal/{phase}": phase
+    for phase in ("prepare", "first", "update", "notify", "duplicate", "verify")
+}
 _QA_NOTIFICATION_CLEANUP_PATH = "/admin/e2e/qa-notification/cleanup"
 _REMINDER_PATH = "/admin/e2e/reminder"
 _REMINDER_CLEANUP_PATH = "/admin/e2e/reminder/cleanup"
@@ -506,7 +510,7 @@ class Default(ApplicationDefault):
         qa_notification_route = path in (
             _QA_NOTIFICATION_PATH,
             _QA_NOTIFICATION_CLEANUP_PATH,
-        )
+        ) or path in _QA_NORMAL_PHASES
         reminder_route = path in (_REMINDER_PATH, _REMINDER_CLEANUP_PATH)
         notion_cleanup_route = path in (
             _NOTION_AUTO_CLEAN_PATH,
@@ -763,6 +767,10 @@ class Default(ApplicationDefault):
             return _json_response({"ok": False, "error": "invalid_run_id"}, status=400)
         expected_version = request.headers.get("X-E2E-Version-Tag")
         expected_version_id = request.headers.get("X-E2E-Version-ID-SHA256")
+        if path in _QA_NORMAL_PHASES and (
+            expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
+        ):
+            return _json_response({"ok": False, "error": "worker_version_mismatch"}, status=409)
         kv_phase = (_GOOGLE_SYNC_PHASES | _SYNC_FAULT_PHASES | _SYNC_LOCK_PHASES | _DISCORD_STATE_PHASES | _DISCORD_KV_PHASES | _DISCORD_BATCH_PHASES | _DISCORD_BATCH_GOOGLE_PHASES | _DISCORD_BATCH_NOTIFICATION_PHASES).get(path)
         if (google_sync_route or sync_fault_route or sync_lock_route or discord_state_route or discord_kv_route or discord_batch_route) and kv_phase != "cleanup" and (
             expected_version != run_id or _worker_version_summary(self.env).get("tag") != run_id
@@ -788,6 +796,9 @@ class Default(ApplicationDefault):
             if google_owner and google_owner.get("dirty") and (google_owner.get("full_apply") or google_owner.get("all_sync")):
                 return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
+            qa_owner = await StateStore(self.env).get_e2e_manifest("qa_notification")
+            if qa_owner and qa_owner.get("dirty") and qa_owner.get("normal"):
+                return _json_response({"ok": False, "error": "qa_normal_shared_busy"}, status=409)
             if "watch" in path and str(getattr(self.env, "E2E_WATCH_SHARED_ENABLED", "false")).lower() != "true":
                 return _json_response({"ok": False, "error": "not_found"}, status=404)
             async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None, *, discord_runner=None, source="e2e-google-sync", normal_http=False):
@@ -1040,6 +1051,13 @@ class Default(ApplicationDefault):
                     state,
                     run_id=run_id,
                 )
+            elif path in _QA_NORMAL_PHASES:
+                from e2e_qa_normal_probe import run as run_qa_normal
+                try:
+                    result = await run_qa_normal(self.env, state, run_id, _QA_NORMAL_PHASES[path], request)
+                except Exception as exc:
+                    code = str(exc)
+                    result = {"ok": False, "dirty": True, "error": code if re.fullmatch(r"[a-z_]{1,80}", code) else "qa_normal_failed"}
             elif path == _QA_NOTIFICATION_CLEANUP_PATH:
                 result = await cleanup_qa_notification_probe(
                     self.env,

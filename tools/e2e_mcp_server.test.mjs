@@ -20,6 +20,21 @@ import {
 
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
+
+test("通常Q&Aの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "first", "update", "notify", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `qa_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/qa-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
 const ENV = Object.freeze({
   E2E_WORKER_URL: "https://ie-event-bot-e2e.personal.workers.dev",
   E2E_WORKER_URL_SHA256: createHash("sha256")

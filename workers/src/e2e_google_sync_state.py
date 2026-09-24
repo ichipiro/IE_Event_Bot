@@ -62,6 +62,8 @@ def valid_google_transition(previous, value):
             and all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in hashes.values())
             and type(value.get("step")) is int
             and type(value.get("retry_enabled", False)) is bool
+            and type(value.get("api_rejection_enabled", False)) is bool
+            and (not value.get("api_rejection_enabled") or value.get("retry_enabled"))
             and 0 <= value["step"] <= final_step(value)
             and value.get("stage") in ("working", "ready", "verified", "cleanup")
         ):
@@ -104,6 +106,8 @@ def valid_google_transition(previous, value):
         if any(previous.get(k) != value.get(k) for k in OWNER_FIELDS):
             return False
         if previous.get("retry_enabled", False) != value.get("retry_enabled", False):
+            return False
+        if previous.get("api_rejection_enabled", False) != value.get("api_rejection_enabled", False):
             return False
         if previous["stage"] != "working" and hashes != previous["hashes"]:
             return False

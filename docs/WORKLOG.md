@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-24: Google同期のHTTP失敗後の残件保持とAPI拒否E2E
+
+- 通常dispatch・StateStore・HTTPラッパーを通す再現テストで、Notion照会・取得・作成・archive・Discord ID書戻し、Discord削除の403・429・503とsubrequest上限の19ケースが失敗した。失敗時のqueue・対応ID・cursor保護と未着手分の保存を修正し、空の新規取得から同じ資源へ再試行できることを確認した。Discord削除済み404とDiscord由来取消の互換性も確認した。
+- 所有2件の既存E2Eへ、所有確認後のDiscord不正PATCH・HTTP 400/code 50035確認を接続した。DOに変更不可の要件を記録し、workflowはAPI拒否証跡を必須にする。旧manifestの回収互換を維持する。入力検証エラーは実サービス障害の再現とは区別する。
+- ユーザーが既存E2E専用環境の使用と専用であることを確認した。共有名前空間と任意予定の全件適用は未実装・未検証であり、今回の所有資源限定の経路と分けて追跡する。
+- Python全637件、Node全183件、Ruff・Pyright、E2E設定・機密ファイル追跡防止・workflow検査が成功した。機密ファイルを含まないリポジトリ内コピーで通常/E2E両設定のWrangler dry-runが成功した。
+- この記録時点で実サービス実行・PR・マージ・本番デプロイは未実施。
+
 ## 2026-09-15: Google同期の部分失敗とqueue再試行を専用環境で検証
 
 - `7336d0d96161f79d3b4b45df456f572d022c22c3` の[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)で、Local validation成功とEnvironment承認後に専用Workerを1回deployした。run IDは `E2E-20260914T161000Z-f1f8e5f7`。

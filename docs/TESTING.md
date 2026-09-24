@@ -365,6 +365,8 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 
 ### 通常Google同期の専用E2E
 
+2026-09-24の追加検証では、[test_google_sync_failures.py](../tests/test_google_sync_failures.py) に通常dispatch・通常StateStore・通常HTTPラッパーを通す21ケースを追加した。Notionの照会・ページ取得・作成・archive・Discord ID書戻し、Discord削除について403・429・503を代替APIから返し、失敗時のcursor/最終成功時刻の不変、残件保存、空の新規取得からの回復を確認する。subrequest上限では件数上限内の未着手分も保持する。Discord削除の404は削除済みとして扱い、Discord由来イベントの取消では元Discord予定を削除しない。修正前は19ケースが失敗した。実サービスの障害、KV保存失敗、応答喪失後の重複、Notion作成直後のページUUID書戻し失敗はこの検証の保証に含めない。
+
 `e2e_google_sync_probe.py` の `google_sync` は、`POST /admin/e2e/google-sync` と `/advance`・`/verify`・`/cleanup` を使う。`E2E_GOOGLE_SYNC_ENABLED=true`、内部認証、run ID、稼働version tagとの一致、KV・DO、専用Calendar・Notion内部DB・Discord guild、共通ロック有効・クールダウン無効を必須とする。cleanupは同run・同対象を確認するが、稼働version tagへの一致を要求しない。
 
 | 段階 | 操作と確認 |
@@ -374,11 +376,13 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 | advance → drained | 前段階の検証済み状態を再確認し、上限2件で残件を消化。重複取得された予定の更新は通常処理に従う |
 | advance → updated | 先頭の所有Google予定の説明を更新し、通常差分取得・適用からNotion・Discordへの反映を確認 |
 | advance → deleted | 同じ所有Google予定を削除し、通常取得のcancelledからNotion archive・Discord削除・対応表除去を確認 |
-| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後にDiscord失敗を1回固定注入し、通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
+| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後、所有Discord予定の名前を空にするPATCHを1回送り、HTTP 400・code 50035を必須とする。通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
 | advance → retried | 通常取得後の入力を空にして保存queueだけを通常適用へ渡し、同じNotion/Discord IDへの反映・残件0・成功結果を確認 |
 | cleanup | Google予定・Notionページ・Discord予定の所有を再確認して回収し、run別KVの固定6キーを削除 |
 
 各advanceの前にverifyを必須とする。専用制御DOロックはphase全体を保護し、通常dispatchは既存の共通同期ロックを使用する。1 HTTPは50秒を上限とする。書込み前に `working` を保存し、途中失敗したphaseは再送せずcleanupへ進む。所有IDが未保存でもrun markerで一意に再発見し、曖昧・所有不一致ならdirtyを維持する。ID衝突で作成していない既存予定は回収しない。検証の再実行が失敗した場合も成功判定を取り消す。
+
+新規runの `api_rejection_enabled=true` はDO manifestで変更不可とする。API拒否前にはDiscord予定をGETしてID・Guild・名前・run markerを再照合する。400以外、または400でもcodeが50035でない応答は試験成功にせず回収へ進む。workflowは `google_sync_discord_invalid_update=400` と `google_sync_discord_rejection_verified=200` を必須にする。旧manifestは従来の固定注入・所有資源回収を維持する。この入力検証エラーは実サービス障害・回線断の観測ではなく、通常の共有名前空間と任意予定の全件適用も含まない。実環境での追加経路は未検証である。名前の制約は[Discord Scheduled Event仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)に基づく。
 
 MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 5回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
 

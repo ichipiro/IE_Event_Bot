@@ -616,6 +616,8 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       if (!manifest?.present || !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "verified" ||
           manifest.stages?.[`google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
           (index >= 4 && manifest.stages?.google_sync_discord_failure_injected !== 200) ||
+          (index >= 4 && (manifest.stages?.google_sync_discord_invalid_update !== 400 ||
+            manifest.stages?.google_sync_discord_rejection_verified !== 200)) ||
           status.worker_version?.id_sha256 !== deployed.version_sha256) {
         throw new E2eWorkflowError("google_sync_verification_mismatch");
       }

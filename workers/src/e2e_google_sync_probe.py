@@ -212,10 +212,32 @@ async def _apply(env, store, owner, token, invoke):
         slot = owner["fixtures"][1]
         if injected or not _source_owned(event, slot) or not page:
             raise GoogleStateError("google_sync_injection_mismatch")
+        if owner.get("api_rejection_enabled"):
+            event_id = slot.get("discord_event_id")
+            if not event_id or mapping.get(event["id"]) != event_id:
+                raise GoogleStateError("google_sync_injection_mismatch")
+            status, current = await discord_request(
+                env, owner["stages"], {}, "google_sync_discord_rejection_owner",
+                "GET", _discord_path(env, event_id),
+            )
+            if status != 200 or not _discord_event_is_owned(
+                current, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+                run_id=slot["run_id"],
+            ):
+                raise GoogleStateError("google_sync_discord_owner_mismatch")
+            # 名前は1文字以上が必須。所有予定への不正な更新1回をAPIで拒否させる。
+            status, rejected = await discord_request(
+                env, owner["stages"], {}, "google_sync_discord_invalid_update",
+                "PATCH", _discord_path(env, event_id), payload={"name": ""},
+            )
+            if status != 400 or not isinstance(rejected, dict) or rejected.get("code") != 50035:
+                raise GoogleStateError("google_sync_discord_rejection_mismatch")
+            owner["stages"]["google_sync_discord_rejection_verified"] = 200
         injected += 1
         owner["stages"]["google_sync_discord_failure_injected"] = 200
         await _save(store, owner)
-        # 通常Discord APIラッパーが非成功応答で返すNoneを固定注入する。
+        # API拒否を確認した場合も、通常ラッパーと同じNoneを適用処理へ返す。
+        # 旧manifestは従来の固定注入を維持し、同じ所有情報で回収できる。
         return None
 
     response = await invoke(
@@ -538,6 +560,7 @@ async def _phase(env, store, run_id, phase, invoke):
             "dirty": True,
             "step": 0,
             "retry_enabled": True,
+            "api_rejection_enabled": True,
             "stage": "working",
             "hashes": {},
             "fixtures": slots,

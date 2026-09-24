@@ -48,6 +48,9 @@
 - [x] Discord作成・更新失敗の成功誤判定を再現・修正し、部分反映・残件保存・cursor保護・次回のqueue処理をローカル検証する。
 - [x] 所有予定へのDiscord失敗の固定注入と、次のHTTPでのqueueだけの再試行を既存E2E・MCP・手動workflowへ接続する。
 - [x] 上記の部分失敗・再試行モデルを実API反映と実KV・DOで検証する（[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)）。固定注入後の部分反映・cursor保護・次のHTTPでのqueue回復と全資源回収が成功。実際のDiscord障害の観測ではない。
+- [x] Notion照会・取得・作成・archive・Discord ID書戻し、Discord削除のHTTP失敗とsubrequest上限での残件消失・成功誤判定を再現・修正し、queueだけでの回復をローカル検証する。
+- [x] 所有Discord予定への不正な更新によるHTTP 400・code 50035の確認を既存E2Eへ追加し、次のHTTPでの回復、想定外応答の拒否、workflow証跡の必須化をローカル検証する。
+- [ ] 上記のAPI拒否・queue再試行を既存E2E専用環境で実行し、全所有資源の回収とartifactを照合する。2026-09-24にユーザーが同環境の使用と専用であることを確認した。入力検証による拒否とサービス障害は区別する。
 - [ ] 通常の共有名前空間と任意イベント全件への適用、外部APIの実障害・途中再試行を実サービスで検証する。
 
 実サービス用の接続実装と所有2件の実環境検証が完了した。[初回実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)はprepareで失敗して全資源を回収した。KV欠損値の正規化漏れをローカルで再現・修正した後の再実行は、全段階・回収が成功し `passed`・全資源 `dirty=false` となった。全Calendarを取得しても適用対象は所有2件へ限定する。任意イベントの全件適用、外部APIの全失敗分岐・途中再試行は引き続き未検証である。

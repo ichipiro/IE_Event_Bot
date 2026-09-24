@@ -1261,7 +1261,7 @@ for (const failure of [null, "prepare", "advance", "early_done", "late_done", "v
   });
 }
 
-for (const failure of [null, "advance", "verify", "version", "outcome", "phase", "injection"]) {
+for (const failure of [null, "advance", "verify", "version", "outcome", "phase", "injection", "rejection", "rejection_evidence"]) {
   test(`通常Google同期workflow: ${failure ?? "success"}と回収`, async () => {
     let index = 0;
     const steps = ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
@@ -1276,6 +1276,8 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase",
         worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
         scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
           stages: { [`google_sync_${steps[index]}`]: 200,
+            google_sync_discord_invalid_update: failure === "rejection" ? 503 : 400,
+            google_sync_discord_rejection_verified: failure === "rejection_evidence" ? undefined : 200,
             google_sync_discord_failure_injected: failure === "injection" ? undefined : 200 } } },
       }),
       assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),

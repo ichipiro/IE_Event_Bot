@@ -109,6 +109,8 @@ class Scenario:
                     del self.discord[event_id]
                     return Response("", status=204)
                 if method == "PATCH":
+                    if payload.get("name") == "":
+                        return Response('{"code":50035}', status=400)
                     self.discord[event_id].update(payload)
                 return Response(json.dumps(self.discord[event_id]))
             self.calls.append(("notion", method))
@@ -437,6 +439,8 @@ def test_partial_failure_then_queue_only_retry_reuses_owned_ids(monkeypatch):
     assert owner["hashes"][KEYS[4]] == before["hashes"][KEYS[4]]
     assert owner["stages"]["google_sync_dispatch"] == 500
     assert owner["stages"]["google_sync_discord_failure_injected"] == 200
+    assert owner["stages"]["google_sync_discord_invalid_update"] == 400
+    assert owner["stages"]["google_sync_discord_rejection_verified"] == 200
     assert test.call("advance")[0] == 409  # 読戻し前に再試行しない。
     assert test.call("verify")[0] == 200
     assert test.call("advance")[0] == 200
@@ -498,3 +502,31 @@ def test_failed_reverify_after_retry_revokes_success(monkeypatch):
     assert test.call("verify")[0] == 409
     assert test.call("cleanup")[0] == 200
     assert test.owner()["outcome"] == "failed_clean"
+
+
+@pytest.mark.parametrize("status", [200, 400, 403, 429, 503])
+def test_unexpected_discord_rejection_is_not_accepted(monkeypatch, status):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    original = probe.discord_request
+
+    async def unexpected(env, stages, fingerprints, stage, method, path, **kwargs):
+        if stage == "google_sync_discord_invalid_update":
+            return status, {}
+        return await original(env, stages, fingerprints, stage, method, path, **kwargs)
+
+    monkeypatch.setattr(probe, "discord_request", unexpected)
+    assert test.call("advance")[0] == 409
+    assert test.call("verify")[0] == 409
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_do_rejects_removing_api_rejection_requirement(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    owner = test.owner()
+    owner["api_rejection_enabled"] = False
+    with pytest.raises(RuntimeError, match="e2e_manifest_write_failed"):
+        asyncio.run(test.store.put_e2e_manifest(SERVICE, owner))
+    assert test.call("cleanup")[0] == 200

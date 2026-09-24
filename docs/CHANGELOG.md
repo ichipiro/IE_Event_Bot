@@ -2,6 +2,10 @@
 
 この文書は、標準文書構成の変更を記録する。アプリケーションの公開リリース履歴は、Release Please が管理するリポジトリルートの `CHANGELOG.md` を正本とする。
 
+## 2026-09-24
+
+- 通常Google同期のHTTP失敗・subrequest上限による残件消失と成功誤判定の修正、ローカル再現結果を記録した。所有Discord予定の不正PATCHに対するAPI拒否とqueue再試行を専用E2Eへ追加し、実サービス障害・共有状態の全件適用とは分けた。
+
 ## 2026-09-15
 
 - Google同期の固定部分失敗・queue再試行を[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)で検証した。6段階・回収が成功し、監査・manifest・version・commitの照合結果を記録した。

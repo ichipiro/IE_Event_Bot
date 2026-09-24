@@ -1522,16 +1522,23 @@ for (const failure of [null, "stage", "dispatch", "version", "cleanup", "outcome
 }
 
 
-for (const failure of [null, "maintenance", "callback", "alarm", "retry", "cleanup", "queue_cleanup"]) {
+for (const failure of [null, "maintenance", "callback", "alarm", "retry", "cleanup", "queue_cleanup", "transport_once", "transport_always", "unauthorized"]) {
   test(`通常watchと共有Webhook workflow: ${failure ?? "success"}`, async () => {
     const steps = ["prepared", "drained", "updated", "drained"];
     let index = 0;
+    let readFailures = 0;
     const { calls, callTool } = stateWorkflowFixture({
       trigger_sync: async args => {
         if (args.sync_phase === "webhook_trigger") { index += 1; }
         return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
       },
-      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+      read_status: async () => {
+        if (index === 3 && (["transport_always", "unauthorized"].includes(failure) || (failure === "transport_once" && readFailures === 0))) {
+          readFailures += 1;
+          return { ok: false, run_id: RUN_ID, status: failure === "unauthorized" ? 401 : 0,
+            error: failure === "unauthorized" ? "worker_http_401" : "worker_request_failed" };
+        }
+        return { ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
         scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: {
           [`all_http_step_${index}`]: 200, [`all_http_dispatch_${index}`]: 200,
           watch_shared_maintenance: failure === "maintenance" ? undefined : 200,
@@ -1539,20 +1546,24 @@ for (const failure of [null, "maintenance", "callback", "alarm", "retry", "clean
           [`watch_shared_alarm_${index}`]: failure === "alarm" ? undefined : 200,
           watch_shared_busy_retry_recovered: failure === "retry" ? undefined : 200,
           watch_shared_failure_retry_recovered: 200,
-        } } } }),
+        } } } };
+      },
       assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
         google_sync_shared_cleanup: 200, watch_shared_cleanup: failure === "cleanup" ? undefined : 200,
         watch_shared_queue_cleanup: failure === "queue_cleanup" ? undefined : 200,
       } } }),
     }, "google_sync");
-    if (failure) {
-      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { httpSync: true, webhookSync: true }), /google_sync_/);
+    const options = { httpSync: true, webhookSync: true, verify: { sleepImpl: async () => {} } };
+    if (failure && failure !== "transport_once") {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_|worker_request_failed|worker_http_401/);
     } else {
-      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { httpSync: true, webhookSync: true });
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
       assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
         ["prepare_webhook", "resume", ...Array(3).fill(["webhook_trigger", "resume"]).flat()]);
     }
     assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    if (failure === "transport_always") { assert.equal(readFailures, 3); }
+    if (["transport_once", "unauthorized"].includes(failure)) { assert.equal(readFailures, 1); }
   });
 }
 

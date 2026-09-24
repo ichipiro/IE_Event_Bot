@@ -226,6 +226,22 @@ async function requireTool(callTool, name, args) {
 }
 
 
+async function readStatusWithRetry(callTool, runId, options = {}) {
+  for (let attempt = 1; attempt <= GOOGLE_VERIFY_TRANSPORT_ATTEMPTS; attempt += 1) {
+    const result = await toolOutcome(callTool, "read_status", { run_id: runId });
+    if (result.ok) {
+      return result.payload;
+    }
+    const transportFailure = (result.error === "worker_request_failed" && result.payload.status === 0) ||
+      (result.error === "worker_response_read_failed" && result.payload.status === 200);
+    if (!transportFailure || result.payload.run_id !== runId || attempt === GOOGLE_VERIFY_TRANSPORT_ATTEMPTS) {
+      throw new E2eWorkflowError(result.error);
+    }
+    await (options.sleepImpl ?? sleep)(STATE_VERIFY_DELAY_MS);
+  }
+}
+
+
 export async function runPreflight(callTool, runId, options = {}) {
   const attempts = options.attempts ?? PREFLIGHT_ATTEMPTS;
   const delayMs = options.delayMs ?? PREFLIGHT_DELAY_MS;
@@ -677,7 +693,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
         }
         await (options.verify?.sleepImpl ?? sleep)(STATE_VERIFY_DELAY_MS);
       }
-      const status = await requireTool(callTool, "read_status", { run_id: runId });
+      const status = await readStatusWithRetry(callTool, runId, options.verify);
       const manifest = status.scenarios?.google_sync;
       if (!manifest?.present || !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "verified" ||
           manifest.stages?.[options.httpSync ? `all_http_step_${index}` : options.allSync ? `all_sync_step_${index}` : options.matrix ? `google_matrix_step_${index}` : `google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||

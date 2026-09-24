@@ -97,6 +97,7 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 2026-09-24の追加修正: Notion照会・取得・作成・archive・Discord ID書戻し、Discord削除のHTTP失敗とsubrequest上限に伴う残件消失・成功誤判定を19ケースで再現・修正した。所有予定の不正PATCHに対するDiscordの400・code 50035と次のHTTPでの回復を既存E2Eへ接続し、ローカル検証した。実サービス実行、共有状態と全件適用の検証は未完了。
 - API拒否E2E初回: [実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)は4段階成功後の拒否試験で失敗し、回収も所有確認に失敗してdirty=trueとなった。空名が受理された場合をローカルで再現し、記録済みID・Guild・run marker・空名を照合する限定回収と回収専用workflowを追加した。実環境の回収・修正版再実行は未完了。
 - 上記の回収結果: [復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で空名の所有Discord予定を含む全資源を回収し、`failed_clean`・全資源 `dirty=false` を確認した。元の試験を成功には変更せず、不正日時によるAPI拒否・再試行の再実行を残作業とする。
+- 修正版の再実行結果: [実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で、不正日時へのDiscord HTTP 400・code 50035、cursor保護、別HTTPでのqueue再試行、全6段階と回収が成功した。`passed`・全資源 `dirty=false` とrun/version/commit・artifactを照合した。共有状態と任意予定の全件適用、サービス障害の観測は引き続き未検証である。
 - 暫定対応: 未対応の通常同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は `E2E_ORCHESTRATED_WRITES_ENABLED=false` で `404` にする。read-only preflight、service CRUD、所有資源限定のサービス間scenario、QA通知scenario、前日リマインドscenario、Notion期限cleanup scenario、Webhook simulation scenario、Google Webhook初回実配信scenario、Google変更起因Webhook scenarioは別routeで継続する。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)

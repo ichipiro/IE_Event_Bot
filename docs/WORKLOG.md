@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: 不正日時のAPI拒否とqueue再試行を実サービスで確認
+
+- `d184a2aac578b9f20e05ba0bc960726574880285` の[実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で、Local validation成功とEnvironment承認後に専用Workerをdeployした。run IDは `E2E-20260924T051801Z-2198a0b3`。
+- 所有予定2件の作成・繰越消化・更新・削除に続き、不正日時PATCHへのDiscord HTTP 400とcode 50035を確認した。通常dispatchの500、残件保持、cursor・最終成功時刻の不変、次のHTTPで保存queueだけを処理する回復と既存IDの再利用を確認した。
+- prepare 1回・advance 5回・verify 6回、通常とalwaysのcleanup各1回が成功した。監査30行・15操作、run/version/commit・clean checkout、JUnit 642件・失敗0を独立照合し、`passed`・全資源 `dirty=false` を確認した。
+- 実APIによる入力検証エラーと回復の証拠であり、Discordのサービス障害・回線断の観測ではない。共有名前空間と任意予定の全件適用、PR・マージ、本番デプロイはこの実行に含まれない。
+
 ## 2026-09-24: API拒否E2Eの残存資源を回収
 
 - 修正版 `834930fd2a9d4a81105cf280a2813ba55aca1506` の[復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で、Environment承認後に専用Workerをdeployした。回収対象は元のrun `E2E-20260924T040614Z-fdf4a42c` のみで、新規fixtureは作成していない。

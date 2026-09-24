@@ -4,6 +4,8 @@
 
 ## 2026-09-24
 
+- [再実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で不正日時へのAPI拒否・queue回復・全6段階と回収が成功した結果を記録した。実APIの入力検証エラーとサービス障害を区別し、残作業を更新した。
+
 - [復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)の成功、空名になった所有Discord予定を含む回収、`failed_clean`・全資源clean、run/version/commitとartifactの照合結果を記録した。
 
 - API拒否E2E初回の失敗・dirty資源、空名が受理されたモデルの再現、限定的な所有確認と回収専用workflow、不正日時への試験変更を記録した。

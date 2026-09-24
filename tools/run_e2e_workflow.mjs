@@ -1200,6 +1200,17 @@ export async function collectAndWriteEvidence(callTool, runId, options = {}) {
 }
 
 
+export function e2eCallOptions(name, args) {
+  // deploy 300秒 + revision読戻し20回(各60秒) + 待機19回(各3秒) + 応答余裕。
+  // SDK既定60秒で呼出しだけが終わり、裏でdeployが継続する状態を避ける。
+  if (name === "deploy_e2e") { return { timeout: 1_620_000 }; }
+  if (args.scenario === "google_sync" || args.service === "google_sync") {
+    return { timeout: 180_000 };
+  }
+  return undefined;
+}
+
+
 async function withE2eClient(callback) {
   const server = createE2eMcpServer();
   const client = new Client({ name: "ie-event-bot-e2e-workflow", version: "1.0.0" });
@@ -1209,8 +1220,7 @@ async function withE2eClient(callback) {
     return await callback(async (name, args) => await client.callTool({
       name,
       arguments: args,
-    }, undefined, (args.scenario === "google_sync" || args.service === "google_sync")
-      ? { timeout: 180_000 } : undefined));
+    }, undefined, e2eCallOptions(name, args)));
   } finally {
     await client.close();
     await server.close();

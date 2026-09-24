@@ -142,3 +142,31 @@ def test_mode_and_channel_ownership_cannot_change(monkeypatch):
         with pytest.raises(RuntimeError, match="write_failed"):
             asyncio.run(test.store.put_e2e_manifest("google_sync", owner))
     assert test.call("cleanup")[0] == 200
+
+
+def test_watch_response_loss_recovers_using_early_sync_resource_id(monkeypatch):
+    test = WatchScenario(monkeypatch)
+    original = google_watch.fetch
+
+    async def lost_response(url, options):
+        response = await original(url, options)
+        if url.endswith("/events/watch"):
+            raise RuntimeError("response lost")
+        return response
+
+    monkeypatch.setattr(google_watch, "fetch", lost_response)
+    status, payload = test.call("watch")
+    assert status == 409, payload
+    assert test.owner()["watches"][0]["resource_id"] == ""
+    status, payload = test.call("cleanup")
+    assert status == 200, payload
+    assert len(test.stops) == 1
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_existing_watch_is_rejected_before_fixture_creation(monkeypatch):
+    test = WatchScenario(monkeypatch)
+    test.env.STATE_KV.data["gcal_watch_state"] = "foreign"
+    assert test.call("watch")[0] == 409
+    assert not test.google and not test.channels
+    assert test.env.STATE_KV.data["gcal_watch_state"] == "foreign"

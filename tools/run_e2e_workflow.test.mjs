@@ -1550,3 +1550,11 @@ for (const failure of [null, "maintenance", "callback", "cleanup"]) {
     assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
   });
 }
+
+
+test("deployはSDK既定60秒で打ち切らず、既存deployとrevision確認上限を待つ", async () => {
+  const { e2eCallOptions } = await import("./run_e2e_workflow.mjs");
+  assert.ok(e2eCallOptions("deploy_e2e", {}).timeout >= 300_000 + 20 * 60_000 + 19 * 3_000);
+  assert.equal(e2eCallOptions("trigger_sync", { scenario: "google_sync" }).timeout, 180_000);
+  assert.equal(e2eCallOptions("read_status", {}), undefined);
+});

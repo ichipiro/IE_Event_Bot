@@ -1,11 +1,11 @@
-// 2026-09-24の解放失敗だけを調べる。生ログ・URL・例外本文は保存しない。
+// 2026-09-24の共有Webhook同期と回収の失敗だけを調べる。生ログ・URL・例外本文は保存しない。
 import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const SCRIPT = "ie-event-bot-e2e";
 const WINDOWS = [
-  ["failed_step11", "2026-09-24T09:26:40Z", "2026-09-24T09:27:15Z"],
-  ["passed_step11", "2026-09-24T09:44:56Z", "2026-09-24T09:45:15Z"],
+  ["shared_webhook", "2026-09-24T15:37:00Z", "2026-09-24T15:38:30Z"],
+  ["shared_cleanup", "2026-09-24T15:43:00Z", "2026-09-24T15:43:40Z"],
 ];
 const CLASSIFIERS = {
   release_failed: /google_sync_release_failed/i,
@@ -21,6 +21,9 @@ const CLASSIFIERS = {
   data_clone: /DataCloneError|could not be cloned/i,
   awaitable_depth: /sync_state_rpc_awaitable_depth_exceeded/i,
   python_proxy: /JsException|JsProxy|borrowed proxy|PyProxy/i,
+  io_context: /different request|different.*I\/O context|I\/O.*context/i,
+  request_cancelled: /I\/O.*cancel|request.*cancel|context.*cancel/i,
+  kv_rate_limit: /KV.*(?:429|rate limit)|too many writes/i,
 };
 const number = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
 const pick = (value, allowed) => allowed.includes(value) ? value : "unknown";

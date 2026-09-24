@@ -39,7 +39,7 @@ test("2つの固定時間帯とE2E Workerだけを保存なしで照会する", 
     assert.match(url, /^https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/[a-f0-9]{32}\/workers\/observability\/telemetry\/query$/);
     assert.equal(options.redirect, "error");
     assert.equal(body.dry, true);
-    assert.ok(body.timeframe.to - body.timeframe.from <= 35000);
+    assert.ok(body.timeframe.to - body.timeframe.from <= 90000);
     assert.deepEqual(body.parameters.filters, [{ key: "$metadata.service", operation: "eq", type: "string", value: "ie-event-bot-e2e" }]);
   }
   assert.ok(report.windows.every((window) => window.complete));

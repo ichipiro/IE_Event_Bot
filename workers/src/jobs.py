@@ -1,8 +1,14 @@
+import asyncio
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from workers import fetch as _runtime_fetch
+
+
+_DISCORD_GET_ATTEMPTS = 4
+_DISCORD_MAX_RETRY_DELAY = 10.0
 
 
 async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
@@ -193,30 +199,42 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
         return None, 401
     url = f"https://discord.com/api/v10{path}"
     body = None if payload is None else json.dumps(payload, ensure_ascii=False)
-    # Discord REST APIリクエスト
-    response = await fetch(
-        url,
-        {
-            "method": method.upper(),
-            "headers": {
-                "Authorization": f"Bot {token}",
-                "Content-Type": "application/json",
-                "User-Agent": "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)",
+    for attempt in range(_DISCORD_GET_ATTEMPTS):
+        # Discord REST APIリクエスト
+        response = await fetch(
+            url,
+            {
+                "method": method.upper(),
+                "headers": {
+                    "Authorization": f"Bot {token}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)",
+                },
+                "body": body,
             },
-            "body": body,
-        },
-    )
-    # 読み取り
-    status = int(response.status)
-    text = await response.text()
-    if status >= 400:
-        return None, status
-    if status == 204 or not text:
-        return {}, status
-    try:
-        return json.loads(text), status
-    except Exception:
-        return {}, status
+        )
+        # 読み取り
+        status = int(response.status)
+        text = await response.text()
+        # GETのみを再試行し、通知POSTの二重送信を避ける。
+        if status == 429 and method.upper() == "GET" and attempt + 1 < _DISCORD_GET_ATTEMPTS:
+            try:
+                delay = float(json.loads(text).get("retry_after"))
+            except (ValueError, TypeError, AttributeError):
+                delay = -1
+            if math.isfinite(delay) and 0 <= delay <= _DISCORD_MAX_RETRY_DELAY:
+                await asyncio.sleep(delay)
+                continue
+        if status >= 400:
+            return None, status
+        if status == 204 or not text:
+            return {}, status
+        try:
+            return json.loads(text), status
+        except Exception:
+            return {}, status
+
+    return None, 429
 
 
 async def _discord_send_message(env, channel_id: str, content: str, allowed_mentions=None) -> bool:

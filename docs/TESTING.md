@@ -596,3 +596,7 @@ KVアダプターはキー・run所有権・値のdigestを検証し、DOには�
 通常DiscordジョブのHTTP呼出しには[公式形式のUser-Agent](https://docs.discord.com/developers/reference#user-agent)を付与する。
 初回36032380828は通知後verifyで停止し、所有資源・共有KVの回収と `failed_clean`・全manifest `dirty=false` を確認した。
 初回は一覧のHTTP statusを記録していないため、User-Agent不足との因果関係は確定していない。
+
+2回目36033000148は通常一覧取得のHTTP 429を記録し、通知前に停止して全資源を回収した。
+通常ジョブのDiscord GETに限り、`retry_after` が有限かつ0〜10秒の場合に最大4回まで試行する。
+POST・不正待機値・上限超過は再試行しない。継続する429も成功扱いにしない。

@@ -227,3 +227,34 @@ def test_discord_job_request_includes_bot_user_agent(monkeypatch):
         return Response("[]", status=200)
     monkeypatch.setattr(jobs, "fetch", require_agent)
     assert run(jobs._list_discord_events(env)) == []
+
+
+def test_discord_list_retries_rate_limit_using_server_delay(monkeypatch):
+    import asyncio
+    env, _, _ = setup(monkeypatch)
+    calls, waits = [], []
+    async def limited(url, options):
+        calls.append(options)
+        return Response('{"retry_after": 0.25}' if len(calls) == 1 else '[]', status=429 if len(calls) == 1 else 200)
+    async def sleep(delay):
+        waits.append(delay)
+    monkeypatch.setattr(jobs, "fetch", limited)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    assert run(jobs._list_discord_events(env)) == []
+    assert len(calls) == 2 and waits == [0.25]
+
+
+@pytest.mark.parametrize("method,delay,expected_calls", (("GET", 0.1, 4), ("GET", 11, 1), ("GET", -1, 1), ("GET", "NaN", 1), ("GET", None, 1), ("POST", 0.1, 1)))
+def test_discord_rate_limit_retries_are_bounded_and_never_repeat_post(monkeypatch, method, delay, expected_calls):
+    import asyncio
+    env, _, _ = setup(monkeypatch)
+    calls, waits = [], []
+    async def limited(url, options):
+        calls.append(options)
+        return Response(json.dumps({"retry_after": delay}), status=429)
+    async def sleep(seconds):
+        waits.append(seconds)
+    monkeypatch.setattr(jobs, "fetch", limited)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    assert run(jobs._discord_api_request(env, method, "/test")) == (None, 429)
+    assert len(calls) == expected_calls and len(waits) == expected_calls - 1

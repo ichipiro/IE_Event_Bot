@@ -470,3 +470,5 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 `release_ok`・`status_ok` は取得した応答のok判定、`owner_matches` は照会したownerと呼出し元の一致判定で、取得・判定できなかった値は `null` とする。`false` と未確認を区別し、例外本文・任意の例外型名・owner値・トークンを保存しない。解放後の照会順序、TTL、失敗時のdirty維持は従来どおりで、自動再試行や強制解放は追加しない。
 
 ローカルではRPC例外・不正応答・自分／他owner・ロック消失を検証し、step 11の固定障害でHTTP 409／cleanupのbusy／TTL経過後の回収を確認する。MCPの応答→JSONL書込み・読戻し→成果物の経路も検証する。固定障害は過去の実障害原因を証明せず、実環境での再発時に切り分けるための診断である。
+
+[実行35994329876](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35994329876)で診断版 `538008a2cb40675e81e8476ca9ee7316b8e285cd` を専用Workerへ反映し、18段階と各verify、所有資源・共有KVの回収が成功した。監査78行・39操作、run／version／commit一致、`passed`・全manifest `dirty=false`、JUnit 739件成功を成果物で照合した。解放失敗は再発しておらず、実障害での診断出力や根本原因の確認は含まない。

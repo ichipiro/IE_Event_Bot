@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: 解放診断版の18段階E2Eと回収を確認
+
+- 承認後の[実行35994329876](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35994329876)は成功。commit `538008a2cb40675e81e8476ca9ee7316b8e285cd` を専用Workerへ反映し、run `E2E-20260924T121804Z-12a346a4` の18段階と各verifyがすべて成功した。
+- artifactを独立照合し、監査78行・39操作、run／version tag／deployと最終version fingerprint／commitの一致、clean checkoutを確認した。Discordの意図した400拒否4件、cursor保護、queue再試行、繰返し親と所有予定・Notion・Discord・共有KVの回収が記録され、`outcome=passed`・全service/scenario manifest `dirty=false` だった。
+- Local validation、Wrangler dry-run、JUnit 739件（失敗・エラー・skip 0件）を確認。今回はロック解放失敗がなく `release_diagnostic` は出力されていない。診断版の反映と正常系の実環境検証は完了したが、障害時の分類・保存はローカル固定障害テストでの確認であり、元の実障害原因の確定・修正とは扱わない。
+
 ## 2026-09-24: Google制御ロックの解放失敗を分類して保存
 
 - E2E専用の解放処理に `release_diagnostic` を追加し、release／status RPC、応答不正、owner残留を区別した。例外は固定分類のみとし、本文や識別子は返さない。MCP応答・監査JSONL・run manifestまで許可した値だけを保持する。

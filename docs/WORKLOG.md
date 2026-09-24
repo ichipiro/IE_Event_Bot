@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Google制御ロックの解放失敗を分類して保存
+
+- E2E専用の解放処理に `release_diagnostic` を追加し、release／status RPC、応答不正、owner残留を区別した。例外は固定分類のみとし、本文や識別子は返さない。MCP応答・監査JSONL・run manifestまで許可した値だけを保持する。
+- 既存のHTTP 409・dirty維持・解放と照会の順序・TTLを保持した。強制解放や再試行は追加していない。通常WorkerとDOの実装・設定は変更していない。
+- Python 739件、Node 237件、Ruff、Pyright、E2E設定・機密情報保護・workflow検査が成功した。固定例外と不正応答の診断、ロック残留時のcleanup拒否、TTL経過後の回収、診断のJSONL／成果物への保存をローカル確認した。
+- 実環境への反映・18段階の再検証は未完了。過去のロック解放失敗の原因は未確定であり、今回の変更は次の失敗箇所を記録するためのもの。
+
 ## 2026-09-24: ログ照会403が解消し、過去ログを確認
 
 - account tokenの権限更新後、[診断35991322986のattempt 2](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35991322986/attempts/2)が成功した。実行commitは `6a2674b4575d3425600fa661ae07484cea8999de`。同じ診断コードでアクセス拒否が解消したことを確認した。デプロイ・外部fixture操作は行っていない。

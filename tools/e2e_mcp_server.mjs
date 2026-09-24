@@ -303,6 +303,23 @@ function sanitizeExecutionStatus(value) {
 }
 
 
+function releaseDiagnosticEvidence(entry) {
+  const value = entry.release_diagnostic;
+  if (entry.error !== "google_sync_release_failed" || !value || typeof value !== "object"
+      || !["release_rpc", "status_rpc", "release_response", "status_response", "lock_response", "owner_check"].includes(value.step)) {
+    return {};
+  }
+  return { release_diagnostic: {
+    step: value.step,
+    exception: ["none", "timeout", "type_error", "runtime_error", "js_exception", "other"].includes(value.exception)
+      ? value.exception : "other",
+    release_ok: typeof value.release_ok === "boolean" ? value.release_ok : null,
+    status_ok: typeof value.status_ok === "boolean" ? value.status_ok : null,
+    owner_matches: typeof value.owner_matches === "boolean" ? value.owner_matches : null,
+  } };
+}
+
+
 export async function appendAuditEntry(entry) {
   if (!RUN_ID_PATTERN.test(String(entry.run_id ?? ""))) {
     throw new Error("audit_run_id_invalid");
@@ -325,6 +342,7 @@ export async function appendAuditEntry(entry) {
     execution_status: sanitizeExecutionStatus(entry.execution_status),
     response_discarded: entry.response_discarded === true,
     ...versionEvidence(entry),
+    ...releaseDiagnosticEvidence(entry),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
   const options = {
@@ -381,6 +399,7 @@ export async function readAuditEntries(runId) {
           execution_status: sanitizeExecutionStatus(entry.execution_status),
           response_discarded: entry.response_discarded === true,
           ...versionEvidence(entry),
+          ...releaseDiagnosticEvidence(entry),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
       }
@@ -560,6 +579,7 @@ function sanitizeOperation(response, runId) {
     response_discarded: response.response_discarded === true,
     run_id: runId,
     dirty: response.response_discarded === true ? null : Boolean(payload.dirty),
+    ...releaseDiagnosticEvidence(payload),
     stages: sanitizeStages(payload.stages),
     cleanup: {
       ok: cleanup.ok === true,
@@ -950,6 +970,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       execution_status: sanitizeExecutionStatus(entry.execution_status),
       response_discarded: entry.response_discarded === true,
       ...versionEvidence(entry),
+      ...releaseDiagnosticEvidence(entry),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
   const allTimestamps = audit
@@ -1020,6 +1041,7 @@ async function runAudited(auditImpl, entry, operation) {
       execution_status: sanitizeExecutionStatus(result.execution_status),
       response_discarded: result.response_discarded === true,
       ...versionEvidence({ ...entry, ...result }),
+      ...releaseDiagnosticEvidence(result),
       error: result.error,
     });
   } catch {

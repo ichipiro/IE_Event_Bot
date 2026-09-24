@@ -462,3 +462,11 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 `deploy-and-google-sync-recovery` は、同run・稼働version tag・他資源cleanを確認し、`cleanup` または処理済みの `ready` 段階から所有資源だけを回収する。処理中の `working` は拒否し、制御ロックのTTLと所有確認を維持する。新規fixtureは作成せず、`failed_clean` と全資源cleanを必須にする。実行35980469928でready段階のロック解放失敗を観測したため拡張した。
 
 回収実行35981499346で、ready段階からの所有資源回収と `failed_clean`・全manifest `dirty=false` を確認した。その後の[18step再実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)は全段階と回収に成功した。最初の `google_sync_release_failed` の根本原因は未確定であり、再実行成功を原因修正の証拠とは扱わない。
+
+### Google制御ロックの解放診断
+
+`google_sync_release_failed` のHTTP 409応答には `release_diagnostic` を付け、MCPの監査JSONLとrun manifestの `operations` に引き継ぐ。`step` は `release_rpc`（解放呼出し）、`status_rpc`（状態照会）、`release_response`（解放応答）、`status_response`（照会応答）、`lock_response`（lock形式）、`owner_check`（自分のロックが残留）の固定分類。`exception` は `none`・`timeout`・`type_error`・`runtime_error`・`js_exception`・`other` だけを残す。
+
+`release_ok`・`status_ok` は取得した応答のok判定、`owner_matches` は照会したownerと呼出し元の一致判定で、取得・判定できなかった値は `null` とする。`false` と未確認を区別し、例外本文・任意の例外型名・owner値・トークンを保存しない。解放後の照会順序、TTL、失敗時のdirty維持は従来どおりで、自動再試行や強制解放は追加しない。
+
+ローカルではRPC例外・不正応答・自分／他owner・ロック消失を検証し、step 11の固定障害でHTTP 409／cleanupのbusy／TTL経過後の回収を確認する。MCPの応答→JSONL書込み・読戻し→成果物の経路も検証する。固定障害は過去の実障害原因を証明せず、実環境での再発時に切り分けるための診断である。

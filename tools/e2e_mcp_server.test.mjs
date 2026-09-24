@@ -1813,6 +1813,44 @@ for (const status of ["pending", "deleted", "retry_pending", "retried"]) {
   });
 }
 
+test("Googleロック解放診断は応答からJSONLとmanifestまで固定値だけを保持する", async () => {
+  const runId = "E2E-20260924T000000Z-abcde024";
+  const diagnostic = { step: "status_rpc", exception: "type_error",
+    release_ok: true, status_ok: null, owner_matches: null };
+  await withClient({ env: ENV,
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+    fetchImpl: async (url) => new URL(url).pathname.endsWith("/status")
+      ? jsonResponse({ ok: true })
+      : jsonResponse({ ok: false, dirty: true, error: "google_sync_release_failed",
+        release_diagnostic: { ...diagnostic, owner: "private-owner", message: "private-token" } }, 409),
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: runId, scenario: "google_sync", sync_phase: "advance",
+    } }));
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.release_diagnostic, diagnostic);
+    const saved = await readAuditEntries(runId);
+    assert.deepEqual(saved.at(-1).release_diagnostic, diagnostic);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: runId },
+    }));
+    assert.deepEqual(evidence.manifest.operations.at(-1).release_diagnostic, diagnostic);
+    assert.equal(JSON.stringify([result, saved, evidence]).includes("private"), false);
+  });
+  // 監査の直接入力にも同じ制限を適用する。
+  for (const step of ["owner_check", "private-step"]) {
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync",
+      phase: "finish", ok: false, status: 409, error: "google_sync_release_failed",
+      release_diagnostic: { step, exception: "private-class", release_ok: "private-token",
+        status_ok: 1, owner_matches: "private-owner", message: "private-message" } });
+  }
+  const saved = await readAuditEntries(runId);
+  assert.deepEqual(saved.at(-2).release_diagnostic, { step: "owner_check", exception: "other",
+    release_ok: null, status_ok: null, owner_matches: null });
+  assert.equal(Object.hasOwn(saved.at(-1), "release_diagnostic"), false);
+  assert.equal(JSON.stringify(saved).includes("private"), false);
+});
+
 test("全件prepareはGoogle専用routeと監査へ接続する", async () => {
   const paths = [];
   const audit = [];

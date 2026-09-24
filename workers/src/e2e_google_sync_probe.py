@@ -825,6 +825,42 @@ async def _inspect_calendar(env, run_id):
     return {"ok": True, "dirty": False, "run_id": run_id, "status": f"calendar_{classification}"}
 
 
+async def _release_control(store, stub, control):
+    """解放失敗の位置だけを残す。例外本文やownerは返さない。"""
+    diagnostic = {
+        "step": "release_rpc", "exception": "none",
+        "release_ok": None, "status_ok": None, "owner_matches": None,
+    }
+    try:
+        released = await store._sync_do_rpc(stub, "release", {"owner": control})
+        diagnostic["release_ok"] = bool(released and released.get("ok"))
+        diagnostic["step"] = "status_rpc"
+        status = await store._sync_do_rpc(stub, "status")
+        diagnostic["status_ok"] = bool(status and status.get("ok"))
+        lock = status.get("lock") if status else None
+        if isinstance(lock, dict):
+            diagnostic["owner_matches"] = lock.get("owner") == control
+        if not diagnostic["release_ok"]:
+            diagnostic["step"] = "release_response"
+        elif not diagnostic["status_ok"]:
+            diagnostic["step"] = "status_response"
+        elif not isinstance(lock, dict):
+            diagnostic["step"] = "lock_response"
+        elif diagnostic["owner_matches"]:
+            diagnostic["step"] = "owner_check"
+        else:
+            return None
+    except Exception as exc:
+        diagnostic["exception"] = (
+            "timeout" if isinstance(exc, TimeoutError)
+            else "type_error" if isinstance(exc, TypeError)
+            else "runtime_error" if isinstance(exc, RuntimeError)
+            else "js_exception" if type(exc).__name__ == "JsException"
+            else "other"
+        )
+    return diagnostic
+
+
 async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not RUN_PATTERN.fullmatch(run_id) or phase not in (
         "prepare",
@@ -896,20 +932,10 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             if isinstance(exc, GoogleStateError)
             else "google_sync_failed",
         }
-    try:
-        released = await store._sync_do_rpc(stub, "release", {"owner": control})
-        status = await store._sync_do_rpc(stub, "status")
-        if (
-            not released
-            or not released.get("ok")
-            or not status
-            or not status.get("ok")
-            or not isinstance(status.get("lock"), dict)
-            or status.get("lock", {}).get("owner") == control
-        ):
-            raise GoogleStateError("google_sync_release_failed")
-    except Exception:
-        return {"ok": False, "dirty": True, "error": "google_sync_release_failed"}
+    diagnostic = await _release_control(store, stub, control)
+    if diagnostic is not None:
+        return {"ok": False, "dirty": True, "error": "google_sync_release_failed",
+                "release_diagnostic": diagnostic}
     clean = result.pop("_clean_manifest", None)
     if clean:
         await store.put_e2e_manifest(SERVICE, clean)

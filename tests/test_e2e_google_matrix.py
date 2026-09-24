@@ -83,6 +83,11 @@ def test_step11_control_failure_distinguishes_lock_residue(monkeypatch, action, 
     monkeypatch.setattr(stub, "sync_state", fail)
     status, payload = test.call("advance")
     assert status == 409 and payload["error"] == "google_sync_release_failed"
+    diagnostic = payload["release_diagnostic"]
+    assert diagnostic["step"] == f"{action}_{'rpc' if failure == 'exception' else 'response'}"
+    assert diagnostic["exception"] == ("runtime_error" if failure == "exception" else "none")
+    assert diagnostic["release_ok"] is (True if action == "status" else None if failure == "exception" else False)
+    assert "fixed control failure" not in json.dumps(payload)
     assert test.owner()["stage"] == "ready"
     monkeypatch.setattr(stub, "sync_state", original)
     if action == "release":

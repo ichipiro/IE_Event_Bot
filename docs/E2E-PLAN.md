@@ -52,11 +52,11 @@
 - [x] 所有Discord予定への不正な更新によるHTTP 400・code 50035の確認を既存E2Eへ追加し、次のHTTPでの回復、想定外応答の拒否、workflow証跡の必須化をローカル検証する。
 - [x] 上記のAPI拒否・queue再試行を既存E2E専用環境で実行し、全所有資源の回収とartifactを照合する。[実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で不正日時へのHTTP 400・code 50035、cursor保護、別HTTPのqueue回復、全6段階と回収が成功した。入力検証による拒否とサービス障害は区別する。
 - [x] 初回[実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)のdirty資源を回収する。[復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で、記録済みID・Guild・run marker・空名を照合した回収、`failed_clean`・全資源 `dirty=false` を確認した。不正日時を使う修正版E2Eも再実行で成功した。
-- [x] 空の専用環境で、共有KVの固定キーと取得入力全件を使う `prepare_full`、所有記録付き回収、MCP・手動workflowを実装し、ローカル検証する。検証予定は3件。入力の絞込みはせず、所有外予定が混入したら適用前に拒否する。
-- [ ] 上記の共有KV・全件モードを実サービスで検証し、artifactと回収結果を照合する。初回[実行35962599536](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35962599536)は共有KVに既存値があり、fixture作成前に停止。新規KVでの[実行35963510311](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35963510311)はKV検査を通過し、Calendar開始条件で停止。[診断実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)で削除履歴のみの残存を確認した。[実行35968760516](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35968760516)は削除履歴照合・3件作成・初回dispatchまで通過したが50秒上限で停止し、全資源を回収した。全件phaseと呼出し側の待機時間を調整して再検証する。
+- [x] 空の専用環境で、共有KVの固定キーと取得入力全件を使う `prepare_full`、所有記録付き回収、MCP・手動workflowを実装し、ローカル検証する。検証予定は3件。開始前に記録した不変の削除履歴だけを除外し、他の入力は絞り込まず、所有外予定が混入したら適用前に拒否する。
+- [x] 上記の共有KV・全件モードを実サービスで検証し、artifactと回収結果を照合する。[実行35969469480](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35969469480)で、既存の削除履歴を保護した3件の全件適用、pending・drained・updated・deletedの全4段階と各verify、共有KVを含む回収が成功した。監査22行・11操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` を確認した。
 - [ ] 任意イベントの構成・件数への適用、外部APIの実障害・途中再試行を実サービスで検証する。
 
-実サービス用の接続実装と所有2件の実環境検証が完了した。[初回実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)はprepareで失敗して全資源を回収した。KV欠損値の正規化漏れをローカルで再現・修正した後の再実行は、全段階・回収が成功し `passed`・全資源 `dirty=false` となった。従来モードは全Calendarを取得しても適用対象を所有2件へ限定する。新しい全件モードは空の専用環境へ作成した3件を絞り込まず処理し、ローカル検証まで完了した。任意イベントの全件適用、外部APIの全失敗分岐・途中再試行は引き続き未検証である。
+実サービス用の接続実装と所有2件の実環境検証が完了した。[初回実行34861663237](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34861663237)はprepareで失敗して全資源を回収した。KV欠損値の正規化漏れをローカルで再現・修正した後の再実行は、全段階・回収が成功し `passed`・全資源 `dirty=false` となった。従来モードは全Calendarを取得しても適用対象を所有2件へ限定する。新しい全件モードは、既存削除履歴を保護して専用環境へ作成した3件すべてを処理し、共有KV・4段階・回収まで実サービス検証を完了した。任意イベントの全件適用、外部APIの全失敗分岐・途中再試行は引き続き未検証である。
 
 ## 5. 全体同期
 

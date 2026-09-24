@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-24: Google共有KV・全件E2Eの実サービス検証が成功
+
+- [実行35969469480](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35969469480)で、既存の削除履歴を保護した3件の全件適用、pending・drained・updated・deletedの全4段階と各verify、共有KVを含む回収が成功した。
+- 実行commit `0c6a3825277cb95e2e2cdac307a23c2e6f5afec0`、run `E2E-20260924T072644Z-72ef81c2`、Worker version fingerprint `c6fdf2227376e392976ea3e5cb63ac6689569704bd4ca490340cb7cc23e69bb5` を照合した。監査22行・11操作はすべて成功し、checkoutはclean、JUnitは678件・失敗0だった。
+- 今回runの `outcome=passed`、全service/scenario manifestの `dirty=false`、Google/Discord削除・Notion archive・共有KV回収stage成功を確認した。初回prepare_fullの監査上の所要時間は67.236秒で、従来50秒を超えて完了した。
+- E2E計画の共有KV・全件モード検証を完了にした。既存履歴以外の3件を対象とする専用環境の検証であり、任意件数・繰返し予定の構成、外部APIの実障害、通常Cron、通常DOの最終成功時刻の検証は含めない。
+
 ## 2026-09-24: 全件E2Eの50秒タイムアウトと回収を確認
 
 - [実行35968760516](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35968760516)は `be790581aaff3136f0fe032556d091541e013186` でdeploy・削除履歴照合・3件作成・初回dispatchまで成功し、phase完了前に `google_sync_timeout`（409）で停止した。runは `E2E-20260924T071821Z-3ed8ab4c`、Worker version fingerprintは `b69e4505698e2fa025954b1cc13f573c4e844bae13e6ff12fd0fb294c7dfed7c`。

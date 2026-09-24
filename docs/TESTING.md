@@ -410,7 +410,7 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 
 全件モードの変更をDOで禁止し、他scenarioのdirty manifestとの併存を拒否する。通常書込みrouteと全Cronのフラグは無効を必須にする。KVへ書く前に値のdigestをDOへ追記し、回収時は記録済みdigestと一致する値だけを削除する。未知の値は保持してdirtyを維持する。KV書込みの応答喪失・削除途中失敗でも記録から回収を再試行できる。削除後の欠損読戻しを必須にするが、KVの全拠点への削除伝播や読取りと削除の原子性は保証しない。
 
-workflowは全入力確認・共有キーの開始時欠損・回収の各stageとversionを照合し、失敗時も既存のcleanupと監査収集を使う。[test_e2e_google_full.py](../tests/test_e2e_google_full.py) では取得順の逆転・複数ページ・全段階、既存データ保護、所有外入力、書込み応答喪失、回収再試行、他scenarioとの競合、設定・manifestの差替え拒否を代替APIと実DOロジックで検証する。実サービスの全件モードは未実行であり、任意件数・繰返し予定など全入力形式への対応を実証したものではない。
+workflowは全入力確認・共有キーの開始時欠損・回収の各stageとversionを照合し、失敗時も既存のcleanupと監査収集を使う。[test_e2e_google_full.py](../tests/test_e2e_google_full.py) では取得順の逆転・複数ページ・全段階、既存データ保護、所有外入力、書込み応答喪失、回収再試行、他scenarioとの競合、設定・manifestの差替え拒否を代替APIと実DOロジックで検証する。実サービスの3件・4段階は以下の実行で成功した。任意件数・繰返し予定など全入力形式への対応を実証したものではない。
 
 2026-09-24の初回[実行35962599536](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35962599536)は `ea6044e` のLocal validationとdeploy成功後、`google_sync_shared_not_empty` で停止した。新規検証資源の作成・共有KV書込み・全件適用には到達していない。cleanupは前回runのclean manifestに対するrun不一致として8回拒否された。監査20行・10操作、version/commit/run一致、全manifest `dirty=false` と前回所有記録の保持、JUnit 659件成功を確認した。今回の全件モードは未検証のままであり、再実行には空のE2E専用共有KVが必要である。
 
@@ -421,6 +421,8 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 [診断実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は `83cd4b3` で成功した。HTTP 200・`calendar_deleted` により、取得対象に通常予定はなく削除履歴だけ残ることを確認した。監査4行・deployとinspectの2操作、run/version/commit一致、全service/scenario manifestが前回と同一で `dirty=false` を照合した。予定・KVは変更していない。当時の実装では削除履歴のないCalendarが必要だったが、その後、記録済みの履歴だけを保護して除外する方式へ修正した。これは診断の成功であり、修正版の全件適用は実サービスでの再検証が必要である。
 
 [実行35968760516](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35968760516)は削除履歴照合・3件作成・初回dispatchを通過したが、旧50秒上限で `google_sync_timeout` となった。監査8行・4操作、run/version/commit一致、今回runの `failed_clean`・全manifest `dirty=false`・共有KV回収成功を照合した。タイムアウトを調整した版の全件4段階は再検証待ち。
+
+[実行35969469480](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35969469480)で、既存の削除履歴を保護した3件の全件適用、pending・drained・updated・deletedの全4段階と各verify、共有KVを含む回収が成功した。監査22行・11操作、run/version/commitとclean checkout、今回runの `passed`・全manifest `dirty=false`、JUnit 678件成功を照合した。`google_sync_baseline_preserved`・`google_sync_full_input`・`google_sync_shared_cleanup` はすべて200だった。prepare_fullの所要時間は監査上67.236秒で、全件phase90秒・HTTP120秒・workflow内MCP180秒の設定で完了した。今回の3件・専用環境を超える任意構成の検証は別項目とする。
 
 ### 分割後の状態障害E2Eの実行結果
 

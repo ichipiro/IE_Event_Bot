@@ -1325,6 +1325,48 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase",
   });
 }
 
+for (const failure of ["fetch_once", "body_once", "fetch_persistent", "body_persistent", "advance", "prepare", "application", "wrong_run", "busy"]) {
+  test(`Google確認の通信再試行は上限付きで書込みを再送しない: ${failure}`, async () => {
+    const steps = ["pending", "drained", "updated", "deleted"];
+    let index = 0;
+    let failures = 0;
+    const waits = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        const writeFailure = args.sync_phase === (failure === "prepare" ? "prepare_full" : "advance") && ["prepare", "advance"].includes(failure);
+        const verifyFailure = args.sync_phase === "resume" && !["prepare", "advance"].includes(failure) &&
+          (!failure.endsWith("once") || failures === 0);
+        if (writeFailure || verifyFailure) {
+          failures += 1;
+          return { ok: false, status: failure.startsWith("body") ? 200 : failure === "application" ? 409 : failure === "busy" ? 503 : 0,
+            error: failure.startsWith("body") ? "worker_response_read_failed" : failure === "application" ? "google_sync_release_failed" : failure === "busy" ? "google_sync_busy" : "worker_request_failed",
+            run_id: failure === "wrong_run" ? "E2E-20260901T000000Z-aaaaaaaa" : RUN_ID, dirty: false };
+        }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`google_sync_${steps[index]}`]: 200, google_sync_full_input: 200, google_sync_shared_empty: 200 } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { google_sync_shared_cleanup: 200 } } }),
+    }, "google_sync");
+    const execute = () => runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { fullApply: true, verify: { sleepImpl: async ms => waits.push(ms) } });
+    if (failure.endsWith("once")) {
+      await execute();
+      assert.equal(failures, 1);
+      assert.equal(calls.filter(c => c.args.sync_phase === "advance").length, 3);
+      assert.equal(calls.filter(c => c.args.sync_phase === "resume").length, 5);
+    } else {
+      await assert.rejects(execute(), /worker_request_failed|worker_response_read_failed|google_sync_release_failed|google_sync_busy/);
+      assert.equal(failures, failure.endsWith("persistent") ? 3 : 1);
+      assert.equal(calls.filter(c => c.args.sync_phase === "advance").length, failure === "advance" ? 1 : 0);
+    }
+    assert.equal(calls.filter(c => c.args.sync_phase === "prepare_full").length, 1);
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(waits, Array(failure.endsWith("once") ? 1 : failure.endsWith("persistent") ? 2 : 0).fill(3000));
+  });
+}
+
 for (const failure of [null, "input", "shared", "cleanup", "advance"]) {
   test(`Google全件workflow: ${failure ?? "success"}`, async () => {
     let index = 0;

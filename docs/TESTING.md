@@ -453,6 +453,10 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 
 28step版のローカル検証は完了し、実サービス実行と成果物の照合は未完了である。
 
+初回の[実行36001946180](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36001946180)はstep 6のadvance後、verifyのfetchが例外となり `worker_request_failed`・status 0で停止した。回収200・`failed_clean`・全manifest `dirty=false`、監査34行・17操作とversion一致を照合済み。7件への拡張段階には未到達。HTTP応答未取得の通信例外であり、詳細原因は旧記録から特定できない。
+
+Google verifyは同runの `worker_request_failed`（status 0）と `worker_response_read_failed`（status 200）だけ、通信失敗を各段階最大3回まで試行する。間隔3秒、状態反映待ちを含む合計25回の上限も維持する。prepare／advanceは応答を失っても再送しない。通信例外の `transport_diagnostic` は `phase`（fetch／body）、許可された `name` と `code` だけを監査・成果物へ保存し、未知の型名・コードは `other` にする。これらは次回の切り分け情報であり、今回の障害原因の推定値ではない。
+
 回収は所有する繰返し親・各回・対応先を区別する。親のrecurrence・各回の所属とmarkerを再確認してから親を削除し、通常予定とNotion/Discord、共有KVも回収する。未知の親・回・変更された繰返し規則ではdirtyを維持する。親作成後の応答喪失やinstanceのmarker更新途中でも、記録済み親と元の開始時刻から所有範囲を確認する。32 KiB manifestの境界を含め、既存削除履歴100件での全段階をローカル検証する。
 
 [test_e2e_google_matrix.py](../tests/test_e2e_google_matrix.py) は実DOロジックと代替APIによる検証である。実サービスでは2026-09-24の[実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)（commit `1ca952b9a5297e4dcbe5de837ac0669d3af66a20`）で、全14段階と各verify、API拒否後の共有queue再試行、繰返し親・共有KVを含む回収が成功した。監査62行・31操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` をartifactで照合した。今回の14stepは上記の有限ケースを対象とし、無制限の件数・繰返し規則・サービス停止や回線断の観測を証明しない。400応答は入力検証によるAPI拒否であり、サービス障害ではない。

@@ -1813,6 +1813,44 @@ for (const status of ["pending", "deleted", "retry_pending", "retried"]) {
   });
 }
 
+for (const [index, phase, name, code, expectedCode] of [
+  [0, "fetch", "TypeError", "UND_ERR_SOCKET", "UND_ERR_SOCKET"],
+  [1, "body", "TypeError", "ECONNRESET", "ECONNRESET"],
+  [2, "fetch", "TimeoutError", undefined, "other"],
+  [3, "fetch", "private-class", "private-code", "other"],
+]) {
+  test(`通信例外は${phase}/${expectedCode}の固定値だけを監査と成果物へ保存する: ${index}`, async () => {
+    const runId = `E2E-20260924T000000Z-abcde03${index}`;
+    const diagnostic = { phase, name: name === "private-class" ? "other" : name, code: expectedCode };
+    const failure = Object.assign(new Error("private-token private-url private-address"), {
+      name, cause: { code, message: "private-cause", address: "private-address" },
+    });
+    await withClient({ env: ENV,
+      repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+      fetchImpl: async url => {
+        if (new URL(url).pathname.endsWith("/status")) { return jsonResponse({ ok: true }); }
+        if (phase === "fetch") { throw failure; }
+        return { status: 200, text: async () => { throw failure; } };
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: runId, scenario: "google_sync", sync_phase: "resume",
+      } }));
+      assert.equal(result.status, phase === "fetch" ? 0 : 200);
+      assert.equal(result.error, phase === "fetch" ? "worker_request_failed" : "worker_response_read_failed");
+      assert.deepEqual(result.transport_diagnostic, diagnostic);
+      const saved = await readAuditEntries(runId);
+      assert.deepEqual(saved.at(-1).transport_diagnostic, diagnostic);
+      const evidence = parseToolResult(await client.callTool({ name: "collect_evidence", arguments: { run_id: runId } }));
+      assert.deepEqual(evidence.manifest.operations.at(-1).transport_diagnostic, diagnostic);
+      assert.equal(JSON.stringify([result, saved, evidence]).includes("private"), false);
+    });
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync", phase: "finish",
+      error: "worker_request_failed", transport_diagnostic: { phase: "private-phase", name, code } });
+    assert.equal(Object.hasOwn((await readAuditEntries(runId)).at(-1), "transport_diagnostic"), false);
+  });
+}
+
 test("Googleロック解放診断は応答からJSONLとmanifestまで固定値だけを保持する", async () => {
   const runId = "E2E-20260924T000000Z-abcde024";
   const diagnostic = { step: "status_rpc", exception: "type_error",

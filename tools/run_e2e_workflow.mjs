@@ -80,6 +80,7 @@ const CLEANUP_ATTEMPTS = 4;
 const CLEANUP_DELAY_MS = 1_000;
 const STATE_VERIFY_ATTEMPTS = 25;
 const STATE_VERIFY_DELAY_MS = 3_000;
+const GOOGLE_VERIFY_TRANSPORT_ATTEMPTS = 3;
 const NON_RETRYABLE_CLEANUP_ERRORS = new Set([
   "cleanup_confirmation_mismatch",
   "cleanup_run_id_mismatch",
@@ -649,6 +650,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       if (written.status !== 200 || !written.dirty || written.run_id !== runId || written.execution_status !== step) {
         throw new E2eWorkflowError("google_sync_phase_mismatch");
       }
+      let transportFailures = 0;
       for (let attempt = 1; attempt <= STATE_VERIFY_ATTEMPTS; attempt += 1) {
         const verified = await toolOutcome(callTool, "trigger_sync", {
           run_id: runId, scenario: "google_sync", sync_phase: "resume",
@@ -659,8 +661,13 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
           }
           break;
         }
-        if (verified.error !== "google_sync_not_ready" || verified.payload.status !== 409 ||
-            verified.payload.run_id !== runId || verified.payload.dirty !== true || attempt === STATE_VERIFY_ATTEMPTS) {
+        const transportFailure = (verified.error === "worker_request_failed" && verified.payload.status === 0) ||
+          (verified.error === "worker_response_read_failed" && verified.payload.status === 200);
+        if (transportFailure) { transportFailures += 1; }
+        const retryable = transportFailure ? transportFailures < GOOGLE_VERIFY_TRANSPORT_ATTEMPTS
+          : verified.error === "google_sync_not_ready" && verified.payload.status === 409 && verified.payload.dirty === true;
+        // verifyだけを再送する。応答不明のprepare/advanceは再実行しない。
+        if (!retryable || verified.payload.run_id !== runId || attempt === STATE_VERIFY_ATTEMPTS) {
           throw new E2eWorkflowError(verified.error);
         }
         await (options.verify?.sleepImpl ?? sleep)(STATE_VERIFY_DELAY_MS);

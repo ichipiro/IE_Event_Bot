@@ -1,5 +1,13 @@
 # 作業履歴
 
+## 2026-09-24: 28step初回の確認通信失敗と回収、再試行を追加
+
+- 承認後の[実行36001946180](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36001946180)はcommit `3eef09528767ff966f7df09901066934845c3f81` でLocal validationとdeployが成功し、step 0〜5のverify、step 6のadvanceまで200だった。続くverifyは27 msで `worker_request_failed`・status 0となった。NodeのfetchがHTTP応答を返す前に例外となったことは確認できるが、元の例外を保存していないためDNS・TLS・接続切断などの詳細原因は不明。Workerへの未到達や、以前のロック解放失敗との同一原因を断定しない。
+- 回収は200。artifactの監査34行・17操作、run/version/commit一致、`failed_clean`・全manifest `dirty=false`、共有KVと所有資源の回収を独立照合した。7件・ページ送り・Notion更新／Discord削除の固定失敗段階は未到達であり、28step成功とは扱わない。
+- MCPの通信例外に `transport_diagnostic` を追加し、fetch／本文読取り、固定の例外型名と許可した通信コードのみを応答・監査JSONL・run manifestへ残す。例外本文・URL・接続先アドレス・任意文字列は保存しない。
+- Googleのverifyだけ、応答前の通信失敗または200応答の本文読取り失敗に3秒間隔・最大3回の試行を追加した。同runのみ許可し、既存の状態反映待ちを含む合計25回の上限を維持する。prepare／advance、アプリケーションエラー、run不一致は再送せず回収へ進む。
+- 通信再試行の再現テスト4件が修正前に失敗し、修正後の境界テスト9件が成功。Node全256件が成功した。実環境での修正版再実行は未完了。
+
 ## 2026-09-24: Google同期の7件・ページ送り・部分失敗E2Eを実装
 
 - matrixを28stepへ拡張した。従来の18段階後に予定を2件追加し、削除済み2件を含む計7件を `maxResults=2` の通常ページ送りで取得する。4ページ以上と所有7件を必須にし、上限2件で共有queueを5→3→1→0へ消化する。

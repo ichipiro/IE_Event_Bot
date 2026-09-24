@@ -303,6 +303,33 @@ function sanitizeExecutionStatus(value) {
 }
 
 
+const TRANSPORT_CODES = new Set([
+  "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
+  "CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID", "DEPTH_ZERO_SELF_SIGNED_CERT",
+]);
+
+function transportDiagnosticEvidence(entry) {
+  const value = entry.transport_diagnostic;
+  if (!["worker_request_failed", "worker_response_read_failed"].includes(entry.error) ||
+      !value || !["fetch", "body"].includes(value.phase)) {
+    return {};
+  }
+  return { transport_diagnostic: {
+    phase: value.phase,
+    name: ["Error", "TypeError", "TimeoutError", "AbortError"].includes(value.name) ? value.name : "other",
+    code: TRANSPORT_CODES.has(value.code) ? value.code : "other",
+  } };
+}
+
+function transportFailure(error, phase) {
+  return transportDiagnosticEvidence({
+    error: phase === "fetch" ? "worker_request_failed" : "worker_response_read_failed",
+    transport_diagnostic: { phase, name: error?.name,
+      code: TRANSPORT_CODES.has(error?.code) ? error.code : error?.cause?.code },
+  });
+}
+
 function releaseDiagnosticEvidence(entry) {
   const value = entry.release_diagnostic;
   if (entry.error !== "google_sync_release_failed" || !value || typeof value !== "object"
@@ -343,6 +370,7 @@ export async function appendAuditEntry(entry) {
     response_discarded: entry.response_discarded === true,
     ...versionEvidence(entry),
     ...releaseDiagnosticEvidence(entry),
+    ...transportDiagnosticEvidence(entry),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
   const options = {
@@ -400,6 +428,7 @@ export async function readAuditEntries(runId) {
           response_discarded: entry.response_discarded === true,
           ...versionEvidence(entry),
           ...releaseDiagnosticEvidence(entry),
+          ...transportDiagnosticEvidence(entry),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
       }
@@ -469,8 +498,9 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
           ? GOOGLE_SYNC_TIMEOUT_MS : WORKER_TIMEOUT_MS,
       ),
     });
-  } catch {
-    return { ok: false, status: 0, error: "worker_request_failed", payload: {} };
+  } catch (error) {
+    return { ok: false, status: 0, error: "worker_request_failed", payload: {},
+      ...transportFailure(error, "fetch") };
   }
 
   if (responseMode === "discard_after_headers" && response.status === 200) {
@@ -488,12 +518,13 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
   let text = "";
   try {
     text = await response.text();
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       status: Number(response.status) || 0,
       error: "worker_response_read_failed",
       payload: {},
+      ...transportFailure(error, "body"),
     };
   }
   if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
@@ -580,6 +611,7 @@ function sanitizeOperation(response, runId) {
     run_id: runId,
     dirty: response.response_discarded === true ? null : Boolean(payload.dirty),
     ...releaseDiagnosticEvidence(payload),
+    ...transportDiagnosticEvidence(response),
     stages: sanitizeStages(payload.stages),
     cleanup: {
       ok: cleanup.ok === true,
@@ -971,6 +1003,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       response_discarded: entry.response_discarded === true,
       ...versionEvidence(entry),
       ...releaseDiagnosticEvidence(entry),
+      ...transportDiagnosticEvidence(entry),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
   const allTimestamps = audit
@@ -1042,6 +1075,7 @@ async function runAudited(auditImpl, entry, operation) {
       response_discarded: result.response_discarded === true,
       ...versionEvidence({ ...entry, ...result }),
       ...releaseDiagnosticEvidence(result),
+      ...transportDiagnosticEvidence(result),
       error: result.error,
     });
   } catch {

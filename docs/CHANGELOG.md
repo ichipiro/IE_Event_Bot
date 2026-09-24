@@ -1,5 +1,9 @@
 # 文書変更履歴
 
+## 2026-09-24: Google matrixの複数失敗・再試行範囲を追加
+
+- 複数日の終日・UTC日跨ぎ予定、残存3件のAPI拒否、上限1件のqueue再試行を18stepとして文書化した。ローカル件数別12組の検証と実サービス未確認の境界を追記した。
+
 ## 2026-09-24: Google matrix E2Eの成功を記録
 
 - [実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)の全14段階、共有queue再試行、繰返し親・共有KVの回収、passed・全記録dirty=falseを記録し、対応するE2E計画項目を完了にした。

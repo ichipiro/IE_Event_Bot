@@ -1369,9 +1369,9 @@ for (const classification of ["calendar_empty", "calendar_active", "calendar_del
   });
 }
 
-for (const failure of [null, "stage", "input", "rejection", "cursor", "series_cleanup"]) {
+for (const failure of [null, "stage", "input", "rejection", "cursor", "multi_rejection", "multi_cursor", "queue_drain", "series_cleanup"]) {
   test(`Google matrix workflow: ${failure ?? "success"}`, async () => {
-    const steps = [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried"];
+    const steps = [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried"];
     let index = 0;
     const { calls, callTool } = stateWorkflowFixture({
       trigger_sync: async args => {
@@ -1383,7 +1383,11 @@ for (const failure of [null, "stage", "input", "rejection", "cursor", "series_cl
           stages: { [`google_matrix_step_${index}`]: failure === "stage" ? undefined : 200,
             google_matrix_full_input: failure === "input" ? undefined : 200, google_sync_shared_empty: 200,
             google_matrix_api_rejection: failure === "rejection" ? 503 : 400,
-            google_matrix_cursor_preserved: failure === "cursor" ? undefined : 200 } } } }),
+            google_matrix_cursor_preserved: failure === "cursor" ? undefined : 200,
+            google_matrix_rejection_1: 400, google_matrix_rejection_2: 400,
+            google_matrix_rejection_4: failure === "multi_rejection" ? 503 : 400,
+            google_matrix_multi_cursor_preserved: failure === "multi_cursor" ? undefined : 200,
+            [`google_matrix_queue_drain_${index}`]: failure === "queue_drain" ? undefined : 200 } } } }),
       assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
         google_sync_shared_cleanup: 200, google_matrix_series_cleanup: failure === "series_cleanup" ? undefined : 200,
       } } }),
@@ -1393,7 +1397,7 @@ for (const failure of [null, "stage", "input", "rejection", "cursor", "series_cl
     } else {
       await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { matrix: true, fullApply: true });
       assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
-        ["prepare_matrix", "resume", ...Array(13).fill(["advance", "resume"]).flat()]);
+        ["prepare_matrix", "resume", ...Array(17).fill(["advance", "resume"]).flat()]);
     }
     assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
   });

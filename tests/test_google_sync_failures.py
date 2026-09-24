@@ -136,3 +136,23 @@ def test_discord_origin_cancel_does_not_delete_original(monkeypatch):
     assert dispatch(scenario)[0] == 200
     assert scenario.discord == original_discord
     assert json.loads(scenario.env.STATE_KV.data[QUEUE]) == []
+
+
+@pytest.mark.parametrize("count", [1, 2, 5, 17])
+@pytest.mark.parametrize("limit", [1, 2, 5])
+def test_event_counts_drain_without_loss_or_duplicate_creation(monkeypatch, count, limit):
+    scenario = Scenario(monkeypatch)
+    scenario.env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = str(limit)
+    sources = [event(f"event-{index}") for index in range(count)]
+    scenario.google = {source["id"]: source for source in sources}
+    processed = 0
+    while processed < count:
+        status, result = dispatch(scenario)
+        assert status == 200, result
+        processed = min(processed + limit, count)
+        assert json.loads(scenario.env.STATE_KV.data[QUEUE]) == sources[processed:]
+        assert len(scenario.pages) == len(scenario.discord) == processed
+        scenario.google.clear()
+    assert len([call for call in scenario.calls if call == ("discord", "POST")]) == count
+    assert len(json.loads(scenario.env.STATE_KV.data["map:gcal_notion"])["internal"]) == count
+    assert len(json.loads(scenario.env.STATE_KV.data["map:gcal_discord"])) == count

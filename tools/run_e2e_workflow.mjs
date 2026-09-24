@@ -638,7 +638,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   await runPreflight(callTool, runId, options.preflight);
   let primaryError = null;
   try {
-    const steps = options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried"]
+    const steps = options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried"]
       : options.fullApply ? ["pending", "drained", "updated", "deleted"]
       : ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     for (const [index, step] of steps.entries()) {
@@ -675,7 +675,10 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
             manifest.stages?.google_sync_discord_rejection_verified !== 200)) ||
           (options.matrix && (manifest.stages?.google_sync_shared_empty !== 200 ||
             (index >= 5 && manifest.stages?.google_matrix_full_input !== 200) ||
-            (index >= 12 && (manifest.stages?.google_matrix_api_rejection !== 400 || manifest.stages?.google_matrix_cursor_preserved !== 200)))) ||
+            (index >= 12 && (manifest.stages?.google_matrix_api_rejection !== 400 || manifest.stages?.google_matrix_cursor_preserved !== 200)) ||
+            (index >= 14 && (manifest.stages?.google_matrix_multi_cursor_preserved !== 200 ||
+              [1, 2, 4].some(slot => manifest.stages?.[`google_matrix_rejection_${slot}`] !== 400))) ||
+            (index >= 15 && manifest.stages?.[`google_matrix_queue_drain_${index}`] !== 200))) ||
           status.worker_version?.id_sha256 !== deployed.version_sha256) {
         throw new E2eWorkflowError("google_sync_verification_mismatch");
       }

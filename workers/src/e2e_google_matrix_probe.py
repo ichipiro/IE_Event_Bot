@@ -2,7 +2,7 @@
 
 import json
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -57,7 +57,11 @@ def _new_owner(env, run_id, baseline, stages):
         source = _event_payload(subrun, source_id(run_id, index))
         if index == 0:
             day = _instant(source["start"]["dateTime"]).date()
-            source["start"], source["end"] = {"date": day.isoformat()}, {"date": (day + timedelta(days=1)).isoformat()}
+            source["start"], source["end"] = {"date": day.isoformat()}, {"date": (day + timedelta(days=3)).isoformat()}
+        if index == 2:
+            start = _instant(source["start"]["dateTime"]).astimezone(timezone.utc).replace(hour=23, minute=30)
+            source["start"] = {"dateTime": start.isoformat(), "timeZone": "UTC"}
+            source["end"] = {"dateTime": (start + timedelta(hours=2)).isoformat(), "timeZone": "UTC"}
         if index >= 3:
             source["id"] = None
             for key in ("start", "end"):
@@ -123,9 +127,10 @@ async def _seed(env, store, owner, token):
             raise GoogleStateError("google_matrix_instance_mark_failed")
 
 
-async def _change(env, store, owner, token):
+async def _change(env, store, owner, token, index=None):
     step = owner["step"]
-    index = {8: 0, 9: 3, 10: 0, 11: 3, 12: 1}[step]
+    if index is None:
+        index = {8: 0, 9: 3, 10: 0, 11: 3, 12: 1}[step]
     slot = owner["fixtures"][index]
     path = _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"])
     status, event = await _google_request("GET", path, token)
@@ -157,6 +162,8 @@ async def _apply(env, store, owner, token, invoke):
     kv = GoogleKV(store, owner)
     probe_env = GoogleEnv(env, token)
     probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "2" if owner["step"] <= 7 else "5"
+    if owner["step"] >= 15:
+        probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "1"
     for slot in owner["fixtures"]:
         slot["apply_attempted"] = True
     await _save(store, owner)
@@ -186,64 +193,70 @@ async def _apply(env, store, owner, token, invoke):
             {owner["fixtures"][{8: 0, 9: 3, 10: 0, 11: 3, 12: 1}[owner["step"]]]["google_event_id"]}
             if 8 <= owner["step"] <= 12 else set()
         )
+        if owner["step"] == 14:
+            required = {owner["fixtures"][i]["google_event_id"] for i in (1, 2, 4)}
         if not required <= seen:
             raise GoogleStateError("google_matrix_source_not_visible")
         # 繰越・失敗再試行の呼出しでは、保存済みqueueだけの消化を検証する。
-        result["items"] = [] if owner["step"] in (6, 7, 13) else current
+        result["items"] = [] if owner["step"] in (6, 7, 13, 15, 16, 17) else current
         result["events"] = len(result["items"])
         fetched_ids.extend(e["id"] for e in result["items"])
         owner["stages"]["google_matrix_full_input"] = 200
         return result
 
-    rejected = 0
+    rejected = set()
+    rejection_slots = [owner["fixtures"][i] for i in ((1, 2, 4) if owner["step"] == 14 else (1,))]
 
     async def discord_runner(call_env, event, page, fallback, mapping):
-        nonlocal rejected
-        slot = owner["fixtures"][1]
-        if event.get("id") != slot["google_event_id"]:
+        slot = next((s for s in rejection_slots if s["google_event_id"] == event.get("id")), None)
+        if slot is None:
             return await _sync_to_discord(call_env, event, page, fallback, mapping)
         event_id = slot.get("discord_event_id")
-        if rejected or not _source_matches(event, slot) or not page or mapping.get(event["id"]) != event_id or not event_id:
+        if event["id"] in rejected or not _source_matches(event, slot) or not page or mapping.get(event["id"]) != event_id or not event_id:
             raise GoogleStateError("google_matrix_rejection_owner_mismatch")
         status, current = await discord_request(env, owner["stages"], {}, "google_matrix_rejection_owner", "GET", _discord_path(env, event_id))
         if status != 200 or not _discord_event_is_owned(current, event_id=event_id, guild_id=env.DISCORD_GUILD_ID, run_id=slot["run_id"]):
             raise GoogleStateError("google_matrix_rejection_owner_mismatch")
-        status, data = await discord_request(env, owner["stages"], {}, "google_matrix_api_rejection", "PATCH",
+        stage = "google_matrix_api_rejection" if owner["step"] == 12 else f"google_matrix_rejection_{owner['fixtures'].index(slot)}"
+        status, data = await discord_request(env, owner["stages"], {}, stage, "PATCH",
                                              _discord_path(env, event_id), {"scheduled_start_time": "not-a-date"})
         if status != 400 or data.get("code") != 50035:
             raise GoogleStateError("google_matrix_rejection_mismatch")
-        rejected += 1
+        rejected.add(event["id"])
         return None
 
-    response = await invoke(probe_env, kv.state(), fetcher, discord_runner if owner["step"] == 12 else None)
+    failed = owner["step"] in (12, 14)
+    response = await invoke(probe_env, kv.state(), fetcher, discord_runner if failed else None)
     payload = json.loads(await response.text())
-    failed = owner["step"] == 12
     applied = payload.get("google_apply", {})
     if response.status != (500 if failed else 200) or payload.get("ok") is not (not failed):
         raise GoogleStateError("google_matrix_apply_failed")
     queue = json.loads(await kv.get(KEYS[3]) or "[]")
-    expected_count = {5: 3, 6: 1, 12: 1}.get(owner["step"], 0)
+    expected_count = {5: 3, 6: 1, 12: 1, 14: 3, 15: 2, 16: 1}.get(owner["step"], 0)
     if applied.get("pending_events") != expected_count or len(queue) != expected_count:
         raise GoogleStateError("google_matrix_queue_mismatch")
     expected_ids = (fetched_ids[2:] if owner["step"] == 5 else
                     owner["pending_ids"][2:] if owner["step"] == 6 else
-                    [owner["fixtures"][1]["google_event_id"]] if failed else [])
+                    [e for e in fetched_ids if e in rejected] if failed else
+                    owner["pending_ids"][1:] if owner["step"] >= 15 else [])
     slots = {slot["google_event_id"]: slot for slot in owner["fixtures"]}
     if ([e.get("id") for e in queue] != expected_ids
             or any(not _source_matches(e, slots[e["id"]]) for e in queue)):
         raise GoogleStateError("google_matrix_queue_mismatch")
     if failed:
-        event_id = owner["fixtures"][1]["google_event_id"]
-        if (rejected != 1 or applied.get("ok") is not False or applied.get("error_count") != 1
-                or applied.get("errors") != [f"discord_sync_failed:{event_id}"]
-                or [e.get("id") for e in queue] != [event_id]
+        if (rejected != {s["google_event_id"] for s in rejection_slots}
+                or applied.get("ok") is not False or applied.get("error_count") != len(rejection_slots)
+                or applied.get("errors") != [f"discord_sync_failed:{event_id}" for event_id in expected_ids]
                 or any(kv.hashes.get(k) != owner["hashes"].get(k) for k in (KEYS[0], KEYS[4]))):
             raise GoogleStateError("google_matrix_partial_failure_mismatch")
-        owner["stages"]["google_matrix_cursor_preserved"] = 200
+        stage = "google_matrix_cursor_preserved" if owner["step"] == 12 else "google_matrix_multi_cursor_preserved"
+        owner["stages"][stage] = 200
     else:
         owner["expected_cursor"] = payload["google"]["next_updated_min"]
-    if owner["step"] == 13 and applied.get("processed") != 1:
+    if owner["step"] in (13, 15, 16, 17) and applied.get("processed") != 1:
         raise GoogleStateError("google_matrix_retry_count_mismatch")
+    if owner["step"] >= 15:
+        owner["stages"][f"google_matrix_queue_drain_{owner['step']}"] = 200
     owner["pending_ids"] = [e["id"] for e in queue]
     owner["hashes"] = kv.hashes
     owner["shared_writes"] = kv.shared_writes
@@ -268,7 +281,7 @@ async def _verify(env, store, owner, token):
         if [e["id"] for e in json.loads(values[KEYS[3]] or "[]")] != owner["pending_ids"]:
             raise GoogleStateError("google_matrix_queue_mismatch")
         result = json.loads(values[KEYS[5]] or "{}")["payload"]
-        if any(result.get(k) is not (owner["step"] != 12) for k in ("ok", "google_apply_ok")):
+        if any(result.get(k) is not (owner["step"] not in (12, 14)) for k in ("ok", "google_apply_ok")):
             raise GoogleStateError("google_matrix_result_mismatch")
         notion_map, discord_map = json.loads(values[KEYS[1]] or "{}")["internal"], json.loads(values[KEYS[2]] or "{}")
     for index, slot in enumerate(owner["fixtures"]):
@@ -311,8 +324,9 @@ async def _verify(env, store, owner, token):
                 continue
             if status != 200 or not _discord_event_is_owned(event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID, run_id=slot["run_id"]):
                 raise GoogleStateError("google_matrix_discord_mismatch")
-            description = slot["previous_description"] if owner["step"] == 12 and index == 1 else slot["source"]["description"]
-            if description not in event.get("description", "") or (owner["step"] == 12 and index == 1 and slot["source"]["description"] in event.get("description", "")):
+            retry_pending = owner["step"] >= 12 and slot["google_event_id"] in owner["pending_ids"]
+            description = slot["previous_description"] if retry_pending else slot["source"]["description"]
+            if description not in event.get("description", "") or (retry_pending and slot["source"]["description"] in event.get("description", "")):
                 raise GoogleStateError("google_matrix_discord_mismatch")
             for key in ("start", "end"):
                 expected = slot["source"][key]
@@ -363,6 +377,9 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         else:
             if 8 <= owner["step"] <= 12:
                 await _change(env, store, owner, token)
+            if owner["step"] == 14:
+                for index in (1, 2, 4):
+                    await _change(env, store, owner, token, index)
             await _apply(env, store, owner, token, invoke)
     elif phase == "cleanup":
         owner["passed"] = owner.get("passed", False) if owner["stage"] == "cleanup" else owner["stage"] == "verified" and owner["step"] == len(STATUSES) - 1

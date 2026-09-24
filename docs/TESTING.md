@@ -428,7 +428,7 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 
 `POST /admin/e2e/google-sync/matrix`、MCPの `prepare_matrix`、手動workflowの `deploy-and-google-matrix-smoke` を使う。既存の2件・3件モードは維持する。専用環境・共有6キー欠損・既存削除履歴の保護・通常書込み/Cron無効・version照合は全件モードと共通。
 
-対象は通常予定2件、終日予定1件、日次2回の繰返し予定（展開後2件）の計5件。初期検査、通常予定3件の個別作成、繰返し親の作成とinstance記録を別HTTPへ分割する。Googleが返したinstance IDを、親ID・originalStartTime・run marker・内容・開始終了時刻で照合してから保存し、各回に固有markerを付ける。IDの生成形式は推測しない。繰返しinstanceの識別と個別変更は[Googleの繰返し予定仕様](https://developers.google.com/workspace/calendar/api/guides/recurringevents)に従う。
+対象は通常予定2件（うち1件はUTCで日付をまたぐ2時間）、3日間の終日予定1件、日次2回の繰返し予定（展開後2件）の計5件。初期検査、通常予定3件の個別作成、繰返し親の作成とinstance記録を別HTTPへ分割する。Googleが返したinstance IDを、親ID・originalStartTime・run marker・内容・開始終了時刻で照合してから保存し、各回に固有markerを付ける。IDの生成形式は推測しない。繰返しinstanceの識別と個別変更は[Googleの繰返し予定仕様](https://developers.google.com/workspace/calendar/api/guides/recurringevents)に従う。
 
 | step | 処理と読戻し |
 | --- | --- |
@@ -438,12 +438,16 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 | 10〜11 | 終日予定と繰返しの1回だけを削除し、もう1回を維持 |
 | 12 | 通常予定の説明を更新し、所有Discord予定への不正日時PATCHで400・code 50035を確認。Notion部分反映、残件1件、cursor・最終成功時刻の維持を照合 |
 | 13 | 次のHTTPで保存済みqueueだけを再試行し、既存Notion/Discord IDを維持して完了 |
+| 14 | 残存3件の説明を更新し、所有Discord予定3件すべてで不正日時PATCHへの400・code 50035、Notion部分反映、残件3件、cursor・最終成功時刻の維持を照合 |
+| 15〜17 | 上限1件で共有queueだけを別HTTPから処理し、残件3→2→1→0、未回復Discordの旧説明、回復後の新説明、既存ID維持を照合 |
 
-各stepを別HTTPでverifyし、Googleの内容・開始終了時刻、Notionの日時と説明、Discordの開始終了時刻・説明・削除、対応表とqueueを照合する。終日は既存の通常変換（開始日09:00 JST、exclusive終了日01:00 JST）を維持する。step 6・7・13では、全取得入力の所有確認後、通常適用には保存済みqueueだけを渡す。履歴保護の例外以外の所有外入力は拒否する。
+各stepを別HTTPでverifyし、Googleの内容・開始終了時刻、Notionの日時と説明、Discordの開始終了時刻・説明・削除、対応表とqueueを照合する。終日は既存の通常変換（開始日09:00 JST、exclusive終了日01:00 JST）を維持する。step 6・7・13・15〜17では、全取得入力の所有確認後、通常適用には保存済みqueueだけを渡す。履歴保護の例外以外の所有外入力は拒否する。
 
 回収は所有する繰返し親・各回・対応先を区別する。親のrecurrence・各回の所属とmarkerを再確認してから親を削除し、通常予定とNotion/Discord、共有KVも回収する。未知の親・回・変更された繰返し規則ではdirtyを維持する。親作成後の応答喪失やinstanceのmarker更新途中でも、記録済み親と元の開始時刻から所有範囲を確認する。32 KiB manifestの境界を含め、既存削除履歴100件での全段階をローカル検証する。
 
 [test_e2e_google_matrix.py](../tests/test_e2e_google_matrix.py) は実DOロジックと代替APIによる検証である。実サービスでは2026-09-24の[実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)（commit `1ca952b9a5297e4dcbe5de837ac0669d3af66a20`）で、全14段階と各verify、API拒否後の共有queue再試行、繰返し親・共有KVを含む回収が成功した。監査62行・31操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` をartifactで照合した。今回の14stepは上記の有限ケースを対象とし、無制限の件数・繰返し規則・サービス停止や回線断の観測を証明しない。400応答は入力検証によるAPI拒否であり、サービス障害ではない。
+
+18stepへの拡張版はローカル検証済みで、実サービス検証は未完了。400以外の応答を期待する拒否の証拠にせず、失敗して回収する。通常同期の件数1・2・5・17と処理上限1・2・5の12組は、[test_google_sync_failures.py](../tests/test_google_sync_failures.py)で残件順序、対応ID数、重複作成なしをローカル検証した。外部APIの実障害、任意構成・件数の保証とは区別する。
 
 ### 分割後の状態障害E2Eの実行結果
 

@@ -8,6 +8,7 @@ from e2e_google_sync_state import KEYS, MAX_BASELINE_DELETED, OWNER_FIELDS, dige
 STATUSES = ("prepared",) * 5 + (
     "pending", "pending", "drained", "updated", "updated", "deleted", "deleted",
     "retry_pending", "retried",
+    "retry_pending", "pending", "pending", "retried",
 )
 
 
@@ -89,7 +90,7 @@ def valid_transition(previous, value):
         return False
     if value["step"] < 5 and (value["hashes"] or writes or pending):
         return False
-    if value["stage"] in ("ready", "verified") and len(pending) != {5: 3, 6: 1, 12: 1}.get(value["step"], 0):
+    if value["stage"] in ("ready", "verified") and len(pending) != {5: 3, 6: 1, 12: 1, 14: 3, 15: 2, 16: 1}.get(value["step"], 0):
         return False
     if not previous.get("dirty"):
         return (value["step"] == 0 and value["stage"] == "working"

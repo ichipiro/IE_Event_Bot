@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: 全体同期9段階のE2Eを実装
+
+- `deploy-and-all-sync-smoke` と `prepare_all` を追加した。所有2件で通常のGoogle取得・適用→Discord差分同期を実行し、往復のID・本文、両方向の固定失敗・queue回復、最終成功時刻・結果、クールダウン、source間排他を検査する。
+- 状態は8キーをrun・scope別KVへ隔離し、所有権と他シナリオ開始の拒否をDOで維持する。通常設定・binding・Cronの変更はなく、dispatchのリクエスト内設定を省略した経路は既存動作を維持する。
+- Python 774件・Node 266件、Ruff、Pyright、設定・機密保護・workflow検査、通常／E2E構成のWrangler dry-run、文書リンク・差分検査が成功した。途中回収・回収失敗後の再試行も確認した。実サービス実行・回収・artifact照合は未実施。固定障害と同一HTTP内のsource競合は実サービス障害・実Webhook・実Cronの証拠に含めない。
+
 ## 2026-09-24: Google同期28段階の実サービス検証と回収が成功
 
 - 承認後の[実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)はcommit `e8e7e9d3208fc010e7089281359c2c37126dc981` で成功した。run `E2E-20260924T130739Z-0e7fcd4c` の28段階と各verifyが成功し、監査118行・59操作を独立照合した。

@@ -121,5 +121,6 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 7件・28stepの追加: 2件の予定を追加し、`maxResults=2` の実ページ送り、残件5→3→1→0、Notion更新失敗とDiscord削除失敗の固定注入・次HTTPでのqueue回復を実装した。所有確認・cursor保護・部分反映・既存ID維持・途中回収・旧5件run互換性をローカル検証済み。専用環境での実行・回収・証跡照合は未完了。
 - 28step初回: [実行36001946180](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36001946180)はstep 6のverifyでHTTP応答前の通信例外となった。回収成功、`failed_clean`・全manifest `dirty=false` を確認済み。詳細原因は元の例外記録がなく未確定。安全な通信分類の保存とverifyだけの最大3回再試行を追加し、修正版の実環境検証を残作業とする。
 - 28step再実行成功: [実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)で所有7件の複数ページ取得、Notion更新／Discord削除の固定失敗・queue回復、全28段階と各verify、全資源回収が成功した。監査118行・59操作、run/version/commit一致、passed・全manifest dirty=falseを照合済み。通信失敗・ロック解放失敗は再発せず、以前の両障害の原因確定とは扱わない。
+- 全体同期の追加: 所有Google予定2件とrun別KVで、Google適用→Discordポーリング、往復時のID維持、両方向の固定部分失敗・queue回復、クールダウンとmanual／webhook／cron sourceの排他を9段階へ分割した。MCP・専用workflow、途中回収をローカル検証済み。実サービス実行は未確認。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)

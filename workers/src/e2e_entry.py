@@ -133,6 +133,7 @@ _GOOGLE_SYNC_PHASES = {
     "/admin/e2e/google-sync": "prepare",
     "/admin/e2e/google-sync/full": "prepare_full",
     "/admin/e2e/google-sync/matrix": "prepare_matrix",
+    "/admin/e2e/google-sync/all": "prepare_all",
     "/admin/e2e/google-sync/inspect": "inspect",
     "/admin/e2e/google-sync/advance": "advance",
     "/admin/e2e/google-sync/verify": "verify",
@@ -769,10 +770,10 @@ class Default(ApplicationDefault):
                 google_owner = await StateStore(self.env).get_e2e_manifest("google_sync")
             except Exception:
                 return _json_response({"ok": False, "error": "google_sync_owner_unavailable"}, status=503)
-            if google_owner and google_owner.get("dirty") and google_owner.get("full_apply"):
+            if google_owner and google_owner.get("dirty") and (google_owner.get("full_apply") or google_owner.get("all_sync")):
                 return _json_response({"ok": False, "error": "google_sync_shared_busy"}, status=409)
         if google_sync_route:
-            async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None):
+            async def invoke(probe_env, probe_state, fetcher, discord_syncer=None, notion_updater=None, *, discord_runner=None, source="e2e-google-sync"):
                 from google_apply_sync import apply_google_events
 
                 async def fetch_owned(_env, state, *, commit_cursor):
@@ -782,8 +783,10 @@ class Default(ApplicationDefault):
                     return await apply_google_events(probe_env, state, events, discord_syncer=discord_syncer, notion_updater=notion_updater)
 
                 return await self._run_sync_dispatch(
-                    None, probe_state, "e2e-google-sync",
+                    None, probe_state, source,
                     google_fetcher=fetch_owned, google_applier=apply_owned,
+                    discord_runner=discord_runner,
+                    dispatch_env=probe_env if discord_runner is not None else None,
                 )
 
             try:

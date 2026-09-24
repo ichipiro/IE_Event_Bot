@@ -362,7 +362,7 @@ export async function appendAuditEntry(entry) {
     run_id: entry.run_id,
     tool: entry.tool,
     target: entry.target,
-    sync_phase: ["run", "prepare", "prepare_full", "prepare_matrix", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+    sync_phase: ["run", "prepare", "prepare_full", "prepare_matrix", "prepare_all", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
@@ -420,7 +420,7 @@ export async function readAuditEntries(runId) {
           run_id: runId,
           tool: entry.tool,
           target: entry.target,
-          sync_phase: ["run", "prepare", "prepare_full", "prepare_matrix", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+          sync_phase: ["run", "prepare", "prepare_full", "prepare_matrix", "prepare_all", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
@@ -494,7 +494,7 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
       redirect: "error",
       signal: AbortSignal.timeout(
         method === "POST" &&
-        ["", "/full", "/matrix", "/advance", "/verify", "/cleanup"].some(suffix => route === `${SCENARIO_ROUTES.google_sync}${suffix}`)
+        ["", "/full", "/matrix", "/all", "/advance", "/verify", "/cleanup"].some(suffix => route === `${SCENARIO_ROUTES.google_sync}${suffix}`)
           ? GOOGLE_SYNC_TIMEOUT_MS : WORKER_TIMEOUT_MS,
       ),
     });
@@ -956,6 +956,9 @@ function operationRoute(tool, target, syncPhase = "run") {
     if (target === "google_sync" && syncPhase === "inspect") {
       return `${SCENARIO_ROUTES.google_sync}/inspect`;
     }
+    if (target === "google_sync" && syncPhase === "prepare_all") {
+      return `${SCENARIO_ROUTES.google_sync}/all`;
+    }
     if (target === "google_sync" && syncPhase === "prepare_matrix") {
       return `${SCENARIO_ROUTES.google_sync}/matrix`;
     }
@@ -1287,7 +1290,7 @@ export function createE2eMcpServer(options = {}) {
       description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しadvanceで更新後に保存しresumeで完了する。",
       inputSchema: {
         run_id: runIdField, scenario: scenarioField,
-        sync_phase: z.enum(["run", "prepare", "prepare_full", "prepare_matrix", "inspect", "advance", "resume"]).default("run"),
+        sync_phase: z.enum(["run", "prepare", "prepare_full", "prepare_matrix", "prepare_all", "inspect", "advance", "resume"]).default("run"),
         version_sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
         response_mode: z.enum(["read", "discard_after_headers"]).default("read"),
       },
@@ -1302,7 +1305,7 @@ export function createE2eMcpServer(options = {}) {
       if (responseMode !== "read" && (scenario !== "discord_delta" || syncPhase !== "advance" || !versionSha256)) {
         return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
       }
-      if ((["prepare_full", "prepare_matrix", "inspect"].includes(syncPhase) && scenario !== "google_sync") ||
+      if ((["prepare_full", "prepare_matrix", "prepare_all", "inspect"].includes(syncPhase) && scenario !== "google_sync") ||
           (["sync_lock", "discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
           (["google_sync", "sync_faults", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && versionSha256) ||
           (!["google_sync", "sync_faults", "sync_lock", "discord_delta", "discord_state", "discord_kv", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
@@ -1346,7 +1349,7 @@ export function createE2eMcpServer(options = {}) {
             return sanitized;
           }
           if (sanitized.ok && scenario === "google_sync" &&
-              (response.payload.dirty !== true || !(response.payload.status === "prepared" && ["prepare_matrix", "advance", "resume"].includes(syncPhase)) && !["pending", "drained", "updated", "deleted", "retry_pending", "retried"].includes(response.payload.status) ||
+              (response.payload.dirty !== true || !(response.payload.status === "prepared" && ["prepare_matrix", "prepare_all", "advance", "resume"].includes(syncPhase)) && !["pending", "drained", "updated", "deleted", "retry_pending", "retried"].includes(response.payload.status) ||
                (syncPhase === "resume" && response.payload.stage !== `google_${response.payload.status}_verified`))) {
             return { ...sanitized, ok: false, error: "google_sync_not_ready" };
           }

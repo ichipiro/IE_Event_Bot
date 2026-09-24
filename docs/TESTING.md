@@ -486,3 +486,27 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 ローカルではRPC例外・不正応答・自分／他owner・ロック消失を検証し、step 11の固定障害でHTTP 409／cleanupのbusy／TTL経過後の回収を確認する。MCPの応答→JSONL書込み・読戻し→成果物の経路も検証する。固定障害は過去の実障害原因を証明せず、実環境での再発時に切り分けるための診断である。
 
 [実行35994329876](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35994329876)で診断版 `538008a2cb40675e81e8476ca9ee7316b8e285cd` を専用Workerへ反映し、18段階と各verify、所有資源・共有KVの回収が成功した。監査78行・39操作、run／version／commit一致、`passed`・全manifest `dirty=false`、JUnit 739件成功を成果物で照合した。解放失敗は再発しておらず、実障害での診断出力や根本原因の確認は含まない。
+
+## 全体同期の往復・部分失敗E2E
+
+`deploy-and-all-sync-smoke` は、既存の `google_sync` manifestと回収経路を使う9段階のシナリオである。`POST /admin/e2e/google-sync/all`（MCPの `scenario=google_sync, sync_phase=prepare_all`）で開始し、既存の `advance`・`verify`・`cleanup` へ接続する。実サービス実行は未確認。
+
+開始前に専用Calendar・Guild・Notion内部DBの空状態と共有Google同期KVの空状態を確認する。Calendarの既存削除履歴だけを不変のfingerprintで保護する。Google予定2件を所有し、通常dispatchのGoogle取得・適用に続けて通常Discordポーリングを実行する。KVの8キー（Google同期の6キーと `discord:snapshot`・`sync:discord_notion_queue`）はrun・scope別に隔離し、別HTTPでdigestと内容を読み戻す。通常の共有KVを使う全体同期を検証済みとは扱わない。
+
+| step | 操作・確認 |
+| --- | --- |
+| 0 | 所有Google予定2件を作成し、読戻す |
+| 1 | Google→Notion・DiscordとDiscord→Google・Notionを同一dispatchで実行 |
+| 2 | 所有Discord予定の本文を変更し、Google・Notionへ反映 |
+| 3 | 次の全体同期で往復させ、既存の対応IDと内容を維持 |
+| 4 | Google本文変更後、所有Notionページ更新だけ固定失敗にし、Google queue・cursor・最終成功時刻を確認 |
+| 5 | 次のHTTPで通常queueから回復し、同じNotion・Discord IDを維持 |
+| 6 | Discord本文変更後、所有1件の逆方向適用だけ固定失敗にし、Discord queue・snapshot・最終成功時刻を確認 |
+| 7 | 次のHTTPで逆方向を回復し、Google・Notionの本文と対応IDを確認 |
+| 8 | 所有KVの時刻でクールダウンを検査し、manual・webhook・cronの各source間の競合拒否、例外後のロック解放を確認 |
+
+通常実装はDiscord由来のGoogle予定をDiscordへ再反映しない。既存のループ抑止仕様を変更せずに試験する。GoogleのPATCHでE2E所有markerを維持する挙動は、[Google拡張プロパティの仕様](https://developers.google.com/workspace/calendar/api/guides/extended-properties)に基づく。
+
+各stepの適用後に別HTTPのverifyを必須とし、MCP・workflowはstep証跡、固定失敗の到達、クールダウン、排他、run・version一致を照合する。他シナリオのdirty manifestがある場合は開始を拒否し、全体同期中の別シナリオ開始もHTTPとDOの両方で拒否する。run・対象・モードの変更、所有外入力、対応IDの変更を拒否する。全段階verify後の回収だけ `passed`、途中回収は `failed_clean` とし、回収失敗時はdirtyと所有記録を残す。回収専用モードは既存の `deploy-and-google-sync-recovery` を使える。
+
+ローカル試験は外部HTTPを代替する。実環境でもstep 4・6は固定失敗の注入、step 8は1 HTTP内の共通dispatch呼出しであり、実サービス障害・実Webhook受信・Cloudflareの実Cron起動・別Workerリクエスト間の競合を証明しない。作成通知は無効化する。

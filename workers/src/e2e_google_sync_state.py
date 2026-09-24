@@ -20,7 +20,9 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix", "all_sync")
+ALL_KEYS = KEYS + ("discord:snapshot", "sync:discord_notion_queue")
+ALL_STEPS = ("prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained")
 # 32 KiBのmanifestにfixture・KV書込み記録の余地を残す。
 MAX_BASELINE_DELETED = 100
 
@@ -34,6 +36,8 @@ def source_id(run_id, index):
 
 
 def final_step(owner):
+    if owner.get("all_sync"):
+        return len(ALL_STEPS) - 1
     # 旧4段階のdirty manifestも、更新後に所有確認して回収できる。
     return len(STEPS) - 1 if owner.get("retry_enabled") is True else 3
 
@@ -63,9 +67,11 @@ def valid_google_transition(previous, value):
             and isinstance(slots, list)
             and len(slots) == (3 if value.get("full_apply") else 2)
             and type(value.get("full_apply", False)) is bool
+            and type(value.get("all_sync", False)) is bool
+            and (not value.get("all_sync") or not (value.get("full_apply") or value.get("retry_enabled") or value.get("matrix")))
             and (not value.get("full_apply") or not value.get("retry_enabled"))
             and isinstance(hashes, dict)
-            and set(hashes) <= set(KEYS)
+            and set(hashes) <= set(ALL_KEYS if value.get("all_sync") else KEYS)
             and all(re.fullmatch(r"[0-9a-f]{64}", str(v)) for v in hashes.values())
             and type(value.get("step")) is int
             and type(value.get("retry_enabled", False)) is bool
@@ -80,7 +86,7 @@ def valid_google_transition(previous, value):
         if (
             not isinstance(baseline, dict)
             or len(baseline) > MAX_BASELINE_DELETED
-            or (baseline and not value.get("full_apply"))
+            or (baseline and not (value.get("full_apply") or value.get("all_sync")))
             or any(not re.fullmatch(r"[0-9a-f]{64}", str(item))
                    for pair in baseline.items() for item in pair)
         ):
@@ -217,7 +223,7 @@ class GoogleKV:
     async def check(self, key, *, writing=False):
         current = await self.store.get_e2e_manifest(SERVICE)
         if (
-            key not in KEYS
+            key not in (ALL_KEYS if self.owner.get("all_sync") else KEYS)
             or not current
             or current.get("dirty") is not True
             or any(current.get(k) != self.owner.get(k) for k in OWNER_FIELDS)
@@ -242,6 +248,20 @@ class GoogleKV:
         await self.check(key, writing=True)
         if not isinstance(value, str) or len(value.encode()) > 32768:
             raise GoogleStateError("google_sync_state_invalid")
+        if key in ALL_KEYS[len(KEYS):]:
+            current = await self.store.get_e2e_manifest(SERVICE)
+            owned_ids = {slot.get("discord_event_id") for slot in current["fixtures"]} - {None}
+            data = json.loads(value)
+            if key == "discord:snapshot":
+                valid = isinstance(data, dict) and set(data) <= owned_ids
+            else:
+                valid = isinstance(data, list) and all(
+                    isinstance(op, dict) and op.get("id") in owned_ids
+                    and op.get("op") == "upsert" and set(op) == {"id", "op"}
+                    for op in data
+                )
+            if not valid:
+                raise GoogleStateError("google_sync_state_invalid")
         ids = {slot["google_event_id"] for slot in self.owner["fixtures"]}
         if key in (KEYS[1], KEYS[2], KEYS[3]):
             data = json.loads(value)

@@ -50,7 +50,7 @@ const PLAYWRIGHT_ARGS = [
   "60000",
 ];
 
-for (const phase of ["prepare_full", "prepare_matrix", "advance", "resume", "cleanup", "inspect"]) {
+for (const phase of ["prepare_full", "prepare_matrix", "prepare_all", "advance", "resume", "cleanup", "inspect"]) {
   test(`Google同期${phase}のHTTP待機時間はWorkerの上限を上回る`, async (t) => {
     const budgets = new WeakMap();
     t.mock.method(AbortSignal, "timeout", (milliseconds) => {
@@ -94,6 +94,28 @@ test("Google matrixは専用routeだけへ送りpreparedを監査する", async 
   });
   assert.deepEqual(paths, ["/admin/e2e/google-sync/matrix"]);
   assert.equal(audit[1].sync_phase, "prepare_matrix");
+  assert.equal(audit[1].execution_status, "prepared");
+});
+test("全体同期は専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_all",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_all",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/all"]);
+  assert.equal(audit[1].sync_phase, "prepare_all");
   assert.equal(audit[1].execution_status, "prepared");
 });
 const PLAYWRIGHT_ALLOWED_TOOLS = [

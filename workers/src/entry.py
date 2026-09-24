@@ -410,6 +410,7 @@ class Default(WorkerEntrypoint):
         google_fetcher=None,
         discord_runner=None,
         lock_ttl_seconds=None,
+        dispatch_env=None,
     ):
         """
         同期処理の中核ディスパッチ。
@@ -424,13 +425,15 @@ class Default(WorkerEntrypoint):
         production の apply_google_events を使用する。
         google_fetcher / discord_runner はロックE2Eの同期本体を隔離する。
         通常経路では省略し、既存の取得・ポーリングを呼ぶ。
+        dispatch_env は全体同期E2Eのリクエスト内設定。省略時は通常設定を使う。
         """
+        run_env = self.env if dispatch_env is None else dispatch_env
         # 同期間隔を取得
-        sync_interval = self._sync_interval_seconds()
+        sync_interval = self._sync_interval_seconds(run_env)
         # KV クールダウン判定
         if (
             state.enabled()
-            and StateStore.is_kv_sync_cooldown_enabled(self.env)
+            and StateStore.is_kv_sync_cooldown_enabled(run_env)
             and await state.should_skip_sync_by_cooldown(sync_interval)
         ):
             return _json_response(
@@ -462,13 +465,13 @@ class Default(WorkerEntrypoint):
         try:
             mode = self._sync_all_mode()
             # Google 差分取得
-            google_result = await (google_fetcher or run_google_delta_fetch)(self.env, state, commit_cursor=False)
+            google_result = await (google_fetcher or run_google_delta_fetch)(run_env, state, commit_cursor=False)
             await self._require_sync_owner(lock_owner)
             apply_result = {"ok": True, "skipped": True}
             if google_result.get("ok"):
                 selected_applier = google_applier or apply_google_events
                 apply_result = await selected_applier(
-                    self.env,
+                    run_env,
                     state,
                     google_result.get("items") or [],
                 )
@@ -485,8 +488,8 @@ class Default(WorkerEntrypoint):
                     await state.set_sync_updated_min(next_cursor)
             await self._require_sync_owner(lock_owner)
             discord_result = {"ok": True, "skipped": True}
-            if self._sync_all_include_discord_notion():
-                discord_result = await (discord_runner or run_discord_notion_poll_sync)(self.env, state)
+            if _bool_env(getattr(run_env, "SYNC_ALL_INCLUDE_DISCORD_NOTION", "false")):
+                discord_result = await (discord_runner or run_discord_notion_poll_sync)(run_env, state)
             await self._require_sync_owner(lock_owner)
             # 全体成功判定
             ok = (
@@ -553,9 +556,9 @@ class Default(WorkerEntrypoint):
             if owner:
                 await self._release_sync_lock(owner)
 
-    def _sync_interval_seconds(self) -> float:
+    def _sync_interval_seconds(self, env=None) -> float:
         """同期クールダウン秒数を返す。"""
-        value = getattr(self.env, "SYNC_INTERVAL_SECONDS", "300")
+        value = getattr(self.env if env is None else env, "SYNC_INTERVAL_SECONDS", "300")
         try:
             return max(0.0, float(value))
         except Exception:

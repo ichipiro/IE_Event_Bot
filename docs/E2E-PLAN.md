@@ -66,6 +66,8 @@
 
 ## 5. 全体同期
 
+- [x] 所有2件・run別KVの9段階を実装し、両方向の通常処理、往復時のID維持、固定部分失敗・queue回復、クールダウンとsource間排他、途中回収をローカル検証する。MCP・専用手動workflowへ接続済み。
+- [ ] `deploy-and-all-sync-smoke` を専用環境で実行し、全9段階・各verify・回収とartifactを照合する。
 - [ ] Google・Discordの両同期、反映の往復、部分失敗を検証する。
 - [ ] クールダウン、最終時刻・結果、手動・Webhook・Cron間の排他を検証する。
 

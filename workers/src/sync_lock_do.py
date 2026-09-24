@@ -796,9 +796,9 @@ class SyncCoordinator(DurableObject):
                 return {"ok": False, "error": "invalid_e2e_manifest_run_id"}, 400
             # 専用環境の共有状態を使う間は、他scenarioの所有開始と競合させない。
             full_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:google_sync"))
-            if service != "google_sync" and full_owner.get("dirty") and full_owner.get("full_apply"):
+            if service != "google_sync" and full_owner.get("dirty") and (full_owner.get("full_apply") or full_owner.get("all_sync")):
                 return {"ok": False, "error": "google_sync_shared_busy"}, 409
-            if service == "google_sync" and manifest.get("dirty") and manifest.get("full_apply") and not full_owner.get("dirty"):
+            if service == "google_sync" and manifest.get("dirty") and (manifest.get("full_apply") or manifest.get("all_sync")) and not full_owner.get("dirty"):
                 for other in _E2E_MANIFEST_KINDS:
                     if other == service:
                         continue

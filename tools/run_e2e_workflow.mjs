@@ -55,6 +55,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-sync-smoke",
   "deploy-and-google-full-smoke",
   "deploy-and-google-matrix-smoke",
+  "deploy-and-all-sync-smoke",
   "deploy-and-google-calendar-check",
   "deploy-and-google-sync-recovery",
   "deploy-and-discord-delta-recovery",
@@ -639,13 +640,13 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   await runPreflight(callTool, runId, options.preflight);
   let primaryError = null;
   try {
-    const steps = options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
+    const steps = options.allSync ? ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"] : options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
       "prepared", "prepared", "pending", "pending", "pending", "drained", "retry_pending", "retried", "retry_pending", "retried"]
       : options.fullApply ? ["pending", "drained", "updated", "deleted"]
       : ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     for (const [index, step] of steps.entries()) {
       const written = await requireTool(callTool, "trigger_sync", {
-        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : "advance",
+        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : "advance",
       });
       if (written.status !== 200 || !written.dirty || written.run_id !== runId || written.execution_status !== step) {
         throw new E2eWorkflowError("google_sync_phase_mismatch");
@@ -675,11 +676,11 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       const status = await requireTool(callTool, "read_status", { run_id: runId });
       const manifest = status.scenarios?.google_sync;
       if (!manifest?.present || !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "verified" ||
-          manifest.stages?.[options.matrix ? `google_matrix_step_${index}` : `google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
+          manifest.stages?.[options.allSync ? `all_sync_step_${index}` : options.matrix ? `google_matrix_step_${index}` : `google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
           (options.fullApply && !options.matrix && (manifest.stages?.google_sync_full_input !== 200 ||
             manifest.stages?.google_sync_shared_empty !== 200)) ||
-          (!options.matrix && index >= 4 && manifest.stages?.google_sync_discord_failure_injected !== 200) ||
-          (!options.matrix && index >= 4 && (manifest.stages?.google_sync_discord_invalid_update !== 400 ||
+          (!options.allSync && !options.matrix && index >= 4 && manifest.stages?.google_sync_discord_failure_injected !== 200) ||
+          (!options.allSync && !options.matrix && index >= 4 && (manifest.stages?.google_sync_discord_invalid_update !== 400 ||
             manifest.stages?.google_sync_discord_rejection_verified !== 200)) ||
           (options.matrix && (manifest.stages?.google_sync_shared_empty !== 200 ||
             (index >= 5 && manifest.stages?.google_matrix_full_input !== 200) ||
@@ -690,6 +691,9 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
             (index >= 20 && (manifest.stages?.google_matrix_pagination !== 200 || manifest.stages?.google_matrix_seven_inputs !== 200)) ||
             (index >= 24 && (manifest.stages?.google_matrix_notion_failure_injected !== 200 || manifest.stages?.google_matrix_notion_cursor_preserved !== 200)) ||
             (index >= 26 && (manifest.stages?.google_matrix_delete_failure_injected !== 200 || manifest.stages?.google_matrix_delete_cursor_preserved !== 200)))) ||
+          (options.allSync && ((index >= 4 && manifest.stages?.all_sync_failure_4 !== 200) ||
+            (index >= 6 && manifest.stages?.all_sync_failure_6 !== 200) ||
+            (index >= 8 && (manifest.stages?.all_sync_cooldown !== 200 || manifest.stages?.all_sync_contention !== 200)))) ||
           status.worker_version?.id_sha256 !== deployed.version_sha256) {
         throw new E2eWorkflowError("google_sync_verification_mismatch");
       }
@@ -1228,6 +1232,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-calendar-check") {
       await runGoogleCalendarCheck(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-all-sync-smoke") {
+      await runDeployAndGoogleSyncSmoke(callTool, runId, { allSync: true });
       return;
     }
     if (command === "deploy-and-google-matrix-smoke") {

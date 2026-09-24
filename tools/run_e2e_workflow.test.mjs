@@ -1460,3 +1460,33 @@ test("読み取り専用Calendar診断は回収対象へ追加しない", () => 
     { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "google_sync", sync_phase: "inspect" },
   ], RUN_ID), []);
 });
+
+for (const failure of [null, "stage", "google_failure", "discord_failure", "cooldown", "contention", "version", "outcome"]) {
+  test(`全体同期workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"];
+    let index = 0;
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`all_sync_step_${index}`]: failure === "stage" ? undefined : 200,
+            all_sync_failure_4: failure === "google_failure" ? undefined : 200,
+            all_sync_failure_6: failure === "discord_failure" ? undefined : 200,
+            all_sync_cooldown: failure === "cooldown" ? undefined : 200,
+            all_sync_contention: failure === "contention" ? undefined : 200,
+          } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
+    });
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { allSync: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { allSync: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_all", "resume", ...Array(8).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+  });
+}

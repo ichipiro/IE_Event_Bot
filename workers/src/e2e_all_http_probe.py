@@ -81,7 +81,8 @@ async def verify_epoch(store, owner):
 
 
 async def dispatch(env, store, owner, token, invoke):
-    await _inputs(env, store, owner, token)
+    if not owner.get("webhook_sync"):
+        await _inputs(env, store, owner, token)
     kv = GoogleKV(store, owner)
     run_env = HttpEnv(env, token, kv)
     # 空状態で確認した削除履歴も通常適用へ渡す。実行は所有2件と履歴上限で有限にする。

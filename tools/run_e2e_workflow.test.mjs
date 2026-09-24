@@ -43,7 +43,7 @@ import {
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
 
-for (const stage of ["cleanup", "ready"]) {
+for (const stage of ["cleanup", "ready", "working"]) {
   for (const failure of [null, "run", "stage", "other_dirty", "version", "outcome"]) {
     test(`google同期の回収専用workflow: ${stage} ${failure ?? "success"}`, async () => {
       assert.equal(selectWorkflowRunId("deploy-and-google-sync-recovery", RUN_ID), RUN_ID);
@@ -53,7 +53,7 @@ for (const stage of ["cleanup", "ready"]) {
           worker_version: { tag: failure === "version" ? "other" : RUN_ID },
           services: {}, scenarios: {
             google_sync: { present: true, dirty: true, run_id: failure === "run" ? "other" : RUN_ID,
-              stage: failure === "stage" ? "working" : stage },
+              stage: failure === "stage" ? "unowned" : stage },
             discord_delta: { dirty: failure === "other_dirty" },
           } }),
         assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "passed" : "failed_clean" } }),

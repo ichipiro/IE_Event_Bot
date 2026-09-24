@@ -275,7 +275,8 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         from e2e_watch_shared_probe import trigger
         return await trigger(env, store, run_id, owner)
     if webhook_sync and phase == "webhook_advance":
-        phase = "http_advance"
+        from e2e_watch_shared_probe import finish
+        return await finish(env, store, owner, invoke)
     elif webhook_sync and phase == "http_advance":
         raise GoogleStateError("all_sync_real_webhook_required")
     http_sync = phase in ("prepare_http", "prepare_webhook") or bool(owner and owner.get("dirty") and owner.get("http_sync"))

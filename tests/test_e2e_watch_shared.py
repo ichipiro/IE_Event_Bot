@@ -170,3 +170,31 @@ def test_existing_watch_is_rejected_before_fixture_creation(monkeypatch):
     assert test.call("watch")[0] == 409
     assert not test.google and not test.channels
     assert test.env.STATE_KV.data["gcal_watch_state"] == "foreign"
+
+
+def test_callback_remains_registered_after_client_cancellation(monkeypatch):
+    from types import SimpleNamespace
+
+    test = WatchScenario(monkeypatch)
+
+    async def scenario():
+        entered, proceed = asyncio.Event(), asyncio.Event()
+        retained = []
+        test.worker.ctx = SimpleNamespace(waitUntil=retained.append)
+
+        async def callback(*args):
+            entered.set()
+            await proceed.wait()
+            return Response("", status=204)
+
+        monkeypatch.setattr(probe, "callback", callback)
+        request = asyncio.create_task(test.worker.fetch(test.request("test")))
+        await entered.wait()
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        assert len(retained) == 1 and not retained[0].done()
+        proceed.set()
+        assert (await retained[0]).status == 204
+
+    asyncio.run(scenario())

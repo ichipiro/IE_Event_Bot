@@ -185,20 +185,49 @@ async def trigger(env, store, run_id, owner):
     require(owner and owner.get("dirty") and owner.get("webhook_sync") and owner["run_id"] == run_id
             and owner["stage"] == "verified" and owner["step"] < 3 and not owner.get("webhook_armed"), "trigger_phase")
     require(owner["watch_url_sha256"] == digest(env.GCAL_WEBHOOK_URL), "target_mismatch")
-    owner["webhook_armed"] = True
-    await google._save(store, owner)
     token = await google.get_google_access_token(env, StateStore(google._DeltaEnv(env)))
     if not token:
         raise GoogleStateError("watch_shared_token_required")
+    # 所有確認と異常系の観測は管理HTTPで済ませ、実callbackの応答待ちを短くする。
+    from e2e_all_sync_probe import _verify, _change
+    from e2e_all_http_probe import _inputs
+    await _verify(env, store, owner, token)
+    owner["step"] += 1
+    owner["stage"] = "working"
+    await google._save(store, owner)
+    await _change(env, store, owner, token)
+    await _inputs(env, store, owner, token)
+    for fixture in owner["fixtures"]:
+        fixture["apply_attempted"] = True
+    await google._save(store, owner)
+    if owner["step"] == 1:
+        kv = GoogleKV(store, owner)
+        await retry_controls(env, store, owner, HttpEnv(env, token, kv), kv)
+        owner["hashes"] = kv.hashes
+        await google._save(store, owner)
+    owner["webhook_armed"] = True
+    await google._save(store, owner)
     slot = owner["fixtures"][0]
     status, event = await google._google_request("GET", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]), token)
     require(status == 200 and google._source_owned(event, slot), "trigger_owner")
     private = dict(event.get("extendedProperties", {}).get("private", {}))
-    private["ie_e2e_webhook_step"] = str(owner["step"] + 1)
+    private["ie_e2e_webhook_step"] = str(owner["step"])
     status, event = await google._google_request("PATCH", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]) + "?sendUpdates=none",
                                                 token, {"extendedProperties": {"private": private}})
     require(status == 200 and google._source_owned(event, slot), "trigger_failed")
-    return {"ok": True, "dirty": True, "status": ("drained", "updated", "drained")[owner["step"]], "stage": "ready"}
+    return {"ok": True, "dirty": True, "status": ("drained", "updated", "drained")[owner["step"] - 1], "stage": "ready"}
+
+
+async def finish(env, store, owner, invoke):
+    require(owner and owner.get("webhook_sync") and owner.get("webhook_armed")
+            and owner["stage"] == "working", "callback_phase")
+    token = await google.get_google_access_token(env, StateStore(google._DeltaEnv(env)))
+    require(token, "token_required")
+    from e2e_all_http_probe import dispatch
+    await dispatch(env, store, owner, token, invoke)
+    owner["stage"] = "ready"
+    await google._save(store, owner)
+    return {"ok": True, "dirty": True}
 
 
 async def callback(env, store, request):
@@ -212,7 +241,7 @@ async def callback(env, store, request):
     if owner["watch_url_sha256"] != digest(env.GCAL_WEBHOOK_URL):
         return Response("", status=409)
     await rpc(store, owner, channel_id=cid, resource_id=rid, message_number=msg, resource_state=kind, dedupe=True)
-    if kind == "sync" or not owner.get("webhook_armed") or owner["stage"] != "verified":
+    if kind == "sync" or not owner.get("webhook_armed") or owner["stage"] != "working":
         return Response("", status=204)
 
     async def invoke(run_env, _state, _fetcher, **kwargs):
@@ -228,9 +257,6 @@ async def callback(env, store, request):
 
 
 async def dispatch_webhook(env, store, owner, run_env, kv, invoke):
-    if owner["step"] == 1:
-        await retry_controls(env, store, owner, run_env, kv)
-        await asyncio.sleep(1.1)
     response = await invoke(run_env, None, None, normal_http=True)
     require(response.status == 204, "dispatch_failed")
     result = (await StateStore(run_env).get_json("result:sync_all", {})) or {}

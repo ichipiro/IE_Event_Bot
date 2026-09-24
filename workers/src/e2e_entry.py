@@ -433,7 +433,12 @@ class Default(ApplicationDefault):
             if str(getattr(self.env, "E2E_WATCH_SHARED_ENABLED", "false")).lower() == "true":
                 from e2e_watch_shared_probe import callback
                 try:
-                    shared_response = await callback(self.env, state, request)
+                    import asyncio
+                    task = asyncio.create_task(callback(self.env, state, request))
+                    context = getattr(self, "ctx", None)
+                    if context is not None:
+                        context.waitUntil(task)
+                    shared_response = await asyncio.shield(task)
                 except Exception:
                     return Response("webhook unavailable", status=503)
                 if shared_response is not None:

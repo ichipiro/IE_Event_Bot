@@ -21,6 +21,8 @@ KEYS = (
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
 OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply")
+# 32 KiBのmanifestにfixture・KV書込み記録の余地を残す。
+MAX_BASELINE_DELETED = 100
 
 
 def digest(value):
@@ -71,6 +73,15 @@ def valid_google_transition(previous, value):
         ):
             return False
         writes = value.get("shared_writes", {})
+        baseline = value.get("baseline_deleted", {})
+        if (
+            not isinstance(baseline, dict)
+            or len(baseline) > MAX_BASELINE_DELETED
+            or (baseline and not value.get("full_apply"))
+            or any(not re.fullmatch(r"[0-9a-f]{64}", str(item))
+                   for pair in baseline.items() for item in pair)
+        ):
+            return False
         if not isinstance(writes, dict) or set(writes) - set(KEYS):
             return False
         if any(
@@ -126,6 +137,8 @@ def valid_google_transition(previous, value):
                 == ("passed" if previous.get("passed") else "failed_clean")
             )
         if any(previous.get(k) != value.get(k) for k in OWNER_FIELDS):
+            return False
+        if previous.get("baseline_deleted", {}) != baseline:
             return False
         if previous.get("retry_enabled", False) != value.get("retry_enabled", False):
             return False

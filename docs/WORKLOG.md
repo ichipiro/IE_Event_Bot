@@ -1,5 +1,10 @@
 # 作業履歴
 
+## 2026-09-24: 削除履歴のある専用Calendarの再利用を修正
+
+- 削除履歴でprepare_fullが停止する4ケースを先に再現した。開始時に履歴のID・内容のハッシュをDOへ記録し、不変の履歴だけを通常適用から除外する。既存履歴は適用・queue・回収へ渡さず、通常予定・新しい履歴・内容変更や復元は拒否する。同じCalendarの連続2回実行、複数ページと取得順、履歴上限、manifestの差替え拒否をローカル検証した。実サービスの再実行結果は別途記録する。
+- Python 677件・Node 205件、Ruff・Pyright、E2E設定・workflow・secret hygiene検査、E2E Workerのdeploy dry-runが成功した。
+
 ## 2026-09-24: Calendar診断で削除履歴のみの残存を確認
 
 - [実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は承認後に成功した。`83cd4b3f8b5585935a9c42721e94f68e393fa0f6`、run `E2E-20260924T070808Z-523c5621`、Worker version fingerprint `5a466bf93575bb477274ceaf4d938047c9c2f3b00ac3c076186ebfa8a30e6a5e` をartifactと照合した。

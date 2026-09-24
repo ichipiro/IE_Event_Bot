@@ -402,9 +402,9 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 
 `POST /admin/e2e/google-sync/full`、MCPの `trigger_sync(scenario="google_sync", sync_phase="prepare_full")` で開始する。手動workflowは `deploy-and-google-full-smoke` を選ぶ。通常の2件・6段階モードは維持し、全件モードは3件・4段階（pending → drained → updated → deleted）で検証する。advance・verify・cleanupは既存経路を使う。
 
-開始前に、通常Google全ページ取得が空、Discord予定一覧が空、Notion内部DBの有効ページが空、共有KVの固定6キーが欠損していることを確認する。空文字も既存値として拒否する。Calendarの削除済み予定も既存データに含むため、過去のE2Eの削除記録が返るCalendarでは開始できない。既存データを消して条件を満たす操作は行わない。専用環境で他の書込み主体がいないことが前提である。
+開始前に、通常Google全ページ取得に有効な予定がなく、Discord予定一覧が空、Notion内部DBの有効ページが空、共有KVの固定6キーが欠損していることを確認する。空文字も既存値として拒否する。Calendarの削除履歴はIDと内容のSHA-256をDO manifestへ保存し、実行中の変更を禁止する。32 KiBのmanifest容量に余地を残すため履歴は100件までとし、超過・ID欠損・重複IDはfixture作成前に拒否する。既存データを消して条件を満たす操作は行わない。専用環境で他の書込み主体がいないことが前提である。
 
-準備で検証予定3件を作成し、通常取得が返した全入力を順序も含めて維持して適用する。所有確認は絞込みに使わず、不明な予定・重複ID・不正な内容があれば全入力を拒否する。初回上限1件による残件2件、別HTTPでの消化、更新、削除を通常dispatch・適用処理で検証する。cursor・Notion/Discord対応表・queue・結果はrun prefixのない共有キーへ保存する。最終成功時刻は既存probeと同じKV fallbackを使う。共通DOは通常dispatchの排他とE2E所有記録を担い、通常DOの最終成功時刻を変更する検証は含まない。
+準備で検証予定3件を作成する。通常取得の入力から、開始前に記録したID・内容と一致し、現在もcancelledである履歴だけを除外する。残りの全入力は順序を維持して適用する。未知の予定・新しい削除履歴・既存履歴の内容変更や復元・検証予定の重複ID・不正な内容は適用前に拒否する。既存履歴がAPIから消えたり差分期間外になった場合は欠落として扱わず、fixtureの可視性は引き続き必須にする。履歴を適用・queue・回収対象へ渡さず、今回の検証予定の削除は通常どおり処理する。初回上限1件による残件2件、別HTTPでの消化、更新、削除を通常dispatch・適用処理で検証する。cursor・Notion/Discord対応表・queue・結果はrun prefixのない共有キーへ保存する。最終成功時刻は既存probeと同じKV fallbackを使う。共通DOは通常dispatchの排他とE2E所有記録を担い、通常DOの最終成功時刻を変更する検証は含まない。
 
 全件モードの変更をDOで禁止し、他scenarioのdirty manifestとの併存を拒否する。通常書込みrouteと全Cronのフラグは無効を必須にする。KVへ書く前に値のdigestをDOへ追記し、回収時は記録済みdigestと一致する値だけを削除する。未知の値は保持してdirtyを維持する。KV書込みの応答喪失・削除途中失敗でも記録から回収を再試行できる。削除後の欠損読戻しを必須にするが、KVの全拠点への削除伝播や読取りと削除の原子性は保証しない。
 
@@ -416,7 +416,7 @@ workflowは全入力確認・共有キーの開始時欠損・回収の各stage�
 
 Calendarの開始条件を切り分ける読み取り専用経路は `POST /admin/e2e/google-sync/inspect`。MCPは `trigger_sync(scenario="google_sync", sync_phase="inspect")`、手動workflowは `deploy-and-google-calendar-check` を使う。専用Workerをdeployしてversion照合後、同じCalendarを `singleEvents=true&showDeleted=true`・全ページで読み、`fields=items(status),nextPageToken` により予定本文やIDを要求しない。結果は `calendar_empty`・`calendar_active`・`calendar_deleted`・`calendar_mixed` の固定分類、API失敗は `google_sync_calendar_http_<status>` として監査へ保存する。診断はKV・manifest・外部予定を書き換えず、回収対象にも追加しない。全件モードの空状態ガードは維持する。Googleの[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)では `showDeleted=true` により `cancelled` が取得対象になる。
 
-[診断実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は `83cd4b3` で成功した。HTTP 200・`calendar_deleted` により、取得対象に通常予定はなく削除履歴だけ残ることを確認した。監査4行・deployとinspectの2操作、run/version/commit一致、全service/scenario manifestが前回と同一で `dirty=false` を照合した。予定・KVは変更していない。現行の全件モードを再開するには、削除履歴のない新規E2E専用Calendarへの切替が必要。これは診断の成功であり、全件適用の成功ではない。
+[診断実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は `83cd4b3` で成功した。HTTP 200・`calendar_deleted` により、取得対象に通常予定はなく削除履歴だけ残ることを確認した。監査4行・deployとinspectの2操作、run/version/commit一致、全service/scenario manifestが前回と同一で `dirty=false` を照合した。予定・KVは変更していない。当時の実装では削除履歴のないCalendarが必要だったが、その後、記録済みの履歴だけを保護して除外する方式へ修正した。これは診断の成功であり、修正版の全件適用は実サービスでの再検証が必要である。
 
 ### 分割後の状態障害E2Eの実行結果
 

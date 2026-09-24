@@ -19,6 +19,7 @@ from e2e_google_sync_state import (
     SERVICE,
     KIND,
     KEYS,
+    MAX_BASELINE_DELETED,
     STEPS,
     GoogleKV,
     GoogleStateError,
@@ -81,6 +82,10 @@ def _source_owned(event, slot):
         .get("ie_event_bot_e2e_run")
         == slot["run_id"]
     )
+
+
+def _deleted_fingerprint(event):
+    return digest(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
 
 
 def _page_owned(env, page, slot):
@@ -197,10 +202,22 @@ async def _apply(env, store, owner, token, invoke):
             return result
         owned = {s["google_event_id"]: s for s in owner["fixtures"]}
         selected = {}
+        current_items = []
         for event in result.get("items", []):
             slot = owned.get(event.get("id")) if isinstance(event, dict) else None
             if owner.get("full_apply") and not slot:
+                # 開始前の履歴は内容まで一致する場合だけ除外し、適用・回収へ渡さない。
+                if (
+                    isinstance(event, dict)
+                    and isinstance(event.get("id"), str)
+                    and event.get("status") == "cancelled"
+                    and owner.get("baseline_deleted", {}).get(digest(event["id"]))
+                    == _deleted_fingerprint(event)
+                ):
+                    owner["stages"]["google_sync_baseline_preserved"] = 200
+                    continue
                 raise GoogleStateError("google_sync_unowned_source")
+            current_items.append(event)
             if slot:
                 # 削除応答ではid・statusだけになる。固定IDと削除着手の両方を必須にする。
                 deleted = owner["step"] >= 3 and slot is owner["fixtures"][0]
@@ -226,7 +243,9 @@ async def _apply(env, store, owner, token, invoke):
         if not required <= set(selected):
             raise GoogleStateError("google_sync_source_not_visible")
         if owner.get("full_apply"):
-            # 所有確認は入力を拒否するために使い、適用対象の絞込みには使わない。
+            # 記録済み履歴以外の全入力・順序は維持する。
+            result["items"] = current_items
+            result["events"] = len(current_items)
             owner["stages"]["google_sync_full_input"] = 200
             owner["pending_ids"] = [e["id"] for e in result["items"][1:]] if owner["step"] == 0 else []
             return result
@@ -570,8 +589,23 @@ async def _check_full_empty(env, token, stages):
     if any([await _raw_shared(env, key) is not None for key in KEYS]):
         raise GoogleStateError("google_sync_shared_not_empty")
     result = await run_google_delta_fetch(GoogleEnv(env, token), StateStore(_DeltaEnv(env)), commit_cursor=False)
-    if not result.get("ok") or result.get("items") != []:
-        raise GoogleStateError("google_sync_calendar_not_empty")
+    if not result.get("ok") or not isinstance(result.get("items"), list):
+        raise GoogleStateError("google_sync_calendar_fetch_failed")
+    baseline = {}
+    for event in result["items"]:
+        if (
+            not isinstance(event, dict)
+            or event.get("status") != "cancelled"
+            or not isinstance(event.get("id"), str)
+            or not event["id"]
+        ):
+            raise GoogleStateError("google_sync_calendar_not_empty")
+        key = digest(event["id"])
+        if key in baseline:
+            raise GoogleStateError("google_sync_calendar_duplicate")
+        baseline[key] = _deleted_fingerprint(event)
+        if len(baseline) > MAX_BASELINE_DELETED:
+            raise GoogleStateError("google_sync_baseline_limit")
     status, events = await discord_request(
         env, stages, {}, "google_sync_empty_guild", "GET",
         f"/guilds/{quote(env.DISCORD_GUILD_ID, safe='')}/scheduled-events",
@@ -585,6 +619,7 @@ async def _check_full_empty(env, token, stages):
     if status != 200 or pages.get("results") != [] or pages.get("has_more") is not False:
         raise GoogleStateError("google_sync_database_not_empty")
     stages["google_sync_shared_empty"] = 200
+    return baseline
 
 
 async def _phase(env, store, run_id, phase, invoke):
@@ -626,8 +661,7 @@ async def _phase(env, store, run_id, phase, invoke):
             )
         ):
             raise GoogleStateError("google_sync_target_mismatch")
-        if full_apply:
-            await _check_full_empty(env, token, stages)
+        baseline = await _check_full_empty(env, token, stages) if full_apply else {}
         slots = []
         for index in range(3 if full_apply else 2):
             subrun = slot_run_id(run_id, index)
@@ -653,6 +687,7 @@ async def _phase(env, store, run_id, phase, invoke):
             "api_rejection_enabled": not full_apply,
             "full_apply": full_apply,
             "shared_writes": {},
+            "baseline_deleted": baseline,
             "stage": "working",
             "hashes": {},
             "fixtures": slots,

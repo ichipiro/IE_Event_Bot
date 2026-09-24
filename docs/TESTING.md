@@ -447,7 +447,7 @@ Calendarの開始条件を切り分ける読み取り専用経路は `POST /admi
 
 [test_e2e_google_matrix.py](../tests/test_e2e_google_matrix.py) は実DOロジックと代替APIによる検証である。実サービスでは2026-09-24の[実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)（commit `1ca952b9a5297e4dcbe5de837ac0669d3af66a20`）で、全14段階と各verify、API拒否後の共有queue再試行、繰返し親・共有KVを含む回収が成功した。監査62行・31操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` をartifactで照合した。今回の14stepは上記の有限ケースを対象とし、無制限の件数・繰返し規則・サービス停止や回線断の観測を証明しない。400応答は入力検証によるAPI拒否であり、サービス障害ではない。
 
-18stepへの拡張版はローカル検証済みで、実サービス検証は未完了。400以外の応答を期待する拒否の証拠にせず、失敗して回収する。通常同期の件数1・2・5・17と処理上限1・2・5の12組は、[test_google_sync_failures.py](../tests/test_google_sync_failures.py)で残件順序、対応ID数、重複作成なしをローカル検証した。外部APIの実障害、任意構成・件数の保証とは区別する。
+18stepへの拡張版は[実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)で実サービス検証も成功した。全18段階と各verify、残存3件それぞれの400拒否とcursor保護、別HTTPでの上限1件のqueue再試行、既存ID維持、繰返し親・各予定・Notion page・共有KV回収を確認した。監査78行・39操作、run/version/commitとclean checkout、passed・全manifest dirty=false、JUnit 719件成功をartifactで照合した。400以外の応答を期待する拒否の証拠にせず、失敗して回収する。通常同期の件数1・2・5・17と処理上限1・2・5の12組は、[test_google_sync_failures.py](../tests/test_google_sync_failures.py)で残件順序、対応ID数、重複作成なしをローカル検証した。外部APIの実障害、任意構成・件数の保証とは区別する。
 
 ### 分割後の状態障害E2Eの実行結果
 
@@ -460,3 +460,5 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 ### Google同期のready段階からの回収
 
 `deploy-and-google-sync-recovery` は、同run・稼働version tag・他資源cleanを確認し、`cleanup` または処理済みの `ready` 段階から所有資源だけを回収する。処理中の `working` は拒否し、制御ロックのTTLと所有確認を維持する。新規fixtureは作成せず、`failed_clean` と全資源cleanを必須にする。実行35980469928でready段階のロック解放失敗を観測したため拡張した。
+
+回収実行35981499346で、ready段階からの所有資源回収と `failed_clean`・全manifest `dirty=false` を確認した。その後の[18step再実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)は全段階と回収に成功した。最初の `google_sync_release_failed` の根本原因は未確定であり、再実行成功を原因修正の証拠とは扱わない。

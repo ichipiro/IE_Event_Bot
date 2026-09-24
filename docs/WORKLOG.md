@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-24: Google matrix 18段階の再実行が成功
+
+- [再実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)で全18段階と各verifyが成功した。3日間の終日・UTC日跨ぎ予定、残存3件それぞれのDiscord HTTP 400・code 50035、cursor保護、上限1件による共有queueの3→2→1→0の消化、既存対応IDの維持を確認した。
+- commit `f09ba2933196e274c0214b4b9d0628316255f44e`、run `E2E-20260924T094010Z-6c1c180a`、Worker version fingerprint `d26edefa263cac2162c0d0bf4f50d189a783a086d4e87fcc98350126d6c23004` を照合した。監査78行・39操作、全18段階の読戻し、通常とalwaysのcleanup各1回、JUnit 719件・失敗0をartifactで独立確認した。今回runは `passed`、全service/scenario manifestは `dirty=false`。繰返し親・各予定・Notion page・共有KVの回収を確認済み。
+- 結果をE2E計画・標準文書へ反映した。前回のロック解放失敗は今回再現しなかったが、原因解明・修正完了とは扱わない。任意件数・構成、サービス障害の観測、通常Cron、本番反映はこの実行の保証に含めない。
+
 ## 2026-09-24: Google matrixの残存資源を回収
 
 - [回収実行35981499346](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35981499346)はcommit `b7a978677bfdbc661cff53e26c93e46547dd5c05`、既存run `E2E-20260924T092101Z-dcf6de0a` で成功した。繰返し親とGoogle予定、Discord予定、Notion page、共有KVの回収stage、`failed_clean`・全service/scenario manifestの `dirty=false` を確認した。

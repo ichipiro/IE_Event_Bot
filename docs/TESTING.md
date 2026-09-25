@@ -622,3 +622,11 @@ POST・不正待機値・上限超過は再試行しない。継続する429も�
 `deploy-and-jobs-retry-smoke` でQ&A・リマインド・Notion cleanupを順に検証する。`tests/test_jobs_retry.py` はQ&Aとcleanupの再試行欠落を再現し、`tests/test_e2e_jobs_retry.py` は通常HTTPの失敗結果・別HTTP読戻し・回復・重複抑止・回収、未検証段階の拒否を確認する。
 
 [実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 手順と対象外は[検証記録](E2E-JOBS-RETRY.md)を参照。
+
+## 通常ジョブのKV保存失敗と再試行
+
+`deploy-and-jobs-kv-retry-smoke` は3通常ジョブの共有KV6キーへ保存前・保存直後の例外を固定注入する。外部処理を再実行せず、同じ値だけを最大3回保存すること、別HTTPの読戻し・重複抑止・回収を検証する。
+
+[実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
+
+詳細と再試行上限超過・実障害・実Cronなどの境界は[専用検証記録](E2E-JOBS-KV-RETRY.md)を参照。

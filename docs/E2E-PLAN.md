@@ -120,3 +120,7 @@
 - [ ] 通常同期・Webhook・Cronの稼働結果と復旧手順を確認する。
 
 実装順は1→2・3→4→5→6・7→8とする。9と11を各段階で実施し、最後に12へ進む。Gitマージ、Release、デプロイは別工程として記録する。
+
+## 通常ジョブKV保存失敗の追加検証（2026-09-25）
+
+- [x] [実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。 詳細は[検証記録](E2E-JOBS-KV-RETRY.md)。再試行上限超過・並行更新・古い読取り・実障害・Worker中断後の一度限りの通知は保証しない。

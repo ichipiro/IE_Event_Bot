@@ -1162,3 +1162,11 @@ Cloudflare や外部 API へ接続せず、同期制御と状態管理の主要�
 
 - [実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。
 - Q&Aの送信失敗を通知済みにする問題と、cleanup失敗時に成功時刻を進める問題をローカルで再現・修正した。詳細は[検証記録](E2E-JOBS-RETRY.md)。
+
+## 2026-09-25: 通常ジョブのKV保存再試行・実サービスE2E
+
+[実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
+
+- 保存処理を修正前へ戻した隔離テストで12ケースの失敗を再現し、通常6キーだけの上限付き再試行・固定500・Cron継続を修正した。
+- ローカルPython967件、Node317件・Cron契約13件、Ruff・Pyright、設定・機密保護・workflow検査、E2E dry-run成功。
+- 証跡と境界は[検証記録](E2E-JOBS-KV-RETRY.md)へ記録した。既存の5文書の未コミット変更を保持し、本番Workerはデプロイしていない。

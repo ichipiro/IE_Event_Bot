@@ -146,3 +146,9 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 ## 通常ジョブ失敗後再試行の確認済み範囲（2026-09-25）
 
 [実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 上記の過去実行で対象外だった通常ジョブ再試行のうち、この固定失敗経路は対応済みとする。実障害・応答喪失・一覧取得失敗はこの結果へ含めない。詳細は[検証記録](E2E-JOBS-RETRY.md)。
+
+## 通常ジョブKV保存失敗の確認済み範囲（2026-09-25）
+
+[実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
+
+KV保存だけを最大3回、1秒・2秒待機で再試行する修正を追加した。上限到達時は固定エラーの500を返す。cache未保存のまま次ジョブが走る場合の再通知は残る制限である。固定例外の検証であり、実障害・実Cron・Worker中断・並行書込み・古いKV読取りは含めない。[検証記録](E2E-JOBS-KV-RETRY.md)。

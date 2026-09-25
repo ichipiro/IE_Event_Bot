@@ -35,3 +35,11 @@
 外部処理とKVは原子的ではなく、一度限りの通知は保証しない。並行ジョブによる上書き競合、古いKV読取り、実サービス障害、Worker中断、実際の応答喪失、実Cron配信はこのE2Eの対象外。保存直後の固定例外は実際の通信障害の観測ではない。STATE_KVとSYNC_COORDINATORの責務・binding・Cron設定は変更しない。
 
 関連: [通常ジョブの外部書込み失敗](E2E-JOBS-RETRY.md)、[一覧取得失敗](E2E-JOBS-LIST-RETRY.md)、[全体計画](E2E-PLAN.md)、[検証方法](TESTING.md)。
+
+## 2026-09-25 実行結果
+
+[実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
+
+run IDは `E2E-20260925T085001Z-906f05ef`。マスク済み成果物は `test-results/jobs-kv-retry/artifacts/`、独立照合スクリプト・結果は同親ディレクトリの `verify.py`・`verification.json` に保存した。
+
+ローカルはPython967件、Node317件とCron契約13件、Ruff・Pyright・設定／機密保護／workflow検査・Wrangler E2E dry-runが成功。修正前の保存処理を隔離プロセスへ戻した同一テストで、保存前後の失敗12ケースを再現済み。再試行上限時の500、キャンセル伝播、Cronで後続ジョブが継続することはローカル確認である。専用Workerへ反映済みで、本番Workerは未デプロイ。

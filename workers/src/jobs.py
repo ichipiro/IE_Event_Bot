@@ -1,8 +1,16 @@
+import asyncio
 import json
+import math
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from workers import fetch as _runtime_fetch
+from state import JobStateWriteError
+
+
+_DISCORD_GET_ATTEMPTS = 4
+_DISCORD_MAX_RETRY_DELAY = 10.0
 
 
 async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
@@ -122,45 +130,54 @@ def _extract_date(page: dict, prop_name: str):
     return (props.get(prop_name) or {}).get("date")
 
 
+class _NotionQueryError(RuntimeError):
+    """部分一覧を成功として適用しないための取得エラー。"""
+
+
 async def _notion_query_all_pages(env, db_id: str):
-    """
-    Notion DB 全件取得（ページネーション対応）。
-    途中失敗時は取得済み分を返して終了する。
-    """
-    if not db_id:
-        return []
-    token = getattr(env, "NOTION_TOKEN", None)
-    if not token:
-        return []
-    headers = _header_json(token)
+    """全ページが正常に取得できた場合だけ一覧を返す。"""
+    if not db_id or not getattr(env, "NOTION_TOKEN", None):
+        raise _NotionQueryError("notion_query_missing_configuration")
+    headers = _header_json(env.NOTION_TOKEN)
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     pages = []
-    cursor = None # ページネーション用の cursor
+    cursor = None
+    seen_cursors = set()
+    injected_fetch = getattr(env, "_job_notion_query_fetch", None)
+    query_fetch = cast(Callable[..., Awaitable[Any]], injected_fetch) if callable(injected_fetch) else fetch
     while True:
-        body = {}
-        if cursor:
-            body["start_cursor"] = cursor
-        # Notion query APIリクエスト
-        response = await fetch(
-            url,
-            {
-                "method": "POST",
-                "headers": headers,
+        body = {"start_cursor": cursor} if cursor else {}
+        try:
+            response = await query_fetch(url, {
+                "method": "POST", "headers": headers,
                 "body": json.dumps(body, ensure_ascii=False),
-            },
-        )
-        # 読み取り
-        if int(response.status) != 200:
-            break
-        data = json.loads(await response.text() or "{}")
-        pages.extend(data.get("results") or [])
-        if not data.get("has_more"):
-            break
-        # 次のカーソルを取得
+            })
+            status = int(response.status)
+            if status != 200:
+                raise _NotionQueryError(f"notion_query_failed_{status}")
+            text = await response.text()
+        except _NotionQueryError:
+            raise
+        except Exception:
+            # 外部応答・例外の本文には機密情報が含まれ得るため固定コードだけを返す。
+            raise _NotionQueryError("notion_query_transport_failed") from None
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            raise _NotionQueryError("notion_query_invalid_response") from None
+        if (not isinstance(data, dict) or not isinstance(data.get("results"), list)
+                or not isinstance(data.get("has_more"), bool)
+                or any(not isinstance(p, dict) or not isinstance(p.get("id"), str)
+                       or not p["id"] or not isinstance(p.get("properties"), dict)
+                       for p in data["results"])):
+            raise _NotionQueryError("notion_query_invalid_response")
+        pages.extend(data["results"])
+        if not data["has_more"]:
+            return pages
         cursor = data.get("next_cursor")
-        if not cursor:
-            break
-    return pages
+        if not isinstance(cursor, str) or not cursor.strip() or cursor in seen_cursors:
+            raise _NotionQueryError("notion_query_invalid_response")
+        seen_cursors.add(cursor)
 
 
 async def _notion_patch_page_number(env, page_id: str, number_value: int) -> bool:
@@ -193,29 +210,42 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
         return None, 401
     url = f"https://discord.com/api/v10{path}"
     body = None if payload is None else json.dumps(payload, ensure_ascii=False)
-    # Discord REST APIリクエスト
-    response = await fetch(
-        url,
-        {
-            "method": method.upper(),
-            "headers": {
-                "Authorization": f"Bot {token}",
-                "Content-Type": "application/json",
+    for attempt in range(_DISCORD_GET_ATTEMPTS):
+        # Discord REST APIリクエスト
+        response = await fetch(
+            url,
+            {
+                "method": method.upper(),
+                "headers": {
+                    "Authorization": f"Bot {token}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "DiscordBot (https://github.com/lycanthr0pes/IE_Event_Bot_fork, 1.0)",
+                },
+                "body": body,
             },
-            "body": body,
-        },
-    )
-    # 読み取り
-    status = int(response.status)
-    text = await response.text()
-    if status >= 400:
-        return None, status
-    if status == 204 or not text:
-        return {}, status
-    try:
-        return json.loads(text), status
-    except Exception:
-        return {}, status
+        )
+        # 読み取り
+        status = int(response.status)
+        text = await response.text()
+        # GETのみを再試行し、通知POSTの二重送信を避ける。
+        if status == 429 and method.upper() == "GET" and attempt + 1 < _DISCORD_GET_ATTEMPTS:
+            try:
+                delay = float(json.loads(text).get("retry_after"))
+            except (ValueError, TypeError, AttributeError):
+                delay = -1
+            if math.isfinite(delay) and 0 <= delay <= _DISCORD_MAX_RETRY_DELAY:
+                await asyncio.sleep(delay)
+                continue
+        if status >= 400:
+            return None, status
+        if status == 204 or not text:
+            return {}, status
+        try:
+            return json.loads(text), status
+        except Exception:
+            return {}, status
+
+    return None, 429
 
 
 async def _discord_send_message(env, channel_id: str, content: str, allowed_mentions=None) -> bool:
@@ -307,13 +337,23 @@ async def _run_qa_notification_pages(
             f"質問: {question}\n"
             f"回答: {answer}"
         )
-        sent = await _discord_send_message(env, channel_id, msg)
+        sender = getattr(env, "_job_send_message", None)
+        sender = cast(Callable[..., Awaitable[bool]], sender) if callable(sender) else _discord_send_message
+        sent = await sender(env, channel_id, msg)
         if not sent:
             had_error = True
             failed_page_ids.append(page_id)
+            # 送信失敗を既読にせず、次のジョブで同じ更新を再判定する。
+            if page_id in cache:
+                new_cache[page_id] = cache[page_id]
+            else:
+                new_cache.pop(page_id, None)
 
     if state.enabled():
-        await state.put_json_if_changed("qa_cache", new_cache)
+        try:
+            await state.put_json_if_changed("qa_cache", new_cache)
+        except JobStateWriteError as exc:
+            return {"ok": False, "error": str(exc)} if return_detail else False
     if return_detail:
         return {
             "ok": not had_error,
@@ -342,9 +382,11 @@ async def run_qa_notification_job(env, state, return_detail: bool = False):
             }
         return True
 
-    await ensure_qa_question_numbers(env)
-    # Q&A DB の全ページを取得
-    pages = await _notion_query_all_pages(env, db_id)
+    try:
+        await ensure_qa_question_numbers(env)
+        pages = await _notion_query_all_pages(env, db_id)
+    except _NotionQueryError as exc:
+        return {"ok": False, "error": str(exc)} if return_detail else False
     return await _run_qa_notification_pages(
         env,
         state,
@@ -359,13 +401,13 @@ async def _list_discord_events(env):
     if not guild_id:
         return []
     # Discord REST API イベント情報リクエスト
-    result, _status = await _discord_api_request(
+    result, status = await _discord_api_request(
         env,
         "GET",
         f"/guilds/{guild_id}/scheduled-events?with_user_count=false",
     )
-    if not isinstance(result, list):
-        return []
+    if not 200 <= status < 300 or not isinstance(result, list):
+        raise RuntimeError(f"discord_event_list_failed_{status}")
     return result
 
 
@@ -457,7 +499,8 @@ async def _run_reminder_events(
             f"{event_url}"
         )
         # Discord REST API メッセージ送信リクエスト
-        sender = send_message or _discord_send_message
+        injected_sender = getattr(env, "_job_send_message", None)
+        sender = send_message or (cast(Callable[..., Awaitable[bool]], injected_sender) if callable(injected_sender) else _discord_send_message)
         sent = await sender(
             env,
             channel_id,
@@ -477,7 +520,10 @@ async def _run_reminder_events(
             failed_event_ids.append(event_id)
 
     if cache_changed and state.enabled():
-        await state.put_json_if_changed("reminder_cache", cache)
+        try:
+            await state.put_json_if_changed("reminder_cache", cache)
+        except JobStateWriteError as exc:
+            return {"ok": False, "error": str(exc)} if return_detail else False
     if return_detail:
         return {
             "ok": not had_error,
@@ -504,14 +550,25 @@ async def run_day_before_reminder_job(env, state, return_detail: bool = False):
             }
         return True
 
-    events = await _list_discord_events(env)
-    return await _run_reminder_events(
+    try:
+        events = await _list_discord_events(env)
+    except RuntimeError as exc:
+        code = str(exc)
+        if not code.startswith("discord_event_list_failed_"):
+            raise
+        if return_detail:
+            return {"ok": False, "error": code}
+        return False
+    result = await _run_reminder_events(
         env,
         state,
         events,
         now_utc=datetime.now(timezone.utc),
         return_detail=return_detail,
     )
+    if isinstance(result, dict):
+        result["listed_count"] = len(events)
+    return result
 
 
 def _utc_now():
@@ -601,7 +658,8 @@ async def _run_auto_clean_pages(
     archived = 0
     had_error = False
 
-    archiver = archive_page or _notion_archive_page
+    injected_archiver = getattr(env, "_job_archive_page", None)
+    archiver = archive_page or (cast(Callable[..., Awaitable[bool]], injected_archiver) if callable(injected_archiver) else _notion_archive_page)
     for page in pages:
         scanned += 1
         if not _archive_internal_due(_extract_date(page, date_prop), now_utc):
@@ -612,9 +670,12 @@ async def _run_auto_clean_pages(
         else:
             had_error = True
 
-    # 最終実行時刻を保存
-    if state.enabled():
-        await state.put_text("cleanup:last_epoch", str(now_utc.timestamp()))
+    # 失敗したページを次回のinterval guardで抑止しない。
+    if not had_error and state.enabled():
+        try:
+            await state.put_text("cleanup:last_epoch", str(now_utc.timestamp()))
+        except JobStateWriteError as exc:
+            return {"ok": False, "error": str(exc)} if return_detail else False
 
     if return_detail:
         return {
@@ -632,9 +693,12 @@ async def run_auto_clean_job(env, state, return_detail: bool = False):
     - 内部DBの条件に従って対象ページをアーカイブ
     - 最終実行時刻を KV に保存
     """
-    return await _run_auto_clean_pages(
-        env,
-        state,
-        None,
-        return_detail=return_detail,
-    )
+    try:
+        return await _run_auto_clean_pages(
+            env,
+            state,
+            None,
+            return_detail=return_detail,
+        )
+    except _NotionQueryError as exc:
+        return {"ok": False, "error": str(exc)} if return_detail else False

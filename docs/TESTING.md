@@ -107,7 +107,10 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-google-discord-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Discord Scheduled Event へ反映して検証後、両資源を cleanup する |
 | `deploy-and-google-notion-smoke` | 専用 Worker を deploy し、Google event を既存の適用処理で Notion 内部 DB へ反映して検証後、両資源を cleanup する |
 | `deploy-and-qa-notification-smoke` | 専用 Worker を deploy し、所有Q&A pageの初回抑止と更新通知を検証後、Notion pageとDiscord messageをcleanupする |
+| `deploy-and-qa-normal-smoke` | 空の専用Q&A DBに3件を作り、通常HTTPハンドラによる全件取得・採番・共有cache・通知・重複抑止と回収を検証する |
+| `deploy-and-reminder-normal-smoke` | 空の専用Guildへ4予定を作成し、通常HTTPハンドラの全件取得・2件選別・共有KV・通知・別HTTP重複抑止を検証して回収する |
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
+| `deploy-and-notion-cleanup-normal-smoke` | 通常HTTPハンドラで専用DB全件取得・期限判定・共有KV・別HTTPのinterval guardを検証し、所有ページと共有キーを回収する |
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
 | `deploy-and-webhook-delivery-smoke` | 専用 Worker を deploy し、run所有の短命watchを作成してGoogleの初回`sync`通知到達を確認後、watchを停止する |
@@ -365,6 +368,8 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 
 ### 通常Google同期の専用E2E
 
+2026-09-24の追加検証では、[test_google_sync_failures.py](../tests/test_google_sync_failures.py) に通常dispatch・通常StateStore・通常HTTPラッパーを通す21ケースを追加した。Notionの照会・ページ取得・作成・archive・Discord ID書戻し、Discord削除について403・429・503を代替APIから返し、失敗時のcursor/最終成功時刻の不変、残件保存、空の新規取得からの回復を確認する。subrequest上限では件数上限内の未着手分も保持する。Discord削除の404は削除済みとして扱い、Discord由来イベントの取消では元Discord予定を削除しない。修正前は19ケースが失敗した。実サービスの障害、KV保存失敗、応答喪失後の重複、Notion作成直後のページUUID書戻し失敗はこの検証の保証に含めない。
+
 `e2e_google_sync_probe.py` の `google_sync` は、`POST /admin/e2e/google-sync` と `/advance`・`/verify`・`/cleanup` を使う。`E2E_GOOGLE_SYNC_ENABLED=true`、内部認証、run ID、稼働version tagとの一致、KV・DO、専用Calendar・Notion内部DB・Discord guild、共通ロック有効・クールダウン無効を必須とする。cleanupは同run・同対象を確認するが、稼働version tagへの一致を要求しない。
 
 | 段階 | 操作と確認 |
@@ -374,17 +379,92 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 | advance → drained | 前段階の検証済み状態を再確認し、上限2件で残件を消化。重複取得された予定の更新は通常処理に従う |
 | advance → updated | 先頭の所有Google予定の説明を更新し、通常差分取得・適用からNotion・Discordへの反映を確認 |
 | advance → deleted | 同じ所有Google予定を削除し、通常取得のcancelledからNotion archive・Discord削除・対応表除去を確認 |
-| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後にDiscord失敗を1回固定注入し、通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
+| advance → retry_pending | 残った所有Google予定の説明を更新。Notion反映後、所有Discord予定へ `scheduled_start_time="not-a-date"` のPATCHを1回送り、HTTP 400・code 50035を必須とする。通常dispatchの500・残件1件・cursor/最終成功時刻の不変・Notion更新済み/Discord旧内容を確認 |
 | advance → retried | 通常取得後の入力を空にして保存queueだけを通常適用へ渡し、同じNotion/Discord IDへの反映・残件0・成功結果を確認 |
 | cleanup | Google予定・Notionページ・Discord予定の所有を再確認して回収し、run別KVの固定6キーを削除 |
 
 各advanceの前にverifyを必須とする。専用制御DOロックはphase全体を保護し、通常dispatchは既存の共通同期ロックを使用する。1 HTTPは50秒を上限とする。書込み前に `working` を保存し、途中失敗したphaseは再送せずcleanupへ進む。所有IDが未保存でもrun markerで一意に再発見し、曖昧・所有不一致ならdirtyを維持する。ID衝突で作成していない既存予定は回収しない。検証の再実行が失敗した場合も成功判定を取り消す。
+
+新規runの `api_rejection_enabled=true` はDO manifestで変更不可とする。API拒否前にはDiscord予定をGETしてID・Guild・名前・run markerを再照合する。400以外、または400でもcodeが50035でない応答は試験成功にせず回収へ進む。workflowは `google_sync_discord_invalid_update=400` と `google_sync_discord_rejection_verified=200` を必須にする。旧manifestは従来の固定注入・所有資源回収を維持する。この入力検証エラーは実サービス障害・回線断の観測ではなく、通常の共有名前空間と任意予定の全件適用も含まない。日時の形式は[Discord Scheduled Event仕様](https://docs.discord.com/developers/resources/guild-scheduled-event)に基づく。
+
+初回の[実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)は空の名前を使う旧要求でAPI拒否段階と回収に失敗した。空名が受理されるモデルをローカルで再現し、新規要求を不正な日時へ変更した。旧runの回収に限り、`api_rejection_enabled=true`・step 4・cleanup段階・2件目の記録済みDiscord ID・Guild・run marker・空の名前のすべてが一致する資源を許可する。未知のIDを名前から推測して削除しない。
+
+`deploy-and-google-sync-recovery` は `recovery_run_id` を必須とし、同runのcleanup段階と稼働tag、他のdirty資源がないことをdeploy前に確認する。修正版を同run IDでdeployした後にgoogle_syncだけを回収し、`failed_clean`、通常とalwaysのcleanup、全資源cleanのpreflight、マスク済みartifactを確認する。fixture作成・同期再開・失敗した試験のpassed化は行わない。
+
+2026-09-24の[復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で、`834930f` を同じrun IDへdeployし、空名回収の照合stage 200、Discord削除204、Notion archive 200、Google削除204、KV回収200、`failed_clean`・全資源 `dirty=false` を確認した。監査4行・2操作、run/version/commit・clean checkout、JUnit 642件・失敗0を照合した。元の試験は失敗のままであり、修正版の不正日時要求と再試行の実証とは分ける。
+
+同日の[再実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)では `d184a2a` をdeployし、不正日時PATCHへのHTTP 400・code 50035の確認stage、通常dispatchの500、cursor・最終成功時刻の保護、別HTTPでqueueだけを処理する回復、全6段階のverify、通常とalwaysのcleanupが成功した。監査30行・15操作、run/version/commit・clean checkout、JUnit 642件・失敗0、`passed`・全資源 `dirty=false` を独立照合した。入力検証エラーの実応答であり、実サービス障害や共有状態の全件適用を検証したものではない。
 
 MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / "resume")`、`cleanup_run(service="google_sync")` を使用する。手動workflowの `deploy-and-google-sync-smoke` はdeploy 1回、prepare 1回、advance 5回、各段階のverify、稼働version fingerprintとDO段階の照合、通常と `always()` のcleanup、監査収集へ接続する。KVの `google_sync_not_ready`・同run・dirty・409だけを3秒間隔、最大25回待機する。
 
 ローカルでは [test_e2e_google_sync_probe.py](../tests/test_e2e_google_sync_probe.py) の26ケースで全段階、認証・version・設定拒否、古いKV、所有差替え、ID衝突、作成応答喪失、外部作成失敗後の再送拒否、回収再試行、再検証失敗、一覧反映遅延時の取得済みIDによる回収、外部削除後のKV回収失敗からの再試行、JS null/undefinedのKV欠損値、部分反映からの同じIDへのqueue再試行、注入欠落・回復失敗・要件巻戻し・回復後再検証失敗の拒否を確認した。Google・Notion・Discord APIと対象の疎通確認は代替している。2026-09-15（JST）の[実行34862331643](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34862331643)で、所有2件の繰越・消化・更新・削除、各段階の別HTTP読戻し、回収が成功した。prepare 1回・advance 3回・verify 4回で再試行はなく、最長phaseは36.058秒だった。監査22行・11操作、manifest、run・version・commit一致、JUnit 602件・失敗0、`passed`・全資源 `dirty=false` を独立照合した。回収の保証範囲はAPI応答とKV delete完了であり、全拠点への削除伝播完了ではない。任意の外部予定への適用、実Cron、通知、Notion外部DB、部分失敗からの任意位置の自動再開はこのシナリオの対象外である。
 
 追加したretry_pending / retriedは固定注入モデルであり、Discordの実障害・回線断の観測ではない。注入はE2E呼出し内のcallbackだけを使い、モジュール共有状態を書き換えない。通常dispatchの想定500、残件、cursor保護を確認した場合だけシナリオHTTPを200とし、想定外の失敗は回収へ進む。6段階版は[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)で成功した。prepare 1回・advance 5回・verify 6回、読戻し再試行なし。注入段階27.218秒・queue回復26.944秒で、通常dispatchの想定500、cursor/最終成功時刻保護、queue回復の固定stageを確認した。監査30行・15操作とmanifest、run・version・commit、JUnit 610件・失敗0、通常とalwaysの回収、passed・全資源dirty=falseを独立照合した。
+
+### Google同期の共有KV・全件モード
+
+全件modeのphase上限は90秒（通常2件modeは50秒）。Google同期routeのMCP→Worker HTTP待機は120秒、workflow→MCPの待機は180秒とし、Workerの制御ロック解放・結果取得を待つ。phaseの上限は通常同期ロック120秒・制御ロック300秒より短い。
+
+`POST /admin/e2e/google-sync/full`、MCPの `trigger_sync(scenario="google_sync", sync_phase="prepare_full")` で開始する。手動workflowは `deploy-and-google-full-smoke` を選ぶ。通常の2件・6段階モードは維持し、全件モードは3件・4段階（pending → drained → updated → deleted）で検証する。advance・verify・cleanupは既存経路を使う。
+
+開始前に、通常Google全ページ取得に有効な予定がなく、Discord予定一覧が空、Notion内部DBの有効ページが空、共有KVの固定6キーが欠損していることを確認する。空文字も既存値として拒否する。Calendarの削除履歴はIDと内容のSHA-256をDO manifestへ保存し、実行中の変更を禁止する。32 KiBのmanifest容量に余地を残すため履歴は100件までとし、超過・ID欠損・重複IDはfixture作成前に拒否する。既存データを消して条件を満たす操作は行わない。専用環境で他の書込み主体がいないことが前提である。
+
+準備で検証予定3件を作成する。通常取得の入力から、開始前に記録したID・内容と一致し、現在もcancelledである履歴だけを除外する。残りの全入力は順序を維持して適用する。未知の予定・新しい削除履歴・既存履歴の内容変更や復元・検証予定の重複ID・不正な内容は適用前に拒否する。既存履歴がAPIから消えたり差分期間外になった場合は欠落として扱わず、fixtureの可視性は引き続き必須にする。履歴を適用・queue・回収対象へ渡さず、今回の検証予定の削除は通常どおり処理する。初回上限1件による残件2件、別HTTPでの消化、更新、削除を通常dispatch・適用処理で検証する。cursor・Notion/Discord対応表・queue・結果はrun prefixのない共有キーへ保存する。最終成功時刻は既存probeと同じKV fallbackを使う。共通DOは通常dispatchの排他とE2E所有記録を担い、通常DOの最終成功時刻を変更する検証は含まない。
+
+全件モードの変更をDOで禁止し、他scenarioのdirty manifestとの併存を拒否する。通常書込みrouteと全Cronのフラグは無効を必須にする。KVへ書く前に値のdigestをDOへ追記し、回収時は記録済みdigestと一致する値だけを削除する。未知の値は保持してdirtyを維持する。KV書込みの応答喪失・削除途中失敗でも記録から回収を再試行できる。削除後の欠損読戻しを必須にするが、KVの全拠点への削除伝播や読取りと削除の原子性は保証しない。
+
+workflowは全入力確認・共有キーの開始時欠損・回収の各stageとversionを照合し、失敗時も既存のcleanupと監査収集を使う。[test_e2e_google_full.py](../tests/test_e2e_google_full.py) では取得順の逆転・複数ページ・全段階、既存データ保護、所有外入力、書込み応答喪失、回収再試行、他scenarioとの競合、設定・manifestの差替え拒否を代替APIと実DOロジックで検証する。実サービスの3件・4段階は以下の実行で成功した。任意件数・繰返し予定など全入力形式への対応を実証したものではない。
+
+2026-09-24の初回[実行35962599536](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35962599536)は `ea6044e` のLocal validationとdeploy成功後、`google_sync_shared_not_empty` で停止した。新規検証資源の作成・共有KV書込み・全件適用には到達していない。cleanupは前回runのclean manifestに対するrun不一致として8回拒否された。監査20行・10操作、version/commit/run一致、全manifest `dirty=false` と前回所有記録の保持、JUnit 659件成功を確認した。今回の全件モードは未検証のままであり、再実行には空のE2E専用共有KVが必要である。
+
+新規KVへの切替後の[実行35963510311](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35963510311)は `952f27f` のdeployと共有キーの空状態検査を通過し、Calendarの開始条件で停止した。`google_sync_calendar_not_empty` は取得失敗にも使われるため、artifactだけでは残存予定・削除履歴・取得失敗を区別できない。新規fixture・共有状態書込みは未実施、全manifestは前回のclean記録を保持した。全件適用の実サービス検証は未完了である。
+
+Calendarの開始条件を切り分ける読み取り専用経路は `POST /admin/e2e/google-sync/inspect`。MCPは `trigger_sync(scenario="google_sync", sync_phase="inspect")`、手動workflowは `deploy-and-google-calendar-check` を使う。専用Workerをdeployしてversion照合後、同じCalendarを `singleEvents=true&showDeleted=true`・全ページで読み、`fields=items(status),nextPageToken` により予定本文やIDを要求しない。結果は `calendar_empty`・`calendar_active`・`calendar_deleted`・`calendar_mixed` の固定分類、API失敗は `google_sync_calendar_http_<status>` として監査へ保存する。診断はKV・manifest・外部予定を書き換えず、回収対象にも追加しない。全件モードの空状態ガードは維持する。Googleの[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)では `showDeleted=true` により `cancelled` が取得対象になる。
+
+[診断実行35965137690](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35965137690)は `83cd4b3` で成功した。HTTP 200・`calendar_deleted` により、取得対象に通常予定はなく削除履歴だけ残ることを確認した。監査4行・deployとinspectの2操作、run/version/commit一致、全service/scenario manifestが前回と同一で `dirty=false` を照合した。予定・KVは変更していない。当時の実装では削除履歴のないCalendarが必要だったが、その後、記録済みの履歴だけを保護して除外する方式へ修正した。これは診断の成功であり、修正版の全件適用は実サービスでの再検証が必要である。
+
+[実行35968760516](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35968760516)は削除履歴照合・3件作成・初回dispatchを通過したが、旧50秒上限で `google_sync_timeout` となった。監査8行・4操作、run/version/commit一致、今回runの `failed_clean`・全manifest `dirty=false`・共有KV回収成功を照合した。タイムアウトを調整した版の全件4段階は再検証待ち。
+
+[実行35969469480](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35969469480)で、既存の削除履歴を保護した3件の全件適用、pending・drained・updated・deletedの全4段階と各verify、共有KVを含む回収が成功した。監査22行・11操作、run/version/commitとclean checkout、今回runの `passed`・全manifest `dirty=false`、JUnit 678件成功を照合した。`google_sync_baseline_preserved`・`google_sync_full_input`・`google_sync_shared_cleanup` はすべて200だった。prepare_fullの所要時間は監査上67.236秒で、全件phase90秒・HTTP120秒・workflow内MCP180秒の設定で完了した。今回の3件・専用環境を超える任意構成の検証は別項目とする。
+
+### Google同期の予定形式・件数・共有queue再試行
+
+`POST /admin/e2e/google-sync/matrix`、MCPの `prepare_matrix`、手動workflowの `deploy-and-google-matrix-smoke` を使う。既存の2件・3件モードは維持する。専用環境・共有6キー欠損・既存削除履歴の保護・通常書込み/Cron無効・version照合は全件モードと共通。
+
+対象は通常予定2件（うち1件はUTCで日付をまたぐ2時間）、3日間の終日予定1件、日次2回の繰返し予定（展開後2件）の計5件。初期検査、通常予定3件の個別作成、繰返し親の作成とinstance記録を別HTTPへ分割する。Googleが返したinstance IDを、親ID・originalStartTime・run marker・内容・開始終了時刻で照合してから保存し、各回に固有markerを付ける。IDの生成形式は推測しない。繰返しinstanceの識別と個別変更は[Googleの繰返し予定仕様](https://developers.google.com/workspace/calendar/api/guides/recurringevents)に従う。
+
+現行版は後半で通常予定を2件追加し、合計7件（削除済み2件を含む）・28stepを対象にする。所有manifestの `matrix_extended=true` は途中変更を拒否し、step 27まで成功しないとpassedにしない。旧5件・18stepのdirty runは旧完了条件と回収経路を維持する。
+
+| step | 処理と読戻し |
+| --- | --- |
+| 0〜4 | 初期検査、終日・通常2件・繰返し親と2回分の段階作成 |
+| 5〜7 | 上限2件で5件を処理し、共有queueを3件→1件→0件へ消化 |
+| 8〜9 | 終日予定を1日移動、繰返しの1回だけを1時間移動し、説明も更新 |
+| 10〜11 | 終日予定と繰返しの1回だけを削除し、もう1回を維持 |
+| 12 | 通常予定の説明を更新し、所有Discord予定への不正日時PATCHで400・code 50035を確認。Notion部分反映、残件1件、cursor・最終成功時刻の維持を照合 |
+| 13 | 次のHTTPで保存済みqueueだけを再試行し、既存Notion/Discord IDを維持して完了 |
+| 14 | 残存3件の説明を更新し、所有Discord予定3件すべてで不正日時PATCHへの400・code 50035、Notion部分反映、残件3件、cursor・最終成功時刻の維持を照合 |
+| 15〜17 | 上限1件で共有queueだけを別HTTPから処理し、残件3→2→1→0、未回復Discordの旧説明、回復後の新説明、既存ID維持を照合 |
+| 18〜19 | 通常予定を1件ずつ追加し、所有記録とGoogle読戻しを確認 |
+| 20〜23 | cursorを参照せず、Googleの通常ページ送りを `maxResults=2` で実行。削除済み2件を含む所有7件と4ページ以上を必須とし、上限2件でqueueを5→3→1→0へ消化 |
+| 24〜25 | 追加予定の説明を変更し、所有確認後にNotion更新の失敗を固定注入。Notionは旧説明・Discordは新説明、残件1件・cursor保護を確認し、次のHTTPでqueueだけを再試行 |
+| 26〜27 | もう1件の追加予定を削除し、所有確認後にDiscord削除の失敗を固定注入。Notionはarchive済み・Discordは残存、対応表・残件1件・cursor保護を確認し、次のHTTPで削除を完了 |
+
+各stepを別HTTPでverifyし、Googleの内容・開始終了時刻、Notionの日時と説明、Discordの開始終了時刻・説明・削除、対応表とqueueを照合する。終日は既存の通常変換（開始日09:00 JST、exclusive終了日01:00 JST）を維持する。step 6・7・13・15〜17・21〜23・25・27では、全取得入力の所有確認後、通常適用には保存済みqueueだけを渡す。履歴保護の例外以外の所有外入力は拒否する。
+
+小さいページサイズはE2Eから渡すfetch callbackだけで設定し、通常運用の `maxResults=2500` を維持する。[events.list仕様](https://developers.google.com/workspace/calendar/api/v3/reference/events/list)の `nextPageToken` に従って実APIを読み、ページ内の欠落・重複や所有外入力、想定したページ数の不足は適用前に拒否する。Notion更新とDiscord削除の固定注入では対象操作を実行せず失敗値を返し、通常適用のエラー・queue保存分岐を通す。サービス障害やHTTP 5xxを観測した証拠とは扱わず、その後の再試行と他の適用・読戻し・回収には実APIを使う。callbackを渡さない通常処理の動作は維持する。
+
+28step版は[実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)（commit `e8e7e9d3208fc010e7089281359c2c37126dc981`）で実サービス検証も成功した。所有7件のページ送り、queueの5→3→1→0、Notion更新／Discord削除の固定失敗後の部分反映・cursor保護・次HTTPでの回復・既存ID維持、全28段階と各verify、全所有資源と共有KVの回収を確認した。監査118行・59操作、run/version/commit一致、passed・全manifest dirty=false、JUnit 754件成功をartifactで照合した。通信失敗・ロック解放失敗は再発せず、再試行・診断の実障害による発動は未確認である。
+
+初回の[実行36001946180](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36001946180)はstep 6のadvance後、verifyのfetchが例外となり `worker_request_failed`・status 0で停止した。回収200・`failed_clean`・全manifest `dirty=false`、監査34行・17操作とversion一致を照合済み。7件への拡張段階には未到達。HTTP応答未取得の通信例外であり、詳細原因は旧記録から特定できない。
+
+Google verifyは同runの `worker_request_failed`（status 0）と `worker_response_read_failed`（status 200）だけ、通信失敗を各段階最大3回まで試行する。間隔3秒、状態反映待ちを含む合計25回の上限も維持する。prepare／advanceは応答を失っても再送しない。通信例外の `transport_diagnostic` は `phase`（fetch／body）、許可された `name` と `code` だけを監査・成果物へ保存し、未知の型名・コードは `other` にする。これらは次回の切り分け情報であり、今回の障害原因の推定値ではない。
+
+回収は所有する繰返し親・各回・対応先を区別する。親のrecurrence・各回の所属とmarkerを再確認してから親を削除し、通常予定とNotion/Discord、共有KVも回収する。未知の親・回・変更された繰返し規則ではdirtyを維持する。親作成後の応答喪失やinstanceのmarker更新途中でも、記録済み親と元の開始時刻から所有範囲を確認する。32 KiB manifestの境界を含め、既存削除履歴100件での全段階をローカル検証する。
+
+[test_e2e_google_matrix.py](../tests/test_e2e_google_matrix.py) は実DOロジックと代替APIによる検証である。実サービスでは2026-09-24の[実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)（commit `1ca952b9a5297e4dcbe5de837ac0669d3af66a20`）で、全14段階と各verify、API拒否後の共有queue再試行、繰返し親・共有KVを含む回収が成功した。監査62行・31操作、run/version/commit一致、今回runの `passed`・全manifest `dirty=false` をartifactで照合した。今回の14stepは上記の有限ケースを対象とし、無制限の件数・繰返し規則・サービス停止や回線断の観測を証明しない。400応答は入力検証によるAPI拒否であり、サービス障害ではない。
+
+18stepへの拡張版は[実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)で実サービス検証も成功した。全18段階と各verify、残存3件それぞれの400拒否とcursor保護、別HTTPでの上限1件のqueue再試行、既存ID維持、繰返し親・各予定・Notion page・共有KV回収を確認した。監査78行・39操作、run/version/commitとclean checkout、passed・全manifest dirty=false、JUnit 719件成功をartifactで照合した。400以外の応答を期待する拒否の証拠にせず、失敗して回収する。通常同期の件数1・2・5・17と処理上限1・2・5の12組は、[test_google_sync_failures.py](../tests/test_google_sync_failures.py)で残件順序、対応ID数、重複作成なしをローカル検証した。外部APIの実障害、任意構成・件数の保証とは区別する。
 
 ### 分割後の状態障害E2Eの実行結果
 
@@ -393,3 +473,192 @@ MCPは `trigger_sync(scenario="google_sync", sync_phase="prepare" / "advance" / 
 prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケース、別HTTP読戻しがすべて200となった。ケース要求の最大時間は15.191秒、TTLケースは14.051秒、verifyは13.133秒だった。読戻しの再試行は発生していない。run内と `always()` のcleanupが200、`outcome=passed`、全資源 `dirty=false` を確認した。artifact監査24行・完了12操作とmanifest、JUnit 570件・失敗0・エラー0・skip 0を独立照合した。
 
 古い値・保存失敗は固定注入、外部同期は代替runnerである。実KVの伝播遅延や実サービス障害、重複反映の解消を証明しない。TTLケースは1 HTTP内の手動同期共通処理であり、実Cron・別Workerリクエスト間の競合は対象外。実行時点で修正版は未マージで、本番デプロイは行っていない。
+
+### Google同期のready段階からの回収
+
+`deploy-and-google-sync-recovery` は、同run・稼働version tag・他資源cleanを確認し、`cleanup` または処理済みの `ready` 段階から所有資源だけを回収する。処理中の `working` は拒否し、制御ロックのTTLと所有確認を維持する。新規fixtureは作成せず、`failed_clean` と全資源cleanを必須にする。実行35980469928でready段階のロック解放失敗を観測したため拡張した。
+
+回収実行35981499346で、ready段階からの所有資源回収と `failed_clean`・全manifest `dirty=false` を確認した。その後の[18step再実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)は全段階と回収に成功した。最初の `google_sync_release_failed` の根本原因は未確定であり、再実行成功を原因修正の証拠とは扱わない。
+
+### Google制御ロックの解放診断
+
+`google_sync_release_failed` のHTTP 409応答には `release_diagnostic` を付け、MCPの監査JSONLとrun manifestの `operations` に引き継ぐ。`step` は `release_rpc`（解放呼出し）、`status_rpc`（状態照会）、`release_response`（解放応答）、`status_response`（照会応答）、`lock_response`（lock形式）、`owner_check`（自分のロックが残留）の固定分類。`exception` は `none`・`timeout`・`type_error`・`runtime_error`・`js_exception`・`other` だけを残す。
+
+`release_ok`・`status_ok` は取得した応答のok判定、`owner_matches` は照会したownerと呼出し元の一致判定で、取得・判定できなかった値は `null` とする。`false` と未確認を区別し、例外本文・任意の例外型名・owner値・トークンを保存しない。解放後の照会順序、TTL、失敗時のdirty維持は従来どおりで、自動再試行や強制解放は追加しない。
+
+ローカルではRPC例外・不正応答・自分／他owner・ロック消失を検証し、step 11の固定障害でHTTP 409／cleanupのbusy／TTL経過後の回収を確認する。MCPの応答→JSONL書込み・読戻し→成果物の経路も検証する。固定障害は過去の実障害原因を証明せず、実環境での再発時に切り分けるための診断である。
+
+[実行35994329876](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35994329876)で診断版 `538008a2cb40675e81e8476ca9ee7316b8e285cd` を専用Workerへ反映し、18段階と各verify、所有資源・共有KVの回収が成功した。監査78行・39操作、run／version／commit一致、`passed`・全manifest `dirty=false`、JUnit 739件成功を成果物で照合した。解放失敗は再発しておらず、実障害での診断出力や根本原因の確認は含まない。
+
+## 全体同期の往復・部分失敗E2E
+
+`deploy-and-all-sync-smoke` は、既存の `google_sync` manifestと回収経路を使う9段階のシナリオである。`POST /admin/e2e/google-sync/all`（MCPの `scenario=google_sync, sync_phase=prepare_all`）で開始し、既存の `advance`・`verify`・`cleanup` へ接続する。[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)で全9段階と各verify、監査42行・21操作、全所有資源とKVの回収、passed・全manifest dirty=false、run/version/commit一致を確認した。
+
+開始前に専用Calendar・Guild・Notion内部DBの空状態と共有Google同期KVの空状態を確認する。Calendarの既存削除履歴だけを不変のfingerprintで保護する。Google予定2件を所有し、通常dispatchのGoogle取得・適用に続けて通常Discordポーリングを実行する。KVの8キー（Google同期の6キーと `discord:snapshot`・`sync:discord_notion_queue`）はrun・scope別に隔離し、別HTTPでdigestと内容を読み戻す。通常の共有KVを使う全体同期を検証済みとは扱わない。
+
+| step | 操作・確認 |
+| --- | --- |
+| 0 | 所有Google予定2件を作成し、読戻す |
+| 1 | Google→Notion・DiscordとDiscord→Google・Notionを同一dispatchで実行 |
+| 2 | 所有Discord予定の本文を変更し、Google・Notionへ反映 |
+| 3 | 次の全体同期で往復させ、既存の対応IDと内容を維持 |
+| 4 | Google本文変更後、所有Notionページ更新だけ固定失敗にし、Google queue・cursor・最終成功時刻を確認 |
+| 5 | 次のHTTPで通常queueから回復し、同じNotion・Discord IDを維持 |
+| 6 | Discord本文変更後、所有1件の逆方向適用だけ固定失敗にし、Discord queue・snapshot・最終成功時刻を確認 |
+| 7 | 次のHTTPで逆方向を回復し、Google・Notionの本文と対応IDを確認 |
+| 8 | 所有KVの時刻でクールダウンを検査し、manual・webhook・cronの各source間の競合拒否、例外後のロック解放を確認 |
+
+通常実装はDiscord由来のGoogle予定をDiscordへ再反映しない。既存のループ抑止仕様を変更せずに試験する。GoogleのPATCHでE2E所有markerを維持する挙動は、[Google拡張プロパティの仕様](https://developers.google.com/workspace/calendar/api/guides/extended-properties)に基づく。
+
+各stepの適用後に別HTTPのverifyを必須とし、MCP・workflowはstep証跡、固定失敗の到達、クールダウン、排他、run・version一致を照合する。他シナリオのdirty manifestがある場合は開始を拒否し、全体同期中の別シナリオ開始もHTTPとDOの両方で拒否する。run・対象・モードの変更、所有外入力、対応IDの変更を拒否する。全段階verify後の回収だけ `passed`、途中回収は `failed_clean` とし、回収失敗時はdirtyと所有記録を残す。回収専用モードは既存の `deploy-and-google-sync-recovery` を使える。
+
+ローカル試験は外部HTTPを代替する。実環境でもstep 4・6は固定失敗の注入、step 8は1 HTTP内の共通dispatch呼出しであり、実サービス障害・実Webhook受信・Cloudflareの実Cron起動・別Workerリクエスト間の競合を証明しない。作成通知は無効化する。
+
+## 通常HTTP入口と共有KVによる全体同期
+
+`deploy-and-all-http-smoke` はE2E専用Workerの `POST /sync/all` を使う4段階のシナリオである。`POST /admin/e2e/google-sync/http` で所有Google予定2件を準備し、各段階を別HTTPでverifyする。通常入口では元のRequestを `entry.Default.fetch` へ渡し、通常のStateStore・dispatch・Google取得／適用・Discordポーリングを使う。同期runnerや取得結果の差し替え、固定障害注入は行わない。
+
+1. step 0: Calendar・Guild・Notion内部DBと共有KVの空状態を確認し、所有予定2件を作成する。
+2. step 1: `/sync/all` でGoogle→Notion・DiscordとDiscord→Google・Notionを実行する。
+3. step 2: 所有Discord予定の本文を変更後、次の `/sync/all` でGoogle・Notionへ反映する。
+4. step 3: 再度 `/sync/all` を実行し、内容・既存対応ID・空queue・snapshot・成功結果を読み戻す。
+
+共有KVは通常名の7キー（cursor、2対応表、Google queue、結果、Discord snapshot、Discord queue）に保存する。`sync:last_epoch` は通常構成どおりglobal DOへ保存し、別HTTPで同値を確認する。KVアダプターはキーを改名せず、所有run・内容digestの確認と書込み前の回収記録だけを行う。読取り値をDOやメモリで代替しない。KVの `sync:last_epoch` を含む8キーすべてが開始時に空であることを要求する。
+
+`E2E_ALL_HTTP_ENABLED=true`、認証、run・稼働version一致、所有manifestの準備・verifyが揃う場合だけ通常入口を開く。adminのadvance経由では進めない。各dispatch前に全Calendar・Guild・内部DBの所有範囲を確認し、既存の削除履歴は事前fingerprintと一致する場合だけ許容する。削除履歴も通常同期へ渡し、Googleの処理上限は履歴上限100件と所有2件の計102件とする。実行中に外部から別データを書き込む環境の保証ではない。
+
+回収は所有予定・ページ・共有KVの記録済みdigestだけを対象にする。DOの最終成功時刻は通常同期の実行履歴として維持する。Google認証はリクエスト内、作成通知と実Cronは無効。途中失敗を回収成功でpassedに変えず、4段階verify後だけpassedとする。本番環境、通常通知、実Cron、実Webhook、障害回復はこのモードの対象外である。
+
+初回[実行36010039102](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010039102)は最初の通常HTTPで `google_sync_state_invalid` となり、所有資源・共有KVを回収して `failed_clean` になった。通常処理がDiscord由来の削除履歴を対応表へ残すケースで同じ拒否をローカル再現した。E2Eの許容範囲へ開始前に確認した履歴の対応ID fingerprintを加え、未知・改変された対応は引き続き拒否する。通常同期の挙動と取得一覧は変更しない。状態形式の拒否では、値を含めずmap／queue／snapshotの固定分類を返す。
+
+再実行[36010723441](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010723441)（commit `02bc807275c03cf9dddfa3aa7367dd5ae91100cb`、run `E2E-20260924T141102Z-1f6eb5a4`）は実サービス検証に成功した。監査22行・11操作から通常 `/sync/all` 3回と各verifyを確認し、4段階の完了、対応IDと本文、共有queue・snapshot・結果、DO成功時刻を照合した。既知削除履歴の対応を含む通常処理が通り、所有資源と共有KVを回収した。成果物からrun・稼働version・commit・clean checkoutの一致、`passed`、全manifest `dirty=false`、JUnit 790件成功を独立確認した。初回失敗の記録は維持し、この成功へ置き換えない。
+
+## 通常watchと共有状態を使う実Webhook同期
+
+`deploy-and-watch-shared-smoke` は専用環境の所有予定2件を使う。`prepare_webhook` で通常の `ensure_watch_active` を通常HTTP入口から実行し、登録、有効時の無更新、期限しきい値による更新、期限欠損、token変更と復元、停止後の再登録を確認する。期限の経過を待つ試験ではなく、しきい値と所有するwatch状態を設定する試験である。6個のchannel IDはAPI呼出し前に所有記録へ保存し、初回 `sync` のresource IDはwatch応答より先に届いてもDOへ保存する。
+
+各 `webhook_trigger` は所有Google予定のprivate propertyを更新する。Googleから実際に届いた `exists` を認証後にrun所有DOへ保存し、Alarm → 通常Webhook handlerのlease・重複抑止 → 通常同期dispatchへ入り、通常名の共有KV、global DOのロック・成功時刻、通常のGoogle/Notion/Discord処理を使う。Google全件入力は事前に所有予定と既知の削除履歴だけであることを確認する。3回の実通知で全体同期の往復と共有状態の別HTTP読戻しを確認する。各回で受信した同じrequestを内部再送し、KVと成功時刻が変化しないことを確認する。これはGoogle自身による同一通知の再配信を保証しない。
+
+初回同期の前には、所有channelの別通知番号で次の再試行を確認する。
+
+- 同期ロック取得中は503となり、ロック解放後の同じ通知番号で同期成功・成功時刻更新を確認する。
+- 固定の無効bearerによるGoogle取得失敗は500となり、有効bearerへ戻した後の同じ通知番号で同期成功・成功時刻更新を確認する。
+
+復旧を `watch_shared_busy_retry_recovered=200` と `watch_shared_failure_retry_recovered=200` に記録する。成功後の同番号通知では共有KVと成功時刻が変化しないことも確認する。異常系は内部生成通知であり、Google自身による同一通知の再配信や自然なAPI障害を観測する試験ではない。実Google通知による正常同期3回には `watch_shared_alarm_<step>=200` も必須とする。
+
+
+旧channelと所有外channelの拒否はE2E入口の所有権ガードによる。通常Workerでの旧channel拒否を証明しない。token変更中の初回通知は通常token検証で拒否され、最終channelの `sync` を別HTTPで確認する。実Cron、本番Worker、自然な期限切れ、Googleの再送間隔は対象外。
+
+回収はwatch停止を先に行い、所有DO通知キューとAlarm、所有通知のdedupeと観測記録、Google予定・Discord予定・Notionページ、watchを含む共有KVの順で確認する。共有値が所有記録と一致しない場合は削除せず、`dirty=true` を維持する。global DOの成功時刻は実行履歴として残す。
+
+2026-09-25の[実行記録](E2E-WATCH-SHARED-20260925.md)に修正前の失敗と修正後の結果を記録する。修正後の実行36025938367では、実通知3回のAlarm・共有状態同期・往復、固定失敗後の同番号再試行、全所有資源と通知キュー・Alarmの回収が成功した。最終状態読取りの通信失敗でworkflow自体は失敗したため、読取りだけの限定再試行を追加した再実行36027225893はworkflow全体が成功した。監査104行・52操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit816件成功を照合済み。
+
+現行commit `b253403` の[再確認36117345631](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117345631)はwatch維持成功後、準備処理の制御ロック解放RPCで失敗した（`google_sync_release_failed`、`js_exception`）。実変更通知3回には未到達。[回収36117671982](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117671982)でwatch・所有予定・共有KV・通知キュー／Alarmを回収し、`failed_clean`・全manifest `dirty=false` を独立照合した。両workflowのJUnit967件は成功。詳細原因は未確定であり、以前の成功記録と区別する。詳細は[再確認記録](E2E-WATCH-SHARED-20260925.md#現行commitでの再確認)を参照。
+
+原因診断を追加した[実行36119459889](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36119459889)（commit `79ec7f2`）は全4段階・実通知3回と回収に成功した。監査106行・53操作、run/version/commit一致、JUnit975件、`passed`・全manifest `dirty=false` を独立照合した。ロック解放失敗は再発せず、元の原因特定・修正の証拠とは扱わない。詳細は[原因調査記録](E2E-WATCH-SHARED-20260925.md#ロック解放失敗の原因調査)を参照。
+
+2回目の[実行36120901864](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36120901864)（commit `611a74a`）も同範囲で成功した。監査128行・64操作、JUnit975件、run/version/commit一致、`passed`・全manifest `dirty=false`。診断付き再実行2回で元の失敗は再現せず、根本原因は未特定。
+
+## 通常Q&Aジョブの共有状態E2E
+
+`deploy-and-qa-normal-smoke` は既存の専用Worker・Q&A DB・Discordチャンネルを使う。
+開始時にDBが空であり、通常名の `qa_cache` と `result:job_qa_check` が未設定であることを要求する。
+3件（回答済み・番号41が1件、未回答・番号未設定が2件）を作成し、次の5段階と各段階の別HTTP読戻しを実行する。
+
+1. `prepare`: 対象と空状態の確認、run marker付き3件の作成。
+2. `first`: 通常 `Application.fetch` の `/jobs/qa-check` 分岐を呼び、全件取得・42/43の採番・初回通知抑止・共有cacheを確認。
+3. `update`: 65秒待って3件の質問を更新し、実更新時刻の変化を確認。cacheの時刻は加工しない。
+4. `notify`: 同じ通常ハンドラを実行し、未回答2件の通知内容と回答済み1件の抑止、共有cache・結果を読み戻す。
+5. `duplicate`: 再実行後も同じ2通知だけが存在することを確認。
+
+MCPの `trigger_job(job="qa_normal_<phase>")` は認証・run/version照合・globalロック付きの固定管理routeを呼ぶ。
+通常ハンドラへ渡すDB一覧は加工しない。KVアダプターは通常名の2キーを実KVへ通し、DOに所有runと書込み予定digestを記録する。
+読戻しだけを待機再試行し、通知処理は自動再送しない。
+終了・途中失敗時は既存の `cleanup_run(service="qa_notification")` で所有page・message・KVだけを回収する。
+全段階の検証と回収が成功した場合だけ `outcome=passed`・`dirty=false` を保存する。
+
+これは3件の通常ジョブ処理の検証である。実Cron配信、100件超のページ送り、通知失敗後の再試行、一度限りの配信保証は含まない。
+外部から通常URLへ直接到達する検証ではなく、保護された管理routeから通常HTTPハンドラへ委譲する。
+
+2026-09-25（JST）の[実行36030243998](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36030243998)で成功した。対象commit `ee87f2591c9848f4ef5ac529539b3b3f661121c3`、run `E2E-20260924T165255Z-4ee17edc`、Worker version tagとdeploy／最終version fingerprint、clean checkoutを照合した。全5段階と各verify、通常ハンドラ3回、Notion3ページのarchive・Discord2通知の削除・共有KV2キーの回収が成功した。監査26行・13操作はすべて成功し、`outcome=passed`・全manifest `dirty=false`、JUnit825件成功を独立確認した。ローカルMCP・workflowテスト297件、Ruff・Pyright・設定検査・E2E dry-runも成功した。マスク済み成果物と独立照合結果は `test-results/qa-normal-36030243998/` に保存した。
+
+
+## 所有ページ限定のNotion cleanupの実サービス検証
+
+2026-09-25（JST）の[実行36035326262](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36035326262)で `deploy-and-notion-cleanup-smoke` が成功した。commit `68d419892c9cbd56312e9105580376963912e12d`、run `E2E-20260924T175111Z-c4f2ecd9`、Worker version tag・deployと最終version fingerprint、clean checkoutを照合した。
+
+期限切れと将来日時の所有Notionページを1件ずつ作成し、通常ジョブと共通の `_run_auto_clean_pages` で期限切れだけをarchiveした。将来日時ページの保持、同じ時刻の再実行に対するinterval guard、最後の両ページのarchive状態を読戻しで確認した。14検証項目はすべて200、監査8行・4操作はすべて成功し、今回scenarioの `outcome=passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合した。他scenarioの過去runを今回の検証成功には含めない。
+
+証跡は `test-results/notion-cleanup-36035326262/evidence/`、独立照合結果は同runディレクトリの `verification.json` に保存した。通常内部DBの全件取得、共有KVの `cleanup:last_epoch`、通常HTTP入口、実Cronは対象外である。
+
+## 通常リマインドの全件取得と共有KV
+
+`deploy-and-reminder-normal-smoke` は空の専用Guildへrun marker付き予定4件を作成する。
+実時刻から24時間8分後・10分後の2件を通知対象、23時間後・25時間後の2件を範囲外とする。
+`prepare → notify → duplicate` の各段階を別HTTPで実行し、各段階後に別HTTPの `verify` を行う。
+通常 `Application.fetch` の `/jobs/reminder` 分岐は予定一覧を加工せず全件取得し、
+通常 `StateStore` が `reminder_cache` と `result:job_reminder` を専用環境の実KVへ保存する。
+KVアダプターはキー・run所有権・値のdigestを検証し、DOには回収用の所有記録を保存する。
+
+本文・対象roleのみのmention・対象2件だけのcache・同一message IDの維持・cache書込み1回を確認する。
+2回目も通知時刻内であることを確保するため、開始から6分を超えたジョブ実行は拒否する。
+初期状態が空でない場合、所有外予定、別run、異なるWorker revision、順序外の実行も拒否する。
+失敗時も作成応答を失った予定をpayloadとmarkerで再発見し、所有予定・通知・共有KVだけを回収する。
+既存の `deploy-and-reminder-smoke` は1件と実行内cacheの試験として残す。
+このモードは実Cron配信、API実障害、通知失敗後の通常ジョブ再試行、KVの全リージョン一貫性を証明しない。
+
+通常リマインドはDiscord一覧取得のHTTP失敗・不正形式を空一覧として成功扱いせず、失敗statusを返す。
+通常DiscordジョブのHTTP呼出しには[公式形式のUser-Agent](https://docs.discord.com/developers/reference#user-agent)を付与する。
+初回36032380828は通知後verifyで停止し、所有資源・共有KVの回収と `failed_clean`・全manifest `dirty=false` を確認した。
+初回は一覧のHTTP statusを記録していないため、User-Agent不足との因果関係は確定していない。
+
+2回目36033000148は通常一覧取得のHTTP 429を記録し、通知前に停止して全資源を回収した。
+通常ジョブのDiscord GETに限り、`retry_after` が有限かつ0〜10秒の場合に最大4回まで試行する。
+POST・不正待機値・上限超過は再試行しない。継続する429も成功扱いにしない。
+
+[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)（commit `cc97b8b`）で、専用Guildの予定4件を通常HTTPハンドラから全件取得し、対象2件の通知・範囲外2件の抑止・共有cache・別HTTPでの重複抑止を確認した。全3段階と各verify、所有予定・通知・共有KVの回収が成功した。監査18行・9操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合済み。実Cronと通知失敗後の再送は対象外。
+証跡は `test-results/reminder-normal-36033540656/evidence/`、独立照合結果は同runディレクトリの `verification.json` に保存した。
+
+## 通常Notion cleanupの全件取得と共有KV
+
+[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。
+
+実行経路・所有権・回収の条件と証跡は[通常Notion cleanupのE2E](E2E-NOTION-CLEANUP-NORMAL.md)を参照。
+
+## 実Cronと手動同期の競合
+
+[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)（commit `3bfc782`）で実Cron3回、両方向の409拒否、競合側の同期本体・結果保存0回、owner一致、解放後の手動同期と結果KV読戻しを確認した。schedule・一時Worker・所有KV4キーの回収、DOロック解放、`passed`・`dirty=false`、監査84行、JUnit899件成功を独立照合済み。同期本体は待機用runnerであり、外部API適用中の競合は対象外。
+
+経路・所有範囲・検証境界は[実Cron競合E2E](E2E-CRON-CONTENTION.md)を参照。証跡と独立照合結果は `test-results/cron-contention-36104059809/` に保存した。
+
+## 通常ジョブの失敗後再試行
+
+`deploy-and-jobs-retry-smoke` でQ&A・リマインド・Notion cleanupを順に検証する。`tests/test_jobs_retry.py` はQ&Aとcleanupの再試行欠落を再現し、`tests/test_e2e_jobs_retry.py` は通常HTTPの失敗結果・別HTTP読戻し・回復・重複抑止・回収、未検証段階の拒否を確認する。
+
+[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 手順と対象外は[検証記録](E2E-JOBS-RETRY.md)を参照。
+
+## 通常ジョブのKV保存失敗と再試行
+
+`deploy-and-jobs-kv-retry-smoke` は3通常ジョブの共有KV6キーへ保存前・保存直後の例外を固定注入する。外部処理を再実行せず、同じ値だけを最大3回保存すること、別HTTPの読戻し・重複抑止・回収を検証する。
+
+[実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
+
+詳細と再試行上限超過・実障害・実Cronなどの境界は[専用検証記録](E2E-JOBS-KV-RETRY.md)を参照。
+
+## 2026-09-25: 旧watch通知の検証境界
+
+停止前に固定通知番号をrun所有の観測記録へ登録し、停止済みchannelの通知を内部生成する。通常handlerの旧token拒否401、現行token付き旧channelの同期204、同番号再送の重複抑止204、E2E入口の所有権ガード404を個別に検査する。通常の同期runnerを呼び、共有KV・最終成功時刻・成功結果を照合する。所有した重複状態は既存cleanupで回収する。Googleが停止後に実際に遅延配信した証拠とはしない。実環境結果は[棚卸し記録](E2E-AUDIT-20260925.md)で追跡する。
+
+Google同期MCPは、Workerの書込み前ガードが明示的に返した409 `worker_version_mismatch` だけを最大20回・3秒間隔で再送する。応答不明の通信失敗、その他の409、500はこの再送の対象外。初回のprepare前拒否は新規所有資源がないことを最終artifactで確認し、シナリオ成功や `failed_clean` と区別する。
+
+旧通知の通常同期はstep 2のHTTPで検証する。step 1の実行中／API拒否後の再試行2ケースとは別のHTTPに分け、各段階の90秒上限を維持する。workflowは旧通知の4項目をstep 2以降の必須証跡として照合する。
+
+## Google同期17件・上限5件の境界
+
+`deploy-and-google-boundary-smoke` は専用環境のGoogle予定17件を共有queueへ準備し、通常dispatch・通常適用で5・5・5・2件ずつ処理する。実APIによる全件読戻しと分割回収を含む全27段階は[実行36140594316](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36140594316)で成功した。監査120行・60操作、全件回収、`passed`・全manifest `dirty=false`、JUnit1,056件を独立照合済み。試験準備のqueue保存、cursor更新、初回失敗の境界は[検証記録](E2E-GOOGLE-BOUNDARY.md)を参照。
+
+## NotionへのDiscord ID書戻し拒否後の復旧
+
+[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)で、実Notion APIの400拒否後も作成済みNotion・Discord各2件のIDとqueue2件を保持し、次HTTPで同じIDへ書戻しを完了した。全3件の再適用で重複がないこと、Google・Discord各3件・Notion3ページ・共有KV6キーの回収、`passed`・全manifest `dirty=false` を確認した。
+
+ローカルの[27ケース](../tests/test_e2e_notion_writeback_retry.py)では、想定外応答、途中回収、所有条件の変更、queue・対応表の改変、誤った書戻しID、回復後の重複を拒否する。詳細は[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)。自然発生障害、応答喪失、Notion作成直後のページUUID書戻し失敗、本番反映は含めない。

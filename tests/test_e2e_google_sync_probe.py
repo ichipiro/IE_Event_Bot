@@ -24,6 +24,7 @@ DB = "11111111-1111-4111-8111-111111111111"
 
 class Scenario:
     def __init__(self, monkeypatch):
+        self.next_discord_id = 0
         self.env = environment()
         self.env.SYNC_ALL_INCLUDE_DISCORD_NOTION = "false"
         self.env.GOOGLE_CALENDAR_ID = "test-calendar"
@@ -93,7 +94,8 @@ class Scenario:
                         )
                     )
                 if method == "POST":
-                    event_id = f"discord-{len(self.discord)}"
+                    event_id = f"discord-{self.next_discord_id}"
+                    self.next_discord_id += 1
                     self.discord[event_id] = {
                         "id": event_id,
                         "guild_id": self.env.DISCORD_GUILD_ID,
@@ -109,10 +111,17 @@ class Scenario:
                     del self.discord[event_id]
                     return Response("", status=204)
                 if method == "PATCH":
+                    if payload.get("scheduled_start_time") == "not-a-date":
+                        return Response('{"code":50035}', status=400)
                     self.discord[event_id].update(payload)
                 return Response(json.dumps(self.discord[event_id]))
             self.calls.append(("notion", method))
             if path.endswith("/query"):
+                if "filter" not in payload:
+                    return Response(json.dumps({
+                        "results": [page for page in self.pages.values() if not page.get("archived")],
+                        "has_more": False,
+                    }))
                 filt = payload["filter"]
                 matches = [
                     page
@@ -437,6 +446,8 @@ def test_partial_failure_then_queue_only_retry_reuses_owned_ids(monkeypatch):
     assert owner["hashes"][KEYS[4]] == before["hashes"][KEYS[4]]
     assert owner["stages"]["google_sync_dispatch"] == 500
     assert owner["stages"]["google_sync_discord_failure_injected"] == 200
+    assert owner["stages"]["google_sync_discord_invalid_update"] == 400
+    assert owner["stages"]["google_sync_discord_rejection_verified"] == 200
     assert test.call("advance")[0] == 409  # 読戻し前に再試行しない。
     assert test.call("verify")[0] == 200
     assert test.call("advance")[0] == 200
@@ -498,3 +509,68 @@ def test_failed_reverify_after_retry_revokes_success(monkeypatch):
     assert test.call("verify")[0] == 409
     assert test.call("cleanup")[0] == 200
     assert test.owner()["outcome"] == "failed_clean"
+
+
+@pytest.mark.parametrize("status", [200, 400, 403, 429, 503])
+def test_unexpected_discord_rejection_is_not_accepted(monkeypatch, status):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    original = probe.discord_request
+
+    async def unexpected(env, stages, fingerprints, stage, method, path, **kwargs):
+        if stage == "google_sync_discord_invalid_update":
+            stages[stage] = status
+            return status, {}
+        return await original(env, stages, fingerprints, stage, method, path, **kwargs)
+
+    monkeypatch.setattr(probe, "discord_request", unexpected)
+    assert test.call("advance")[0] == 409
+    assert test.owner()["stages"]["google_sync_discord_invalid_update"] == status
+    assert test.call("verify")[0] == 409
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_do_rejects_removing_api_rejection_requirement(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    owner = test.owner()
+    owner["api_rejection_enabled"] = False
+    with pytest.raises(RuntimeError, match="e2e_manifest_write_failed"):
+        asyncio.run(test.store.put_e2e_manifest(SERVICE, owner))
+    assert test.call("cleanup")[0] == 200
+
+
+def test_cleanup_can_recover_empty_name_accepted_by_discord(monkeypatch):
+    test = Scenario(monkeypatch)
+    advance_to(test, 3)
+    original = probe.discord_request
+
+    async def accepted(env, stages, retries, stage, method, path, **kwargs):
+        if stage == "google_sync_discord_invalid_update":
+            # 旧デプロイの空名更新が受理された状態を再現する。
+            event_id = path.rsplit("/", 1)[-1]
+            test.discord[event_id]["name"] = ""
+            return 200, deepcopy(test.discord[event_id])
+        return await original(env, stages, retries, stage, method, path, **kwargs)
+
+    monkeypatch.setattr(probe, "discord_request", accepted)
+    assert test.call("advance")[0] == 409
+    assert test.call("cleanup")[0] == 200
+    assert not test.discord
+    assert test.owner()["outcome"] == "failed_clean"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("id", "another-event"), ("guild_id", "another-guild"),
+    ("description", "another-run"), ("name", "another-name"),
+])
+def test_empty_name_recovery_rejects_unowned_event(monkeypatch, field, value):
+    test = Scenario(monkeypatch)
+    advance_to(test, 4)
+    event_id = test.owner()["fixtures"][1]["discord_event_id"]
+    test.discord[event_id]["name"] = ""
+    test.discord[event_id][field] = value
+    assert test.call("cleanup")[0] == 409
+    assert event_id in test.discord
+    assert test.owner()["dirty"] is True

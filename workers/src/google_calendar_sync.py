@@ -64,6 +64,7 @@ async def _google_events_list(
     bearer_token: str,
     *,
     updated_min: str | None,
+    fetch_impl=None,
 ):
     # Google Calendar API の events.list を最後のページまで全部たどって、イベント一覧をまとめて取得する
     events = []
@@ -84,7 +85,7 @@ async def _google_events_list(
             f"{quote(calendar_id, safe='')}/events?{'&'.join(params)}"
         )
         # Google API リクエスト
-        response = await fetch(
+        response = await (fetch_impl or fetch)(
             url,
             {
                 "method": "GET",
@@ -115,7 +116,7 @@ async def _google_events_list(
     return events, 200, ""
 
 
-async def run_google_delta_fetch(env, state, *, commit_cursor: bool = True):
+async def run_google_delta_fetch(env, state, *, commit_cursor: bool = True, fetch_impl=None):
     """
     Googleカレンダーの差分イベントを取る
     KV の同期カーソル(updated_min)を更新する
@@ -142,6 +143,7 @@ async def run_google_delta_fetch(env, state, *, commit_cursor: bool = True):
         calendar_id,
         bearer_token,
         updated_min=updated_min,
+        fetch_impl=fetch_impl,
     )
     if events is None and status == 400 and updated_min:
         # カーソルが壊れている場合は完全同期にフォールバック.
@@ -149,6 +151,7 @@ async def run_google_delta_fetch(env, state, *, commit_cursor: bool = True):
             calendar_id,
             bearer_token,
             updated_min=None,
+            fetch_impl=fetch_impl,
         )
     if events is None and status == 410:
         # カーソルが古すぎる場合は完全同期にフォールバック.
@@ -156,6 +159,7 @@ async def run_google_delta_fetch(env, state, *, commit_cursor: bool = True):
             calendar_id,
             bearer_token,
             updated_min=None,
+            fetch_impl=fetch_impl,
         )
     if events is None:
         return {

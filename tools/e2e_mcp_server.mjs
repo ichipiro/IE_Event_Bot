@@ -32,6 +32,8 @@ const AUDIT_ROOT = resolve(REPO_ROOT, "test-results");
 const AUDIT_DIR = resolve(AUDIT_ROOT, "e2e-mcp");
 const MAX_RESPONSE_BYTES = 65_536;
 const WORKER_TIMEOUT_MS = 60_000;
+// Workerの全件phase上限90秒に、制御ロック解放と応答時間を加える。
+const GOOGLE_SYNC_TIMEOUT_MS = 120_000;
 const DEPLOY_TIMEOUT_MS = 300_000;
 const DEPLOY_VERIFY_ATTEMPTS = 20;
 const DEPLOY_VERIFY_INTERVAL_MS = 3_000;
@@ -87,6 +89,30 @@ const CLEANUP_ROUTES = Object.freeze({
   webhook_change: "/admin/e2e/google-webhook-change/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
+  cleanup_normal_list_fail: "/admin/e2e/notion-cleanup-normal/list_fail",
+  cleanup_normal_fail: "/admin/e2e/notion-cleanup-normal/fail",
+  cleanup_normal_kv_prepare: "/admin/e2e/notion-cleanup-normal/kv_prepare",
+  cleanup_normal_prepare: "/admin/e2e/notion-cleanup-normal/prepare",
+  cleanup_normal_execute: "/admin/e2e/notion-cleanup-normal/execute",
+  cleanup_normal_duplicate: "/admin/e2e/notion-cleanup-normal/duplicate",
+  cleanup_normal_verify: "/admin/e2e/notion-cleanup-normal/verify",
+  reminder_normal_fail: "/admin/e2e/reminder-normal/fail",
+  reminder_normal_kv_prepare: "/admin/e2e/reminder-normal/kv_prepare",
+  reminder_normal_prepare: "/admin/e2e/reminder-normal/prepare",
+  reminder_normal_notify: "/admin/e2e/reminder-normal/notify",
+  reminder_normal_duplicate: "/admin/e2e/reminder-normal/duplicate",
+  reminder_normal_verify: "/admin/e2e/reminder-normal/verify",
+  qa_normal_list_fail_first: "/admin/e2e/qa-normal/list_fail_first",
+  qa_normal_list_fail: "/admin/e2e/qa-normal/list_fail",
+  qa_normal_fail: "/admin/e2e/qa-normal/fail",
+  qa_normal_kv_prepare: "/admin/e2e/qa-normal/kv_prepare",
+  qa_normal_prepare: "/admin/e2e/qa-normal/prepare",
+  qa_normal_first: "/admin/e2e/qa-normal/first",
+  qa_normal_update: "/admin/e2e/qa-normal/update",
+  qa_normal_notify: "/admin/e2e/qa-normal/notify",
+  qa_normal_duplicate: "/admin/e2e/qa-normal/duplicate",
+  qa_normal_verify: "/admin/e2e/qa-normal/verify",
+
   qa_check: "/admin/e2e/qa-notification",
   reminder: "/admin/e2e/reminder",
   cleanup: "/admin/e2e/notion-cleanup",
@@ -161,7 +187,7 @@ const cleanupTargetField = z.enum([
   "webhook_delivery",
   "webhook_change",
 ]);
-const jobField = z.enum(["qa_check", "reminder", "cleanup", "run_all"]);
+const jobField = z.enum(["cleanup_normal_list_fail", "cleanup_normal_fail", "cleanup_normal_kv_prepare", "cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_fail", "reminder_normal_kv_prepare", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_normal_list_fail_first", "qa_normal_list_fail", "qa_normal_fail", "qa_normal_kv_prepare", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify", "qa_check", "reminder", "cleanup", "run_all"]);
 
 
 function safeErrorCode(value, fallback = "worker_operation_failed") {
@@ -297,7 +323,58 @@ function versionEvidence(value) {
 
 
 function sanitizeExecutionStatus(value) {
-  return ["partial", "prepared", "pending", "updated", "drained", "deleted", "retry_pending", "retried", "retry_drained", "already_completed"].includes(value) ? value : null;
+  return ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed", "partial", "prepared", "pending", "updated", "drained", "deleted", "retry_pending", "retried", "retry_drained", "already_completed"].includes(value) ? value : null;
+}
+
+
+const TRANSPORT_CODES = new Set([
+  "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
+  "CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID", "DEPTH_ZERO_SELF_SIGNED_CERT",
+]);
+
+function transportDiagnosticEvidence(entry) {
+  const value = entry.transport_diagnostic;
+  if (!["worker_request_failed", "worker_response_read_failed"].includes(entry.error) ||
+      !value || !["fetch", "body"].includes(value.phase)) {
+    return {};
+  }
+  return { transport_diagnostic: {
+    phase: value.phase,
+    name: ["Error", "TypeError", "TimeoutError", "AbortError"].includes(value.name) ? value.name : "other",
+    code: TRANSPORT_CODES.has(value.code) ? value.code : "other",
+  } };
+}
+
+function transportFailure(error, phase) {
+  return transportDiagnosticEvidence({
+    error: phase === "fetch" ? "worker_request_failed" : "worker_response_read_failed",
+    transport_diagnostic: { phase, name: error?.name,
+      code: TRANSPORT_CODES.has(error?.code) ? error.code : error?.cause?.code },
+  });
+}
+
+function releaseDiagnosticEvidence(entry) {
+  const value = entry.release_diagnostic;
+  if (entry.error !== "google_sync_release_failed" || !value || typeof value !== "object"
+      || !["release_rpc", "status_rpc", "release_response", "status_response", "lock_response", "owner_check"].includes(value.step)) {
+    return {};
+  }
+  return { release_diagnostic: {
+    step: value.step,
+    exception: ["none", "timeout", "type_error", "runtime_error", "js_exception", "other"].includes(value.exception)
+      ? value.exception : "other",
+    release_ok: typeof value.release_ok === "boolean" ? value.release_ok : null,
+    status_ok: typeof value.status_ok === "boolean" ? value.status_ok : null,
+    owner_matches: typeof value.owner_matches === "boolean" ? value.owner_matches : null,
+    ...(Object.hasOwn(value, "cause") ? {
+      cause: ["connection_limit", "object_reset", "subrequest_limit", "storage_timeout", "overloaded",
+        "cpu_limit", "memory_limit", "python_proxy", "io_context", "request_cancelled", "disconnected",
+        "internal_error", "data_clone"].includes(value.cause) ? value.cause : "unknown",
+      fresh_status_ok: typeof value.fresh_status_ok === "boolean" ? value.fresh_status_ok : null,
+      fresh_owner_matches: typeof value.fresh_owner_matches === "boolean" ? value.fresh_owner_matches : null,
+    } : {}),
+  } };
 }
 
 
@@ -316,13 +393,15 @@ export async function appendAuditEntry(entry) {
     run_id: entry.run_id,
     tool: entry.tool,
     target: entry.target,
-    sync_phase: ["run", "prepare", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+    sync_phase: ["run", "prepare", "prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "http_advance", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
     phase: entry.phase,
     ok: Boolean(entry.ok),
     status: Number.isInteger(entry.status) ? entry.status : null,
     execution_status: sanitizeExecutionStatus(entry.execution_status),
     response_discarded: entry.response_discarded === true,
     ...versionEvidence(entry),
+    ...releaseDiagnosticEvidence(entry),
+    ...transportDiagnosticEvidence(entry),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
   const options = {
@@ -372,13 +451,15 @@ export async function readAuditEntries(runId) {
           run_id: runId,
           tool: entry.tool,
           target: entry.target,
-          sync_phase: ["run", "prepare", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
+          sync_phase: ["run", "prepare", "prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "http_advance", "inspect", "advance", "resume"].includes(entry.sync_phase) ? entry.sync_phase : null,
           phase: entry.phase,
           ok: entry.ok === true,
           status: Number.isInteger(entry.status) ? entry.status : null,
           execution_status: sanitizeExecutionStatus(entry.execution_status),
           response_discarded: entry.response_discarded === true,
           ...versionEvidence(entry),
+          ...releaseDiagnosticEvidence(entry),
+          ...transportDiagnosticEvidence(entry),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
       }
@@ -428,7 +509,7 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
   if (runId) {
     headers["X-E2E-Run-ID"] = runId;
   }
-  if (method === "POST" && [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv, SCENARIO_ROUTES.discord_batch, SCENARIO_ROUTES.discord_batch_google, SCENARIO_ROUTES.discord_batch_notification, SCENARIO_ROUTES.sync_lock, SCENARIO_ROUTES.sync_faults, SCENARIO_ROUTES.google_sync].some((prefix) => route.startsWith(prefix)) &&
+  if (method === "POST" && (route === "/sync/all" || route.startsWith("/admin/e2e/qa-normal/") || route.startsWith("/admin/e2e/reminder-normal/") || route.startsWith("/admin/e2e/notion-cleanup-normal/") || [SCENARIO_ROUTES.discord_delta, SCENARIO_ROUTES.discord_state, SCENARIO_ROUTES.discord_kv, SCENARIO_ROUTES.discord_batch, SCENARIO_ROUTES.discord_batch_google, SCENARIO_ROUTES.discord_batch_notification, SCENARIO_ROUTES.sync_lock, SCENARIO_ROUTES.sync_faults, SCENARIO_ROUTES.google_sync].some((prefix) => route.startsWith(prefix))) &&
       !route.endsWith("/cleanup")) {
     headers["X-E2E-Version-Tag"] = runId;
     if (versionSha256) {
@@ -442,10 +523,15 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
       method,
       headers,
       redirect: "error",
-      signal: AbortSignal.timeout(WORKER_TIMEOUT_MS),
+      signal: AbortSignal.timeout(
+        method === "POST" &&
+        (route === "/sync/all" || ["", "/full", "/notion-query", "/notion-create", "/notion-writeback", "/boundary", "/matrix", "/all", "/http", "/watch", "/watch/trigger", "/advance", "/verify", "/cleanup"].some(suffix => route === `${SCENARIO_ROUTES.google_sync}${suffix}`))
+          ? GOOGLE_SYNC_TIMEOUT_MS : WORKER_TIMEOUT_MS,
+      ),
     });
-  } catch {
-    return { ok: false, status: 0, error: "worker_request_failed", payload: {} };
+  } catch (error) {
+    return { ok: false, status: 0, error: "worker_request_failed", payload: {},
+      ...transportFailure(error, "fetch") };
   }
 
   if (responseMode === "discard_after_headers" && response.status === 200) {
@@ -463,12 +549,13 @@ async function workerRequest(config, route, method, runId, fetchImpl, versionSha
   let text = "";
   try {
     text = await response.text();
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       status: Number(response.status) || 0,
       error: "worker_response_read_failed",
       payload: {},
+      ...transportFailure(error, "body"),
     };
   }
   if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
@@ -554,6 +641,8 @@ function sanitizeOperation(response, runId) {
     response_discarded: response.response_discarded === true,
     run_id: runId,
     dirty: response.response_discarded === true ? null : Boolean(payload.dirty),
+    ...releaseDiagnosticEvidence(payload),
+    ...transportDiagnosticEvidence(response),
     stages: sanitizeStages(payload.stages),
     cleanup: {
       ok: cleanup.ok === true,
@@ -895,6 +984,42 @@ function operationRoute(tool, target, syncPhase = "run") {
     return CLEANUP_ROUTES[target] ?? null;
   }
   if (tool === "trigger_sync") {
+    if (target === "google_sync" && syncPhase === "inspect") {
+      return `${SCENARIO_ROUTES.google_sync}/inspect`;
+    }
+    if (target === "google_sync" && syncPhase === "http_advance") {
+      return "/sync/all";
+    }
+    if (target === "google_sync" && syncPhase === "prepare_webhook") {
+      return `${SCENARIO_ROUTES.google_sync}/watch`;
+    }
+    if (target === "google_sync" && syncPhase === "webhook_trigger") {
+      return `${SCENARIO_ROUTES.google_sync}/watch/trigger`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_http") {
+      return `${SCENARIO_ROUTES.google_sync}/http`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_all") {
+      return `${SCENARIO_ROUTES.google_sync}/all`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_boundary") {
+      return `${SCENARIO_ROUTES.google_sync}/boundary`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_matrix") {
+      return `${SCENARIO_ROUTES.google_sync}/matrix`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_notion_writeback") {
+      return `${SCENARIO_ROUTES.google_sync}/notion-writeback`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_notion_create") {
+      return `${SCENARIO_ROUTES.google_sync}/notion-create`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_notion_query") {
+      return `${SCENARIO_ROUTES.google_sync}/notion-query`;
+    }
+    if (target === "google_sync" && syncPhase === "prepare_full") {
+      return `${SCENARIO_ROUTES.google_sync}/full`;
+    }
     if (["google_sync", "sync_faults", "sync_lock", "discord_state", "discord_kv", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(target) && syncPhase === "resume") {
       return `${SCENARIO_ROUTES[target]}/verify`;
     }
@@ -935,6 +1060,8 @@ function buildRunManifest(runId, status, audit, repository, config) {
       execution_status: sanitizeExecutionStatus(entry.execution_status),
       response_discarded: entry.response_discarded === true,
       ...versionEvidence(entry),
+      ...releaseDiagnosticEvidence(entry),
+      ...transportDiagnosticEvidence(entry),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
   const allTimestamps = audit
@@ -1005,6 +1132,8 @@ async function runAudited(auditImpl, entry, operation) {
       execution_status: sanitizeExecutionStatus(result.execution_status),
       response_discarded: result.response_discarded === true,
       ...versionEvidence({ ...entry, ...result }),
+      ...releaseDiagnosticEvidence(result),
+      ...transportDiagnosticEvidence(result),
       error: result.error,
     });
   } catch {
@@ -1127,14 +1256,18 @@ export function createE2eMcpServer(options = {}) {
           if (previousVersion) {
             const response = await workerRequest(config, "/admin/e2e/status", "GET", runId, fetchImpl);
             const status = sanitizeStatus(response);
-            const manifest = status.scenarios.discord_delta;
+            const googleOwner = status.scenarios.google_sync;
+            const googleRecovery = googleOwner?.dirty && googleOwner.run_id === runId &&
+              ["working", "ready", "cleanup"].includes(googleOwner.stage);
+            const target = googleRecovery ? "google_sync" : "discord_delta";
+            const manifest = status.scenarios[target];
             if (!status.ok || status.mode !== "e2e" || !status.e2e_manifest_enabled ||
                 status.orchestrated_writes_enabled !== false || !status.worker_version.present ||
                 status.worker_version.tag !== runId ||
                 status.worker_version.id_sha256 !== previousVersion || !manifest.present ||
-                !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "delta_updated" ||
+                !manifest.dirty || manifest.run_id !== runId || (!googleRecovery && manifest.stage !== "delta_updated") ||
                 Object.values(status.services).some((item) => item.dirty) ||
-                Object.entries(status.scenarios).some(([key, item]) => key !== "discord_delta" && item.dirty)) {
+                Object.entries(status.scenarios).some(([key, item]) => key !== target && item.dirty)) {
               return { ok: false, status: 409, error: "redeploy_checkpoint_mismatch" };
             }
           }
@@ -1216,7 +1349,7 @@ export function createE2eMcpServer(options = {}) {
       description: "所有資源限定の適用とcleanupを行う。Discord差分はprepareで準備しadvanceで更新後に保存しresumeで完了する。",
       inputSchema: {
         run_id: runIdField, scenario: scenarioField,
-        sync_phase: z.enum(["run", "prepare", "advance", "resume"]).default("run"),
+        sync_phase: z.enum(["run", "prepare", "prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "http_advance", "inspect", "advance", "resume"]).default("run"),
         version_sha256: z.string().regex(/^[0-9a-f]{64}$/).optional(),
         response_mode: z.enum(["read", "discard_after_headers"]).default("read"),
       },
@@ -1231,7 +1364,8 @@ export function createE2eMcpServer(options = {}) {
       if (responseMode !== "read" && (scenario !== "discord_delta" || syncPhase !== "advance" || !versionSha256)) {
         return toolResult({ ok: false, error: "response_mode_forbidden" }, true);
       }
-      if ((["sync_lock", "discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
+      if ((["prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "http_advance", "inspect"].includes(syncPhase) && scenario !== "google_sync") ||
+          (["sync_lock", "discord_state", "discord_kv"].includes(scenario) && (!["run", "prepare", "resume"].includes(syncPhase) || versionSha256)) ||
           (["google_sync", "sync_faults", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && versionSha256) ||
           (!["google_sync", "sync_faults", "sync_lock", "discord_delta", "discord_state", "discord_kv", "discord_batch", "discord_batch_google", "discord_batch_notification"].includes(scenario) && (syncPhase !== "run" || versionSha256))) {
         return toolResult({ ok: false, error: "sync_phase_forbidden" }, true);
@@ -1249,7 +1383,9 @@ export function createE2eMcpServer(options = {}) {
             versionSha256,
             responseMode,
           );
-          for (let attempt = 1; scenario === "discord_delta" && attempt < DEPLOY_VERIFY_ATTEMPTS &&
+          // 両経路の409 version拒否は所有manifest・外部書込みに到達する前に返る。
+          // 応答不明の通信失敗や通常の処理失敗は再送しない。
+          for (let attempt = 1; ["discord_delta", "google_sync"].includes(scenario) && attempt < DEPLOY_VERIFY_ATTEMPTS &&
                response.status === 409 && response.payload.error === "worker_version_mismatch"; attempt += 1) {
             await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
             response = await workerRequest(config, operationRoute("trigger_sync", scenario, syncPhase),
@@ -1266,8 +1402,15 @@ export function createE2eMcpServer(options = {}) {
                   : ["prepared"]).includes(response.payload.status)))) {
             return { ...sanitized, ok: false, error: `${scenario}_not_ready` };
           }
+          if (scenario === "google_sync" && syncPhase === "inspect") {
+            if (sanitized.ok && (response.payload.dirty !== false ||
+                !["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed"].includes(sanitized.execution_status))) {
+              return { ...sanitized, ok: false, error: "google_sync_inspect_invalid" };
+            }
+            return sanitized;
+          }
           if (sanitized.ok && scenario === "google_sync" &&
-              (response.payload.dirty !== true || !["pending", "drained", "updated", "deleted", "retry_pending", "retried"].includes(response.payload.status) ||
+              (response.payload.dirty !== true || !(response.payload.status === "prepared" && ["prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "http_advance", "advance", "resume"].includes(syncPhase)) && !["pending", "drained", "updated", "deleted", "retry_pending", "retried"].includes(response.payload.status) ||
                (syncPhase === "resume" && response.payload.stage !== `google_${response.payload.status}_verified`))) {
             return { ...sanitized, ok: false, error: "google_sync_not_ready" };
           }

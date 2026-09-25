@@ -1,4 +1,4 @@
-"""通常Google取得・適用を所有2件へ接続し、段階ごとに読戻し・回収する。"""
+"""通常Google同期を隔離2件または専用環境全件へ接続し、読戻し・回収する。"""
 
 import asyncio
 import json
@@ -6,10 +6,12 @@ import re
 from urllib.parse import quote
 from uuid import uuid4
 
+from sync_lock_release import _RPC_TIMEOUT_SECONDS, _recover_release, _release_retry_blocked
+
 from e2e_discord_batch_state import slot_run_id
 from e2e_discord_delta_probe import _DeltaEnv
 from e2e_discord_google_probe import _verify_calendar
-from e2e_discord_probe import _find_event_by_run, _request_stage as discord_request
+from e2e_discord_probe import _event_has_run, _find_event_by_run, _request_stage as discord_request
 from e2e_google_discord_probe import (
     _event_payload,
     _discord_event_is_owned,
@@ -20,6 +22,8 @@ from e2e_google_sync_state import (
     SERVICE,
     KIND,
     KEYS,
+    MAX_BASELINE_DELETED,
+    MAX_QUERY_BASELINE_DELETED,
     STEPS,
     GoogleKV,
     GoogleStateError,
@@ -40,7 +44,12 @@ from e2e_sync_lock_probe import RUN_PATTERN, _lock_state
 from google_auth import get_google_access_token
 from google_calendar_sync import run_google_delta_fetch
 from state import StateStore
-from sync_lock_release import _RPC_TIMEOUT_SECONDS, _recover_release, _release_retry_blocked
+
+
+_PHASE_TIMEOUT_SECONDS = 50
+# 全件3件の作成・適用・読戻しは2件モードよりAPI待ちが長い。
+# 通常同期ロック120秒と制御ロック300秒より短くし、解放の余地を残す。
+_FULL_PHASE_TIMEOUT_SECONDS = 90
 
 
 class GoogleEnv(_DeltaEnv):
@@ -66,6 +75,10 @@ def _targets(env):
 
 
 async def _save(store, owner):
+    if (owner.get("full_apply") or owner.get("http_sync")) and owner.get("dirty"):
+        current = await store.get_e2e_manifest(SERVICE)
+        if current and current.get("run_id") == owner.get("run_id"):
+            owner["shared_writes"] = current.get("shared_writes", {})
     await store.put_e2e_manifest(SERVICE, owner)
 
 
@@ -81,6 +94,18 @@ def _source_owned(event, slot):
     )
 
 
+def _deleted_fingerprint(event):
+    return digest(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def _baseline_matches(owner, event):
+    baseline = owner.get("baseline_deleted", {})
+    if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
+        # fingerprint自体にIDも含むため、既知IDの内容変更も受け入れない。
+        return _deleted_fingerprint(event) in baseline
+    return baseline.get(digest(event["id"])) == _deleted_fingerprint(event)
+
+
 def _page_owned(env, page, slot):
     return (
         isinstance(page, dict)
@@ -90,6 +115,32 @@ def _page_owned(env, page, slot):
         == slot["google_event_id"]
         and _property_text(page, "イベント名", "title") == slot["source"]["summary"]
     )
+
+
+def _discord_owned(env, event, owner, slot):
+    event_id = slot.get("discord_event_id")
+    if _discord_event_is_owned(
+        event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+        run_id=slot["run_id"],
+    ):
+        return True
+    # 旧API拒否試験の空名更新が受理された場合だけ、記録済みIDから回収する。
+    # 再探索だけで得たID、別run、別Guild、別marker、他の名前変更は許可しない。
+    recovered = (
+        owner.get("stage") == "cleanup"
+        and owner.get("step") == 4
+        and owner.get("api_rejection_enabled") is True
+        and slot is owner["fixtures"][1]
+        and bool(event_id)
+        and event.get("name") == ""
+        and _event_has_run(
+            event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+            run_id=slot["run_id"],
+        )
+    )
+    if recovered:
+        owner["stages"]["google_sync_empty_name_recovered"] = 200
+    return recovered
 
 
 async def _discover(env, store, owner, slot):
@@ -138,11 +189,12 @@ async def _discover(env, store, owner, slot):
             "GET",
             _discord_path(env, event_id),
         )
-        if status != 200 or not _discord_event_is_owned(
-            event,
-            event_id=event_id,
-            guild_id=env.DISCORD_GUILD_ID,
-            run_id=slot["run_id"],
+        # 通常の再探索では、まだmanifestにIDがないことを許容する。
+        if status != 200 or not (
+            _discord_event_is_owned(
+                event, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+                run_id=slot["run_id"],
+            ) or _discord_owned(env, event, owner, slot)
         ):
             raise GoogleStateError("google_sync_discord_owner_mismatch")
         slot["discord_event_id"] = event_id
@@ -154,10 +206,13 @@ def _discord_path(env, event_id):
 
 
 async def _apply(env, store, owner, token, invoke):
+    if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")) and owner["step"] > 0:
+        from e2e_google_notion_query import apply_phase
+        return await apply_phase(env, store, owner, token, invoke)
     kv = GoogleKV(store, owner)
     probe_env = GoogleEnv(env, token)
     if owner["step"] >= 1:
-        probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = "2"
+        probe_env.GOOGLE_APPLY_MAX_EVENTS_PER_RUN = str(len(owner["fixtures"]))
     for slot in owner["fixtures"]:
         slot["apply_attempted"] = True
     await _save(store, owner)
@@ -168,8 +223,21 @@ async def _apply(env, store, owner, token, invoke):
             return result
         owned = {s["google_event_id"]: s for s in owner["fixtures"]}
         selected = {}
+        current_items = []
         for event in result.get("items", []):
             slot = owned.get(event.get("id")) if isinstance(event, dict) else None
+            if owner.get("full_apply") and not slot:
+                # 開始前の履歴は内容まで一致する場合だけ除外し、適用・回収へ渡さない。
+                if (
+                    isinstance(event, dict)
+                    and isinstance(event.get("id"), str)
+                    and event.get("status") == "cancelled"
+                    and _baseline_matches(owner, event)
+                ):
+                    owner["stages"]["google_sync_baseline_preserved"] = 200
+                    continue
+                raise GoogleStateError("google_sync_unowned_source")
+            current_items.append(event)
             if slot:
                 # 削除応答ではid・statusだけになる。固定IDと削除着手の両方を必須にする。
                 deleted = owner["step"] >= 3 and slot is owner["fixtures"][0]
@@ -194,6 +262,13 @@ async def _apply(env, store, owner, token, invoke):
         )
         if not required <= set(selected):
             raise GoogleStateError("google_sync_source_not_visible")
+        if owner.get("full_apply"):
+            # 記録済み履歴以外の全入力・順序は維持する。
+            result["items"] = current_items
+            result["events"] = len(current_items)
+            owner["stages"]["google_sync_full_input"] = 200
+            owner["pending_ids"] = [e["id"] for e in result["items"][1:]] if owner["step"] == 0 else []
+            return result
         result["items"] = [
             selected[s["google_event_id"]]
             for s in owner["fixtures"]
@@ -214,10 +289,34 @@ async def _apply(env, store, owner, token, invoke):
         slot = owner["fixtures"][1]
         if injected or not _source_owned(event, slot) or not page:
             raise GoogleStateError("google_sync_injection_mismatch")
+        if owner.get("api_rejection_enabled"):
+            event_id = slot.get("discord_event_id")
+            if not event_id or mapping.get(event["id"]) != event_id:
+                raise GoogleStateError("google_sync_injection_mismatch")
+            status, current = await discord_request(
+                env, owner["stages"], {}, "google_sync_discord_rejection_owner",
+                "GET", _discord_path(env, event_id),
+            )
+            if status != 200 or not _discord_event_is_owned(
+                current, event_id=event_id, guild_id=env.DISCORD_GUILD_ID,
+                run_id=slot["run_id"],
+            ):
+                raise GoogleStateError("google_sync_discord_owner_mismatch")
+            # 所有権に使う名前・説明を変えず、不正な日時の更新を1回だけ送る。
+            status, rejected = await discord_request(
+                env, owner["stages"], {}, "google_sync_discord_invalid_update",
+                "PATCH", _discord_path(env, event_id), payload={"scheduled_start_time": "not-a-date"},
+            )
+            # 想定外に受理された場合も、応答statusを回収前の証跡に残す。
+            await _save(store, owner)
+            if status != 400 or not isinstance(rejected, dict) or rejected.get("code") != 50035:
+                raise GoogleStateError("google_sync_discord_rejection_mismatch")
+            owner["stages"]["google_sync_discord_rejection_verified"] = 200
         injected += 1
         owner["stages"]["google_sync_discord_failure_injected"] = 200
         await _save(store, owner)
-        # 通常Discord APIラッパーが非成功応答で返すNoneを固定注入する。
+        # API拒否を確認した場合も、通常ラッパーと同じNoneを適用処理へ返す。
+        # 旧manifestは従来の固定注入を維持し、同じ所有情報で回収できる。
         return None
 
     response = await invoke(
@@ -230,7 +329,10 @@ async def _apply(env, store, owner, token, invoke):
         not failing
     ):
         raise GoogleStateError("google_sync_apply_failed")
-    expected_pending = 1 if owner["step"] in (0, 4) else 0
+    expected_pending = (
+        len(owner.get("pending_ids", [])) if owner.get("full_apply")
+        else 1 if owner["step"] in (0, 4) else 0
+    )
     if payload.get("google_apply", {}).get("pending_events") != expected_pending:
         raise GoogleStateError("google_sync_pending_mismatch")
     if failing:
@@ -259,6 +361,8 @@ async def _apply(env, store, owner, token, invoke):
     if not isinstance(owner["expected_cursor"], str) or not owner["expected_cursor"]:
         raise GoogleStateError("google_sync_cursor_missing")
     owner["hashes"] = kv.hashes
+    if owner.get("full_apply"):
+        owner["shared_writes"] = kv.shared_writes
     for slot in owner["fixtures"]:
         event_id = slot["google_event_id"]
         ids = {
@@ -290,6 +394,8 @@ async def _verify(env, store, owner, token):
     expected = (
         [owner["fixtures"][1]["google_event_id"]] if owner["step"] in (0, 4) else []
     )
+    if owner.get("full_apply"):
+        expected = owner.get("pending_ids", [])
     if [e["id"] for e in queue] != expected:
         raise GoogleStateError("google_sync_queue_mismatch")
     if owner["step"] == 4 and (
@@ -299,15 +405,17 @@ async def _verify(env, store, owner, token):
         raise GoogleStateError("google_sync_queue_mismatch")
     result = json.loads(values[KEYS[5]] or "{}").get("payload", {})
     if any(
-        result.get(k) is not (owner["step"] != 4) for k in ("ok", "google_apply_ok")
+        result.get(k) is not (owner["step"] != 4 and not ((owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")) and owner["step"] == 1)) for k in ("ok", "google_apply_ok")
     ):
         raise GoogleStateError("google_sync_result_mismatch")
     notion_map = json.loads(values[KEYS[1]] or "{}")["internal"]
     discord_map = json.loads(values[KEYS[2]] or "{}")
     for index, slot in enumerate(owner["fixtures"]):
-        absent = (owner["step"] == 0 and index == 1) or (
-            owner["step"] >= 3 and index == 0
+        absent = (slot["google_event_id"] in expected and (owner["step"] == 0 or (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")))) or (
+            owner["step"] >= 3 and index == 0 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry"))
         )
+        if owner.get("notion_writeback_retry") and owner["step"] == 1:
+            absent = slot["google_event_id"] in expected[1:]
         if absent:
             if (
                 slot["google_event_id"] in notion_map
@@ -382,7 +490,7 @@ async def _verify(env, store, owner, token):
             _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]),
             token,
         )
-        if owner["step"] >= 3 and index == 0:
+        if owner["step"] >= 3 and index == 0 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             if status not in (404, 410) and not (
                 status == 200 and event.get("status") == "cancelled"
             ):
@@ -396,7 +504,18 @@ async def _verify(env, store, owner, token):
 
 
 async def _cleanup(env, store, owner, token):
-    for slot in owner["fixtures"]:
+    from e2e_google_sync_state import state_keys
+    if owner.get("webhook_sync"):
+        from e2e_watch_shared_probe import cleanup_watches
+        await cleanup_watches(env, store, owner, token)
+    if owner.get("full_apply") or owner.get("http_sync"):
+        await _check_shared_cleanup(env, owner, keys=state_keys(owner) if owner.get("http_sync") else KEYS)
+    cleaned = 0
+    for index, slot in enumerate(owner["fixtures"]):
+        if owner.get("boundary") and slot.get("cleaned"):
+            continue
+        if owner.get("boundary") and cleaned >= 5:
+            raise GoogleStateError("google_sync_cleanup_pending")
         if slot["apply_attempted"]:
             await _discover(env, store, owner, slot)
         if slot["apply_attempted"] and slot.get("discord_event_id"):
@@ -410,12 +529,7 @@ async def _cleanup(env, store, owner, token):
                 path,
             )
             if status != 404:
-                if status != 200 or not _discord_event_is_owned(
-                    event,
-                    event_id=slot["discord_event_id"],
-                    guild_id=env.DISCORD_GUILD_ID,
-                    run_id=slot["run_id"],
-                ):
+                if status != 200 or not _discord_owned(env, event, owner, slot):
                     raise GoogleStateError("google_sync_cleanup_owner_mismatch")
                 status, _ = await discord_request(
                     env,
@@ -467,9 +581,30 @@ async def _cleanup(env, store, owner, token):
                 if status not in (200, 204, 404, 410):
                     raise GoogleStateError("google_sync_cleanup_failed")
                 owner["stages"]["google_sync_source_delete"] = status
+        if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
+            from e2e_google_notion_query import verify_removed
+            await verify_removed(env, owner, slot, token)
+            owner["stages"][f"{'notion_writeback' if owner.get('notion_writeback_retry') else 'notion_create' if owner.get('notion_create_retry') else 'notion_query'}_cleanup_{index}"] = 200
+            await _save(store, owner)
+        if owner.get("boundary"):
+            # 各資源の消失を読戻してから完了を保存し、次HTTPでは未回収分だけ扱う。
+            from e2e_google_boundary_probe import verify_removed
+            await verify_removed(env, owner, slot, token)
+            slot["cleaned"] = True
+            owner["stages"][f"google_boundary_cleanup_{index}"] = 200
+            await _save(store, owner)
+            cleaned += 1
     prefix = GoogleKV(store, owner).prefix
-    for key in KEYS:
+    for key in state_keys(owner):
+        if owner.get("full_apply") or owner.get("http_sync"):
+            await _check_shared_cleanup(env, owner, keys=(key,))
+            if key not in owner.get("shared_writes", {}):
+                continue
         await env.STATE_KV.delete(prefix + key)
+    if owner.get("full_apply") or owner.get("http_sync"):
+        if any([await _raw_shared(env, key) is not None for key in state_keys(owner)]):
+            raise GoogleStateError("google_sync_not_ready")
+        owner["stages"]["google_sync_shared_cleanup"] = 200
     return {
         "version": 1,
         "kind": KIND,
@@ -482,8 +617,77 @@ async def _cleanup(env, store, owner, token):
     }
 
 
+async def _raw_shared(env, key):
+    value = await env.STATE_KV.get(key)
+    return None if value is None or str(value) in ("jsnull", "jsundefined") else str(value)
+
+
+async def _check_shared_cleanup(env, owner, *, keys=KEYS):
+    for key in keys:
+        value = await _raw_shared(env, key)
+        if value is not None and digest(value) not in owner.get("shared_writes", {}).get(key, []):
+            raise GoogleStateError("google_sync_shared_owner_mismatch")
+
+
+async def _check_full_empty(env, token, stages, *, origin_maps=None, compact=False):
+    if any([await _raw_shared(env, key) is not None for key in KEYS]):
+        raise GoogleStateError("google_sync_shared_not_empty")
+    result = await run_google_delta_fetch(GoogleEnv(env, token), StateStore(_DeltaEnv(env)), commit_cursor=False)
+    if not result.get("ok") or not isinstance(result.get("items"), list):
+        raise GoogleStateError("google_sync_calendar_fetch_failed")
+    baseline = {}
+    for event in result["items"]:
+        if (
+            not isinstance(event, dict)
+            or event.get("status") != "cancelled"
+            or not isinstance(event.get("id"), str)
+            or not event["id"]
+        ):
+            raise GoogleStateError("google_sync_calendar_not_empty")
+        key = digest(event["id"])
+        if key in baseline:
+            raise GoogleStateError("google_sync_calendar_duplicate")
+        baseline[key] = _deleted_fingerprint(event)
+        if origin_maps is not None:
+            from google_apply_sync import _google_origin_discord_event_id
+            origin = _google_origin_discord_event_id(event)
+            if origin:
+                origin_maps[key] = digest(origin)
+        if len(baseline) > (MAX_QUERY_BASELINE_DELETED if compact else MAX_BASELINE_DELETED):
+            raise GoogleStateError("google_sync_baseline_limit")
+    status, events = await discord_request(
+        env, stages, {}, "google_sync_empty_guild", "GET",
+        f"/guilds/{quote(env.DISCORD_GUILD_ID, safe='')}/scheduled-events",
+    )
+    if status != 200 or events != []:
+        raise GoogleStateError("google_sync_guild_not_empty")
+    status, pages = await notion_request(
+        env, stages, {}, "google_sync_empty_database", "POST",
+        f"/databases/{quote(env.NOTION_EVENT_INTERNAL_ID, safe='')}/query", {"page_size": 1},
+    )
+    if status != 200 or pages.get("results") != [] or pages.get("has_more") is not False:
+        raise GoogleStateError("google_sync_database_not_empty")
+    stages["google_sync_shared_empty"] = 200
+    return list(baseline.values()) if compact else baseline
+
+
 async def _phase(env, store, run_id, phase, invoke):
+    notion_query_retry = phase == "prepare_notion_query"
+    notion_create_retry = phase == "prepare_notion_create"
+    notion_writeback_retry = phase == "prepare_notion_writeback"
+    full_apply = phase in ("prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback")
+    if full_apply:
+        phase = "prepare"
     owner = await store.get_e2e_manifest(SERVICE)
+    if phase in ("prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or (owner and owner.get("dirty") and owner.get("all_sync")):
+        from e2e_all_sync_probe import run_phase
+        return await run_phase(env, store, run_id, phase, invoke, owner)
+    if phase == "prepare_boundary" or (owner and owner.get("dirty") and owner.get("boundary")):
+        from e2e_google_boundary_probe import run_phase
+        return await run_phase(env, store, run_id, phase, invoke, owner)
+    if phase == "prepare_matrix" or (owner and owner.get("dirty") and owner.get("matrix")):
+        from e2e_google_matrix_probe import run_phase
+        return await run_phase(env, store, run_id, phase, invoke, owner)
     if (await _lock_state(store)).get("owner"):
         raise GoogleStateError("google_sync_busy")
     if phase == "cleanup" and (not owner or not owner.get("dirty")):
@@ -518,8 +722,9 @@ async def _phase(env, store, run_id, phase, invoke):
             )
         ):
             raise GoogleStateError("google_sync_target_mismatch")
+        baseline = await _check_full_empty(env, token, stages, compact=notion_query_retry or notion_create_retry or notion_writeback_retry) if full_apply else {}
         slots = []
-        for index in range(2):
+        for index in range(3 if full_apply else 2):
             subrun = slot_run_id(run_id, index)
             event_id = source_id(run_id, index)
             slots.append(
@@ -539,7 +744,14 @@ async def _phase(env, store, run_id, phase, invoke):
             "target_fingerprints": _targets(env),
             "dirty": True,
             "step": 0,
-            "retry_enabled": True,
+            "retry_enabled": not full_apply,
+            "api_rejection_enabled": not full_apply,
+            "full_apply": full_apply,
+            "notion_query_retry": notion_query_retry,
+            "notion_create_retry": notion_create_retry,
+            "notion_writeback_retry": notion_writeback_retry,
+            "shared_writes": {},
+            "baseline_deleted": baseline,
             "stage": "working",
             "hashes": {},
             "fixtures": slots,
@@ -579,6 +791,9 @@ async def _phase(env, store, run_id, phase, invoke):
             owner["stage"] = "ready"
             await _save(store, owner)
         await _verify(env, store, owner, token)
+        if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
+            from e2e_google_notion_query import verify_phase
+            await verify_phase(env, store, owner)
         owner["stage"] = "verified"
         await _save(store, owner)
     elif phase == "advance":
@@ -590,7 +805,7 @@ async def _phase(env, store, run_id, phase, invoke):
         await _save(store, owner)
         slot = owner["fixtures"][int(owner["step"] >= 4)]
         path = _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"])
-        if owner["step"] in (2, 4):
+        if owner["step"] in (2, 4) and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             if owner["step"] == 4:
                 slot["retry_previous_description"] = slot["source"]["description"]
             slot["source"]["description"] += (
@@ -605,7 +820,7 @@ async def _phase(env, store, run_id, phase, invoke):
             )
             if status != 200 or not _source_owned(event, slot):
                 raise GoogleStateError("google_sync_source_update_failed")
-        if owner["step"] == 3:
+        if owner["step"] == 3 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             slot["delete_attempted"] = True
             await _save(store, owner)
             status, _ = await _google_request(
@@ -624,14 +839,49 @@ async def _phase(env, store, run_id, phase, invoke):
         await _save(store, owner)
         clean = await _cleanup(env, store, owner, token)
         return {"ok": True, "dirty": False, "_clean_manifest": clean}
+    steps = ("pending", "retry_pending", "retried", "drained") if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")) else STEPS
     return {
         "ok": True,
         "dirty": True,
-        "status": STEPS[owner["step"]],
-        "stage": f"google_{STEPS[owner['step']]}_verified"
+        "status": steps[owner["step"]],
+        "stage": f"google_{steps[owner['step']]}_verified"
         if phase == "verify"
         else "ready",
     }
+
+
+async def _inspect_calendar(env, run_id):
+    """予定本文を要求せず、全ページのstatusだけを読む。状態は保存しない。"""
+    token = await get_google_access_token(env, StateStore(_DeltaEnv(env)))
+    if not token:
+        raise GoogleStateError("google_sync_token_required")
+    url = _event_collection_url(env.GOOGLE_CALENDAR_ID) + (
+        "?singleEvents=true&showDeleted=true&maxResults=2500&fields=items(status),nextPageToken"
+    )
+    statuses = set()
+    seen = set()
+    page = ""
+    while True:
+        status, data = await _google_request("GET", url + page, token)
+        if status != 200:
+            code = status if type(status) is int and 100 <= status <= 599 else 0
+            raise GoogleStateError(f"google_sync_calendar_http_{code}")
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise GoogleStateError("google_sync_calendar_response_invalid")
+        for event in data["items"]:
+            value = event.get("status") if isinstance(event, dict) else None
+            if value not in ("confirmed", "tentative", "cancelled"):
+                raise GoogleStateError("google_sync_calendar_response_invalid")
+            statuses.add("deleted" if value == "cancelled" else "active")
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+        if not isinstance(page_token, str) or page_token in seen:
+            raise GoogleStateError("google_sync_calendar_page_invalid")
+        seen.add(page_token)
+        page = "&pageToken=" + quote(page_token, safe="")
+    classification = "mixed" if len(statuses) == 2 else next(iter(statuses), "empty")
+    return {"ok": True, "dirty": False, "run_id": run_id, "status": f"calendar_{classification}"}
 
 
 def _release_exception_cause(exc):
@@ -707,6 +957,19 @@ async def _release_control(store, stub, control):
 async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not RUN_PATTERN.fullmatch(run_id) or phase not in (
         "prepare",
+        "prepare_full",
+        "prepare_notion_query",
+        "prepare_notion_create",
+        "prepare_notion_writeback",
+        "prepare_matrix",
+        "prepare_boundary",
+        "prepare_all",
+        "prepare_http",
+        "prepare_webhook",
+        "webhook_trigger",
+        "webhook_advance",
+        "http_advance",
+        "inspect",
         "advance",
         "verify",
         "cleanup",
@@ -733,6 +996,23 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
         and not StateStore.is_kv_sync_cooldown_enabled(env)
     ):
         return {"ok": False, "error": "google_sync_configuration_invalid"}
+    if phase == "inspect":
+        try:
+            return await asyncio.wait_for(_inspect_calendar(env, run_id), 50)
+        except Exception as exc:
+            return {"ok": False, "dirty": False, "run_id": run_id,
+                    "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
+    existing = await store.get_e2e_manifest(SERVICE)
+    full_mode = phase in ("prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
+    if full_mode:
+        # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。
+        disabled = (
+            "E2E_ORCHESTRATED_WRITES_ENABLED", "CRON_ENABLE_SYNC",
+            "CRON_ENABLE_DISCORD_NOTION_SYNC", "CRON_ENABLE_GCAL_WATCH_ENSURE",
+            "CRON_ENABLE_QA", "CRON_ENABLE_REMINDER", "CRON_ENABLE_AUTO_CLEAN",
+        )
+        if any(str(getattr(env, key, "false")).lower() != "false" for key in disabled):
+            return {"ok": False, "error": "google_sync_full_configuration_invalid"}
     stub = env.SYNC_COORDINATOR.getByName("e2e:google-sync-control")
     control = f"{run_id}-{uuid4().hex}"
     lock = await store._sync_do_rpc(
@@ -741,7 +1021,10 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not lock or lock.get("ok") is not True:
         return {"ok": False, "error": "google_sync_busy"}
     try:
-        result = await asyncio.wait_for(_phase(env, store, run_id, phase, invoke), 50)
+        result = await asyncio.wait_for(
+            _phase(env, store, run_id, phase, invoke),
+            _FULL_PHASE_TIMEOUT_SECONDS if full_mode else _PHASE_TIMEOUT_SECONDS,
+        )
     except TimeoutError:
         result = {"ok": False, "dirty": True, "error": "google_sync_timeout"}
     except Exception as exc:

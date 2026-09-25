@@ -202,8 +202,9 @@ async def _notion_query_by_google_event_id(env, db_id: str, google_event_id: str
             "rich_text": {"equals": str(google_event_id)},
         }
     }
-    # Notion API リクエスト
-    response = await fetch(
+    # E2Eではこの照会だけを差し替え、通常のHTTP失敗処理へ応答を渡す。
+    query_fetch = getattr(env, "_google_notion_query_fetch", None) or fetch
+    response = await query_fetch(
         f"https://api.notion.com/v1/databases/{db_id}/query",
         {
             "method": "POST",
@@ -213,7 +214,7 @@ async def _notion_query_by_google_event_id(env, db_id: str, google_event_id: str
     )
     # 読み取り
     if int(response.status) != 200:
-        return None
+        raise RuntimeError("notion_google_query_failed")
     data = json.loads(await response.text() or "{}")
     results = data.get("results") or []
     return results[0] if results else None
@@ -241,7 +242,7 @@ async def _notion_query_by_message_id(env, db_id: str, message_id: str):
     )
     # 読み取り
     if int(response.status) != 200:
-        return None
+        raise RuntimeError("notion_message_query_failed")
     data = json.loads(await response.text() or "{}")
     results = data.get("results") or []
     return results[0] if results else None
@@ -257,8 +258,10 @@ async def _notion_get_page(env, page_id: str):
         {"method": "GET", "headers": _notion_headers(env)},
     )
     # 読み取り
-    if int(response.status) != 200:
+    if int(response.status) == 404:
         return None
+    if int(response.status) != 200:
+        raise RuntimeError("notion_page_read_failed")
     data = json.loads(await response.text() or "{}")
     return data if data.get("id") else None
 
@@ -312,8 +315,12 @@ async def _notion_update_event(
     if location is not None:
         props[prop_location] = {"rich_text": [{"text": {"content": str(location)}}]}
 
-    # Notion API リクエスト
-    response = await fetch(
+    # 所有資源E2EではDiscord IDだけの書戻し要求にAPI拒否を注入する。
+    update_fetch = (
+        getattr(env, "_google_notion_writeback_fetch", None)
+        if set(props) == {prop_message_id} else None
+    ) or fetch
+    response = await update_fetch(
         f"https://api.notion.com/v1/pages/{page_id}",
         {
             "method": "PATCH",
@@ -369,7 +376,8 @@ async def _notion_create_event(
         props[prop_location] = {"rich_text": [{"text": {"content": str(location)}}]}
 
     # Notion API リクエスト
-    response = await fetch(
+    create_fetch = getattr(env, "_google_notion_create_fetch", None) or fetch
+    response = await create_fetch(
         "https://api.notion.com/v1/pages",
         {
             "method": "POST",
@@ -426,6 +434,9 @@ async def _discord_api_request(env, method: str, path: str, payload=None):
         },
     )
     # 読み取り
+    if method.upper() == "DELETE" and int(response.status) == 404:
+        # 前回の削除成功後に状態保存が失敗していても、取消を完了できる。
+        return {}
     if int(response.status) >= 400:
         return None
     text = await response.text()
@@ -548,6 +559,8 @@ async def _sync_to_discord(
     notion_page: dict | None,
     fallback_page: dict | None,
     gcal_discord_map: dict,
+    *,
+    discord_deleter=None,
 ):
     """
     Googleイベントを Discord 側へ同期し、DiscordイベントIDを返す。
@@ -575,7 +588,8 @@ ws    Discord ID(message_id / mapped_id) 探索順:
     # 同期時にGoogle側で削除されていたらDiscord側も削除
     if (event or {}).get("status") == "cancelled":
         if discord_event_id:
-            await _discord_delete_event(env, discord_event_id)
+            if not await (discord_deleter or _discord_delete_event)(env, discord_event_id):
+                raise RuntimeError("discord_delete_failed")
         gcal_discord_map.pop(google_event_id, None)
         return None
     
@@ -596,7 +610,7 @@ ws    Discord ID(message_id / mapped_id) 探索順:
     return None
 
 
-async def apply_google_events(env, state, events: list[dict], *, discord_syncer=None):
+async def apply_google_events(env, state, events: list[dict], *, discord_syncer=None, notion_updater=None):
     """
     Google Calendar のイベント一覧を受け取り、Notion と Discord に反映する。
     1回で処理しすぎないように件数制限し、失敗分は次回へ繰り越す。
@@ -652,7 +666,7 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
     retry_events = []
 
     # 各Googleイベントを1件ずつ処理
-    for event in target_events:
+    for index, event in enumerate(target_events):
         google_event_id = str((event or {}).get("id") or "")
         if not google_event_id:
             continue
@@ -723,15 +737,17 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
             # キャンセル済みイベントの処理
             if (event or {}).get("status") == "cancelled":
                 if page:
-                    await _notion_archive_page(env, page)
+                    if not await _notion_archive_page(env, page):
+                        raise RuntimeError("notion_internal_archive_failed")
                     internal_map.pop(google_event_id, None)
                 if external_page:
-                    await _notion_archive_page(env, external_page)
+                    if not await _notion_archive_page(env, external_page):
+                        raise RuntimeError("notion_external_archive_failed")
                     external_map.pop(google_event_id, None)
                 if origin_discord_event_id:
                     gcal_discord_map[google_event_id] = origin_discord_event_id
                 else:
-                    await _sync_to_discord(env, event, page, external_page, gcal_discord_map)
+                    await (discord_syncer or _sync_to_discord)(env, event, page, external_page, gcal_discord_map)
                 continue
 
             # イベント内容を取り出す
@@ -752,7 +768,7 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
             # 内部Notionページを更新または作成
             # 既存ページがある場合は更新
             if page:
-                ok = await _notion_update_event(
+                ok = await (notion_updater or _notion_update_event)(
                     env,
                     page["id"],
                     name=name,
@@ -786,6 +802,7 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
                     had_error = True
                     event_failed = True
                     errors.append(f"notion_internal_create_failed:{google_event_id}")
+                    retry_events.append(event)
                     continue
                 page = {"id": page_id, "properties": {}}
                 internal_map[google_event_id] = str(page_id)
@@ -853,9 +870,11 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
 
             # Notionページに Discord ID を書き戻す
             if page and discord_event_id:
-                await _notion_update_event(env, page["id"], message_id=discord_event_id)
+                if not await _notion_update_event(env, page["id"], message_id=discord_event_id):
+                    raise RuntimeError("notion_internal_message_id_failed")
             if external_page and discord_event_id:
-                await _notion_update_event(env, external_page["id"], message_id=discord_event_id)
+                if not await _notion_update_event(env, external_page["id"], message_id=discord_event_id):
+                    raise RuntimeError("notion_external_message_id_failed")
         except Exception as exc:
             had_error = True
             event_failed = True
@@ -863,6 +882,8 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
             if "too many subrequests" in detail.lower():
                 errors.append(f"subrequests_exceeded:{google_event_id}")
                 retry_events.append(event)
+                # 件数上限内でも、未着手の後続イベントは次回へ残す。
+                retry_events.extend(target_events[index + 1:])
                 break
             errors.append(f"exception:{google_event_id}:{type(exc).__name__}")
 

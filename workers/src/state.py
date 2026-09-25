@@ -1,10 +1,23 @@
+import asyncio
 import json
 import time
 from datetime import datetime, timezone
 from inspect import isawaitable
+from uuid import uuid4
 
 
 _JS_ABSENT_VALUES = frozenset(("jsnull", "jsundefined"))
+_JOB_WRITE_KEYS = frozenset((
+    "qa_cache", "reminder_cache", "cleanup:last_epoch",
+    "result:job_qa_check", "result:job_reminder", "result:job_cleanup",
+))
+_JOB_WRITE_ATTEMPTS = 3
+
+
+class JobStateWriteError(RuntimeError):
+    """通常ジョブのKV保存が回数制限内に成功しなかった。"""
+
+
 _LEGACY_E2E_MANIFEST_KEYS = {
     "google": "e2e:google_calendar_crud",
     "discord": "e2e:discord_crud",
@@ -97,7 +110,19 @@ class StateStore:
         kv = self._kv()
         if kv is None:
             return
-        await kv.put(key, str(value))
+        text = str(value)
+        if key not in _JOB_WRITE_KEYS:
+            await kv.put(key, text)
+            return
+        # 外部通知やarchiveは再実行せず、応答喪失時も同じ値だけを再保存する。
+        for attempt in range(_JOB_WRITE_ATTEMPTS):
+            try:
+                await kv.put(key, text)
+                return
+            except Exception:
+                if attempt == _JOB_WRITE_ATTEMPTS - 1:
+                    raise JobStateWriteError("job_kv_write_failed") from None
+                await asyncio.sleep(attempt + 1)
 
     async def put_text_if_changed(self, key: str, value: str) -> bool:
         """現在値と異なる場合だけ KV へ文字列を書き込む。"""
@@ -430,6 +455,40 @@ class StateStore:
             raise RuntimeError("invalid_e2e_manifest_service")
         value = await self.get_json(key, None)
         return value if isinstance(value, dict) else None
+
+    async def claim_google_message(self, channel_id: str, message_number: str,
+                                   lease_seconds: float, *, owner_run_id: str = "") -> dict:
+        """処理済み通知と期限付き処理中通知を区別する。DO障害時はKVへ逃がさない。"""
+        if not channel_id or not message_number:
+            return {"status": "skipped"}
+        claim = {"channel_id": channel_id, "message_number": message_number,
+                 "claim_owner": uuid4().hex, "owner_run_id": owner_run_id}
+        do_ns = self._sync_do()
+        if do_ns is None:
+            # 旧KV専用構成は処理済み判定だけを維持する。強整合の排他はDOが担う。
+            seen = await self.get_text(f"gcal_msg:{channel_id}:{message_number}")
+            return {**claim, "status": "duplicate" if seen is not None else "claimed"}
+        result = await self._sync_do_rpc(self._sync_do_stub(do_ns), "claim_google_message",
+                                         {**claim, "lease_seconds": lease_seconds})
+        if not result or result.get("ok") is not True or result.get("status") not in ("claimed", "busy", "duplicate"):
+            raise RuntimeError("google_message_claim_failed")
+        return {**claim, "status": result["status"]}
+
+    async def finish_google_message(self, claim: dict, *, succeeded: bool) -> None:
+        """自分の処理中通知だけを成功確定または再試行可能に戻す。"""
+        if claim.get("status") != "claimed":
+            return
+        do_ns = self._sync_do()
+        if do_ns is None:
+            if succeeded:
+                await self.put_text(f"gcal_msg:{claim['channel_id']}:{claim['message_number']}", "1")
+            return
+        result = await self._sync_do_rpc(self._sync_do_stub(do_ns), "finish_google_message", {
+            **claim, "succeeded": succeeded,
+            "ttl_seconds": self.google_message_dedupe_ttl_seconds(self.env),
+        })
+        if not result or result.get("ok") is not True:
+            raise RuntimeError("google_message_finish_failed")
 
     async def mark_google_message_seen(self, channel_id: str, message_number: str) -> bool:
         """

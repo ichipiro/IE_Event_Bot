@@ -117,12 +117,23 @@ class SyncCoordinator(DurableObject):
             headers={"content-type": "application/json"},
         )
 
+    async def alarm(self):
+        from google_webhook_queue import run_alarm
+        await run_alarm(self.env, self.ctx.storage)
+
     async def _handle_action(self, payload: dict) -> tuple[dict, int]:
         """同期状態のactionを実行し、本文とHTTP互換statusを返す。"""
 
         # action と現在時刻を取得
         action = str(payload.get("action") or "").strip().lower()
         now = time.time()
+
+        if action == "enqueue_google_webhook":
+            from google_webhook_queue import queue_action
+            return await queue_action(self.ctx.storage, payload)
+        if action == "clear_google_webhook_queue":
+            from google_webhook_queue import clear_queue
+            return await clear_queue(self.ctx.storage, payload)
 
         # ロック要求処理
         if action == "acquire":
@@ -188,18 +199,43 @@ class SyncCoordinator(DurableObject):
             )
             return {"ok": True, "last_epoch": last_epoch}, 200
 
-        if action == "mark_google_message_seen":
+        if action == "e2e_watch_shared":
+            from e2e_watch_shared_probe import watch_rpc
+            return await watch_rpc(self.ctx.storage, payload)
+
+        if action in ("mark_google_message_seen", "claim_google_message", "finish_google_message"):
             channel_id = str(payload.get("channel_id") or "").strip()
             message_number = str(payload.get("message_number") or "").strip()
             if not channel_id or not message_number:
                 return {"ok": True, "duplicate": False, "skipped": True}, 200
             owner_run_id = str(payload.get("owner_run_id") or "").strip()
+            shared_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:google_sync"))
+            if shared_owner.get("dirty") and shared_owner.get("webhook_sync") and any(
+                w["channel_id"] == channel_id for w in shared_owner.get("watches", [])
+            ):
+                observed = _decode_json_record(await self.ctx.storage.get("e2e:watch_shared:" + shared_owner["run_id"]))
+                if message_number not in observed.get(channel_id, {}).get("messages", []):
+                    return {"ok": False, "error": "google_message_owner_mismatch"}, 409
+                owner_run_id = shared_owner["run_id"]
             if owner_run_id and not _E2E_RUN_ID_PATTERN.fullmatch(owner_run_id):
                 return {"ok": False, "error": "invalid_e2e_owner_run_id"}, 400
             ttl_seconds = max(60.0, float(payload.get("ttl_seconds") or 86400))
             storage_key = f"gcal_msg:{channel_id}:{message_number}"
             current = _decode_json_record(await self.ctx.storage.get(storage_key))
             expires_at = float(current.get("expires_at") or 0.0)
+            if action == "finish_google_message":
+                if (not current or current.get("status") != "processing"
+                        or current.get("claim_owner") != payload.get("claim_owner")
+                        or expires_at <= now):
+                    return {"ok": False, "error": "google_message_claim_lost"}, 409
+                if payload.get("succeeded") is True:
+                    record = {"expires_at": now + ttl_seconds}
+                    if current.get("owner_run_id"):
+                        record["owner_run_id"] = current["owner_run_id"]
+                    await self.ctx.storage.put(storage_key, json.dumps(record, ensure_ascii=False))
+                else:
+                    await self.ctx.storage.delete(storage_key)
+                return {"ok": True}, 200
             if expires_at > now:
                 current_owner = str(current.get("owner_run_id") or "")
                 if owner_run_id and current_owner != owner_run_id:
@@ -207,7 +243,20 @@ class SyncCoordinator(DurableObject):
                         "ok": False,
                         "error": "google_message_owner_mismatch",
                     }, 409
+                if action == "claim_google_message":
+                    status = "busy" if current.get("status") == "processing" else "duplicate"
+                    return {"ok": True, "status": status}, 200
                 return {"ok": True, "duplicate": True, "expires_at": expires_at}, 200
+            if action == "claim_google_message":
+                claimant = str(payload.get("claim_owner") or "")
+                if not claimant:
+                    return {"ok": False, "error": "google_message_claim_required"}, 400
+                pending = {"status": "processing", "claim_owner": claimant,
+                           "expires_at": now + max(10.0, float(payload.get("lease_seconds") or 150))}
+                if owner_run_id:
+                    pending["owner_run_id"] = owner_run_id
+                await self.ctx.storage.put(storage_key, json.dumps(pending, ensure_ascii=False))
+                return {"ok": True, "status": "claimed"}, 200
             next_expires_at = now + ttl_seconds
             record: dict[str, float | str] = {"expires_at": next_expires_at}
             if owner_run_id:
@@ -794,6 +843,47 @@ class SyncCoordinator(DurableObject):
             run_id = str(manifest.get(run_id_key) or "")
             if not _E2E_RUN_ID_PATTERN.fullmatch(run_id):
                 return {"ok": False, "error": "invalid_e2e_manifest_run_id"}, 400
+            # 専用環境の共有状態を使う間は、他scenarioの所有開始と競合させない。
+            qa_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:qa_notification"))
+            if service != "qa_notification" and qa_owner.get("normal") and qa_owner.get("dirty"):
+                return {"ok": False, "error": "qa_normal_shared_busy"}, 409
+            if service == "qa_notification" and manifest.get("normal") and manifest.get("dirty") and not qa_owner.get("dirty"):
+                for other in _E2E_MANIFEST_KINDS:
+                    if other == service:
+                        continue
+                    active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
+                    if active.get("dirty"):
+                        return {"ok": False, "error": "qa_normal_shared_busy"}, 409
+            reminder_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:reminder"))
+            if service != "reminder" and reminder_owner.get("normal") and reminder_owner.get("dirty"):
+                return {"ok": False, "error": "reminder_normal_shared_busy"}, 409
+            if service == "reminder" and manifest.get("normal") and manifest.get("dirty") and not reminder_owner.get("dirty"):
+                for other in _E2E_MANIFEST_KINDS:
+                    if other == service:
+                        continue
+                    active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
+                    if active.get("dirty"):
+                        return {"ok": False, "error": "reminder_normal_shared_busy"}, 409
+            notion_cleanup_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:notion_cleanup"))
+            if service != "notion_cleanup" and notion_cleanup_owner.get("normal") and notion_cleanup_owner.get("dirty"):
+                return {"ok": False, "error": "cleanup_normal_shared_busy"}, 409
+            if service == "notion_cleanup" and manifest.get("normal") and manifest.get("dirty") and not notion_cleanup_owner.get("dirty"):
+                for other in _E2E_MANIFEST_KINDS:
+                    if other == service:
+                        continue
+                    active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
+                    if active.get("dirty"):
+                        return {"ok": False, "error": "cleanup_normal_shared_busy"}, 409
+            full_owner = _decode_json_record(await self.ctx.storage.get("e2e:manifest:google_sync"))
+            if service != "google_sync" and full_owner.get("dirty") and (full_owner.get("full_apply") or full_owner.get("all_sync")):
+                return {"ok": False, "error": "google_sync_shared_busy"}, 409
+            if service == "google_sync" and manifest.get("dirty") and (manifest.get("full_apply") or manifest.get("all_sync")) and not full_owner.get("dirty"):
+                for other in _E2E_MANIFEST_KINDS:
+                    if other == service:
+                        continue
+                    active = _decode_json_record(await self.ctx.storage.get(f"e2e:manifest:{other}"))
+                    if active.get("dirty"):
+                        return {"ok": False, "error": "google_sync_shared_busy"}, 409
             if service in ("discord_batch", "discord_batch_google", "discord_batch_notification"):
                 previous = _decode_json_record(await self.ctx.storage.get(storage_key))
                 if not valid_batch_transition(previous, manifest):

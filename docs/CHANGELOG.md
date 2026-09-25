@@ -1,6 +1,107 @@
 # 文書変更履歴
 
+## 2026-09-25: 対象内E2Eの完了判定
+
+旧watch通知・17件境界・Notion API拒否後の復旧を含む24実行の証跡を再照合し、計画・棚卸し・課題の完了状態を統一した。任意件数・自然発生障害は保証外事項として保持する。
+
+
+## 2026-09-25
+
+- NotionへのDiscord ID書戻し拒否後の復旧E2Eを追加し、[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)の成功、部分反映IDの再利用、queue復旧・重複なし・全資源回収の独立照合を[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)へ保存した。
+
+- Notionページ作成拒否後の復旧E2Eを追加し、[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)の成功、queue維持・再試行・重複なし・全資源回収の独立照合を[検証記録](E2E-NOTION-CREATE-RETRY.md)へ保存した。
+
+- Google同期の17件・上限5件E2E成功36140594316、初回の応答契約不一致・回収、全27段階・全件回収の独立照合を[検証記録](E2E-GOOGLE-BOUNDARY.md)へ追加。有限の件数境界を完了とし、残るAPI失敗分岐は維持した。
+
+- ロック解放失敗の実ログ調査、固定分類・別stub読取り診断、診断版E2E36119459889の成功と回収を記録。元の失敗原因は未確定として区別した。
+
+- 通常watch・共有Webhookの再確認36117345631の失敗と回収36117671982の成功を記録。watch維持は成功、実通知同期は未到達、ロック解放RPCの詳細原因は未確定。全manifest `dirty=false` を確認した。
+
+- 通常Notion cleanupの全件取得・共有KV・別HTTPでの実行間隔抑止・所有資源回収を実サービスで確認（[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)）。計画を完了へ更新し、実Cronと失敗後再試行は別の未検証範囲として残した。
+
+- 所有ページ限定のNotion cleanup E2Eの成功と回収を記録（[実行36035326262](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36035326262)）。通常DB全件取得・共有KV・実Cronは未検証として区別した。
+- 通常リマインドの全件取得・対象選別・共有cache・重複抑止・回収を実サービスで確認（[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)）。一覧取得失敗の成功誤判定とGETの429待機を修正した。
+
+## 2026-09-24: 全体同期E2Eの成功を計画・課題へ反映
+
+- E2E-PLANの通常共有状態・通常入口による全体同期を完了にし、ISSUESへ実行36010723441の成功・回収証跡と残る未検証範囲を反映した。
+
+## 2026-09-24: 通常HTTP・共有KVの全体同期E2E
+
+`deploy-and-all-http-smoke` の入口、4段階、共有KVとDOの責務、回収範囲をTESTING・SECURITYへ追記。従来9段階の隔離全体同期と区別する。初回の回収済み失敗と、既知削除履歴の対応表検証を修正した実行36010723441の成功・回収証跡を記録。
+
+## 2026-09-24: 全体同期9段階の実サービス検証成功
+
+- TESTING、E2E-PLAN、ISSUES、WORKLOGへ全9段階・回収成功、監査・version照合と、run別KV・固定失敗・同一HTTP内競合という検証範囲を記録した。
+
+## 2026-09-24: 全体同期E2Eの範囲と残作業
+
+- TESTING、E2E-PLAN、ISSUES、WORKLOGへ所有2件・9段階の全体同期、回収条件、ローカル検証と実サービス未実行の境界を記録した。
+
+## 2026-09-24: Google matrix 18段階の成功を記録
+
+- 実行35982356318の全18段階、3件のAPI拒否・分割再試行、既存ID維持、全資源・共有KV回収とpassed・dirty=falseを記録し、計画の対応項目を完了にした。最初のロック解放失敗の原因未確定という境界は維持する。
+
+## 2026-09-24: Google matrixの回収成功を記録
+
+- 回収実行35981499346の所有資源・共有KV回収、failed_clean・全記録dirty=falseを記録した。元の実行の失敗と再検証待ちを維持する。
+
+## 2026-09-24: Google matrixの複数失敗・再試行範囲を追加
+
+- 複数日の終日・UTC日跨ぎ予定、残存3件のAPI拒否、上限1件のqueue再試行を18stepとして文書化した。ローカル件数別12組の検証と実サービス未確認の境界を追記した。
+
+## 2026-09-24: Google matrix E2Eの成功を記録
+
+- [実行35977892750](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35977892750)の全14段階、共有queue再試行、繰返し親・共有KVの回収、passed・全記録dirty=falseを記録し、対応するE2E計画項目を完了にした。
+
+## 2026-09-24: Google matrix E2E
+
+- 予定形式と5件・複数回繰越・共有KV再試行のmatrixモード、14stepのverify・所有記録・繰返し親の回収、MCP・workflowと検証境界を文書化した。
+
+## 2026-09-24: Google全件E2Eの成功を記録
+
+- 実行35969469480の4段階・既存削除履歴の保護・共有KV回収、passed・全記録dirty=falseを記録し、対応するE2E計画項目を完了にした。
+
+## 2026-09-24: 全件E2Eの処理時間と呼出し待機時間を調整
+
+- 実行35968760516の削除履歴保護成功・50秒タイムアウト・全資源回収を記録した。全件phase90秒、Google同期HTTP120秒、workflowのMCP180秒を揃えた。
+
+## 2026-09-24: 削除履歴のあるCalendarでの全件E2E
+
+- 既存の削除履歴を開始時に記録し、一致する履歴だけを保護して除外する方式へ変更した。新規Calendarへの切替は必須ではなくなり、通常予定と未知・変更された履歴の拒否を維持する。
+
+## 2026-09-24: Calendar診断結果
+
+- 実行35965137690の成功、削除履歴のみの残存、既存manifestの不変、全件E2E再開に必要なCalendar条件を記録した。
+
+## 2026-09-24: Calendar診断経路
+
+- 全ページのstatusだけを確認する専用route・MCP phase・手動workflowと、診断を回収対象へ含めない処理を追加した。
+
+## 2026-09-24: 新規KVでの全件E2Eの結果
+
+- 実行35963510311のKV検査通過、Calendar開始条件での停止、エラー分類の限界、前回clean記録の保持を文書化した。
+
+## 2026-09-24: 全件E2Eの開始条件拒否を記録
+
+- 実行35962599536のdeploy成功、共有KV既存値による適用前停止、前回clean記録の保持、再実行条件をE2E計画・検証資料・課題・作業履歴へ記録した。
+
+## 2026-09-24: Google共有KV・全件モード
+
+- 専用環境の全取得入力を共有KVへ適用する4段階モード、開始時の空状態検査、書込み予定の所有記録と回収、MCP・手動workflowを追加した。
+- 削除記録を含むCalendarの開始拒否、最終時刻のKV fallback、実サービス未検証の境界をTESTING・E2E計画・課題へ記録した。
+
 この文書は、標準文書構成の変更を記録する。アプリケーションの公開リリース履歴は、Release Please が管理するリポジトリルートの `CHANGELOG.md` を正本とする。
+
+## 2026-09-24
+
+- [再実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で不正日時へのAPI拒否・queue回復・全6段階と回収が成功した結果を記録した。実APIの入力検証エラーとサービス障害を区別し、残作業を更新した。
+
+- [復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)の成功、空名になった所有Discord予定を含む回収、`failed_clean`・全資源clean、run/version/commitとartifactの照合結果を記録した。
+
+- API拒否E2E初回の失敗・dirty資源、空名が受理されたモデルの再現、限定的な所有確認と回収専用workflow、不正日時への試験変更を記録した。
+
+- 通常Google同期のHTTP失敗・subrequest上限による残件消失と成功誤判定の修正、ローカル再現結果を記録した。所有Discord予定の不正PATCHに対するAPI拒否とqueue再試行を専用E2Eへ追加し、実サービス障害・共有状態の全件適用とは分けた。
 
 ## 2026-09-15
 
@@ -159,3 +260,20 @@
 - 既存の README、仕様、KV、運用、Fork / Upstream 文書。
 - 作業開始前から存在した未コミット変更。
 - `docs/Event_Bot仕様書.md`、`docs/KV.md`、`docs/Operations.md`、`docs/do-kv-design.md` を追跡対象外のローカル補助とする方針。
+
+## 2026-09-25: 実Cronと手動同期の競合E2E
+
+- 実Cronと別HTTPの両方向のロック競合、解放後の再実行、結果KV読戻し、所有資源回収を検証した。[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)で成功し、[計画](E2E-PLAN.md)項目8と[検証記録](E2E-CRON-CONTENTION.md)を更新した。
+
+## 2026-09-25: 通常ジョブ再試行
+
+- Q&Aの通知失敗をcacheで抑止する問題とcleanup失敗後のinterval guardを修正。3ジョブの固定失敗・別HTTP回復・重複抑止・回収を実サービスで確認した（[検証記録](E2E-JOBS-RETRY.md)）。
+
+## 2026-09-25: 通常ジョブのKV保存再試行
+
+- 通常ジョブのKV6キーだけを同じ値で最大3回保存し、上限到達時の失敗応答とCron後続処理を整えた。
+- 固定失敗・回復・重複抑止・共有KV読戻し・全資源回収を専用E2Eで確認した。[検証記録](E2E-JOBS-KV-RETRY.md)。
+
+## 2026-09-25: E2E棚卸しと旧通知の検証
+
+E2E計画の完了記録を実行証跡へ合わせ、Google同期の残試験と本番作業の開始条件を明記した。旧token・旧channel・重複通知を通常handlerとE2Eガードで区別する検証を追加した。[棚卸し記録](E2E-AUDIT-20260925.md)。

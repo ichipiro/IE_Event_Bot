@@ -763,7 +763,7 @@ Database
 - `test`: テストの追加・修正
 - `chore`: 保守、依存関係、ビルド、運用設定
 
-`type` と `scope` は小文字にする。同期ブランチでは外部由来または自動生成コミットを許容するが、Pull Request のタイトルは Conventional Commits 形式にする。
+`type` と `scope` は小文字にする。件名には日本語と API・製品名の原表記を使えるため、件名全体の英字の大小文字は制限しない。Commitlint の `subject-case` は無効とし、形式・type・scopeなどの検査は維持する。同期ブランチでは外部由来または自動生成コミットを許容するが、Pull Request のタイトルは Conventional Commits 形式にする。
 
 例:
 

@@ -20,16 +20,24 @@ import {
   runDeployAndSyncLockSmoke,
   runDeployAndSyncFaultsSmoke,
   runDeployAndGoogleSyncSmoke,
+  runGoogleCalendarCheck,
   runDeployAndDiscordKvSmoke,
   runDeployAndDiscordBatchSmoke,
   runDeployAndDiscordBatchGoogleSmoke,
   runDeployAndDiscordBatchNotificationSmoke,
   runDiscordDeltaRecovery,
+  runGoogleSyncRecovery,
   selectWorkflowRunId,
   runDeployAndGoogleDiscordSmoke,
   runDeployAndGoogleNotionSmoke,
   runDeployAndNotionCleanupSmoke,
   runDeployAndQaNotificationSmoke,
+  runDeployAndQaNormalSmoke,
+  runDeployAndJobsKvRetrySmoke,
+  runDeployAndJobsRetrySmoke,
+  runDeployAndJobsListRetrySmoke,
+  runDeployAndReminderNormalSmoke,
+  runDeployAndNotionCleanupNormalSmoke,
   runDeployAndReminderSmoke,
   runDeployAndWebhookSimulationSmoke,
   runDeployAndWebhookDeliverySmoke,
@@ -40,6 +48,142 @@ import {
 
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
+
+for (const failure of [null, "notify", "missing_stage"]) {
+  test(`通常Q&Aの段階実行・読戻し・回収: ${failure}`, async () => {
+    let phase = "";
+    let reads = 0;
+    const sleeps = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        if (job === "qa_normal_verify") {
+          if (++reads === 1) {
+            return { ok: false, error: "qa_normal_kv_not_ready" };
+          }
+          return { ok: true, stages: { [`qa_normal_verify_${phase}`]: 200 } };
+        }
+        phase = job.replace("qa_normal_", "");
+        if (phase === failure) {
+          return { ok: false, error: "qa_normal_job_failed" };
+        }
+        return { ok: true, stages: failure === "missing_stage" ? {} : { [`qa_normal_${phase}`]: 200 } };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { qa_normal_cleanup: 200 } } }),
+    });
+    const task = runDeployAndQaNormalSmoke(callTool, RUN_ID, { sleepImpl: async (ms) => sleeps.push(ms) });
+    if (failure) {
+      await assert.rejects(task, /qa_normal_/);
+    } else {
+      assert.deepEqual(await task, { ok: true, scenarios: ["qa_notification"] });
+      assert.deepEqual(sleeps, [3000, 65000]);
+      assert.equal(calls.filter(c => c.args.job === "qa_normal_first").length, 1);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(calls.filter(c => c.name === "trigger_job").map(c => ({
+      run_id: RUN_ID, phase: "start", tool: c.name, target: c.args.job,
+    })), RUN_ID), ["qa_notification"]);
+  });
+}
+
+for (const failure of [null, "notify", "missing_stage"]) {
+  test(`通常リマインドの段階実行・読戻し・回収: ${failure}`, async () => {
+    let phase = "";
+    let reads = 0;
+    const sleeps = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        if (job === "reminder_normal_verify") {
+          if (++reads === 1) {
+            return { ok: false, error: "reminder_normal_kv_not_ready" };
+          }
+          return { ok: true, stages: { [`reminder_normal_verify_${phase}`]: 200 } };
+        }
+        phase = job.replace("reminder_normal_", "");
+        if (phase === failure) {
+          return { ok: false, error: "reminder_normal_job_failed" };
+        }
+        return { ok: true, stages: failure === "missing_stage" ? {} : { [`reminder_normal_${phase}`]: 200 } };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { reminder_normal_cleanup: 200 } } }),
+    });
+    const task = runDeployAndReminderNormalSmoke(callTool, RUN_ID, { sleepImpl: async (ms) => sleeps.push(ms) });
+    if (failure) {
+      await assert.rejects(task, /reminder_normal_/);
+    } else {
+      assert.deepEqual(await task, { ok: true, scenarios: ["reminder"] });
+      assert.deepEqual(sleeps, [3000]);
+      assert.equal(calls.filter(c => c.args.job === "reminder_normal_prepare").length, 1);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(calls.filter(c => c.name === "trigger_job").map(c => ({
+      run_id: RUN_ID, phase: "start", tool: c.name, target: c.args.job,
+    })), RUN_ID), ["reminder"]);
+  });
+}
+
+for (const failure of [null, "execute", "missing_stage"]) {
+  test(`通常Notion cleanupの段階実行・読戻し・回収: ${failure}`, async () => {
+    let phase = "";
+    let reads = 0;
+    const sleeps = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        if (job === "cleanup_normal_verify") {
+          if (++reads === 1) {
+            return { ok: false, error: "cleanup_normal_kv_not_ready" };
+          }
+          return { ok: true, stages: { [`cleanup_normal_verify_${phase}`]: 200 } };
+        }
+        phase = job.replace("cleanup_normal_", "");
+        if (phase === failure) {
+          return { ok: false, error: "cleanup_normal_job_failed" };
+        }
+        return { ok: true, stages: failure === "missing_stage" ? {} : { [`cleanup_normal_${phase}`]: 200 } };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { cleanup_normal_cleanup: 200 } } }),
+    });
+    const task = runDeployAndNotionCleanupNormalSmoke(callTool, RUN_ID, { sleepImpl: async (ms) => sleeps.push(ms) });
+    if (failure) {
+      await assert.rejects(task, /cleanup_normal_/);
+    } else {
+      assert.deepEqual(await task, { ok: true, scenarios: ["notion_cleanup"] });
+      assert.deepEqual(sleeps, [3000]);
+      assert.equal(calls.filter(c => c.args.job === "cleanup_normal_prepare").length, 1);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(calls.filter(c => c.name === "trigger_job").map(c => ({
+      run_id: RUN_ID, phase: "start", tool: c.name, target: c.args.job,
+    })), RUN_ID), ["notion_cleanup"]);
+  });
+}
+
+for (const stage of ["cleanup", "ready", "working"]) {
+  for (const failure of [null, "run", "stage", "other_dirty", "version", "outcome"]) {
+    test(`google同期の回収専用workflow: ${stage} ${failure ?? "success"}`, async () => {
+      assert.equal(selectWorkflowRunId("deploy-and-google-sync-recovery", RUN_ID), RUN_ID);
+      assert.throws(() => selectWorkflowRunId("deploy-and-google-sync-recovery", ""));
+      const { calls, callTool } = stateWorkflowFixture({
+        read_status: async () => ({ ok: true, mode: "e2e", orchestrated_writes_enabled: false,
+          worker_version: { tag: failure === "version" ? "other" : RUN_ID, id_sha256: "a".repeat(64) },
+          services: {}, scenarios: {
+            google_sync: { present: true, dirty: true, run_id: failure === "run" ? "other" : RUN_ID,
+              stage: failure === "stage" ? "unowned" : stage },
+            discord_delta: { dirty: failure === "other_dirty" },
+          } }),
+        assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "passed" : "failed_clean" } }),
+      }, "google_sync");
+      if (failure) {
+        await assert.rejects(runGoogleSyncRecovery(callTool, RUN_ID), /google_sync_recovery_/);
+        if (failure !== "outcome") { assert.deepEqual(calls.map(c => c.name), ["read_status"]); }
+      } else {
+        assert.deepEqual(await runGoogleSyncRecovery(callTool, RUN_ID), { ok: true, recovered: "google_sync" });
+        assert.deepEqual(calls.map(c => c.name), ["read_status", "deploy_e2e", "cleanup_run", "assert_external_state", "preflight"]);
+        assert.equal(calls[2].args.confirmation, `cleanup:google_sync:${RUN_ID}`);
+        assert.equal(calls[1].args.previous_version_sha256, "a".repeat(64));
+      }
+    });
+  }
+}
 
 
 function stateWorkflowFixture(overrides = {}, scenario = "discord_state") {
@@ -1261,7 +1405,7 @@ for (const failure of [null, "prepare", "advance", "early_done", "late_done", "v
   });
 }
 
-for (const failure of [null, "advance", "verify", "version", "outcome", "phase", "injection"]) {
+for (const failure of [null, "advance", "verify", "version", "outcome", "phase", "injection", "rejection", "rejection_evidence"]) {
   test(`通常Google同期workflow: ${failure ?? "success"}と回収`, async () => {
     let index = 0;
     const steps = ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
@@ -1276,6 +1420,8 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase",
         worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
         scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
           stages: { [`google_sync_${steps[index]}`]: 200,
+            google_sync_discord_invalid_update: failure === "rejection" ? 503 : 400,
+            google_sync_discord_rejection_verified: failure === "rejection_evidence" ? undefined : 200,
             google_sync_discord_failure_injected: failure === "injection" ? undefined : 200 } } },
       }),
       assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
@@ -1291,5 +1437,581 @@ for (const failure of [null, "advance", "verify", "version", "outcome", "phase",
     assert.equal(calls.filter(c => c.name === "cleanup_run" && c.args.service === "google_sync").length, 1);
     if (failure === "advance") { assert.equal(index, 1); }
     assert.deepEqual(touchedServicesFromAudit([{ run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "google_sync" }], RUN_ID), ["google_sync"]);
+  });
+}
+
+for (const failure of ["fetch_once", "body_once", "fetch_persistent", "body_persistent", "advance", "prepare", "application", "wrong_run", "busy"]) {
+  test(`Google確認の通信再試行は上限付きで書込みを再送しない: ${failure}`, async () => {
+    const steps = ["pending", "drained", "updated", "deleted"];
+    let index = 0;
+    let failures = 0;
+    const waits = [];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        const writeFailure = args.sync_phase === (failure === "prepare" ? "prepare_full" : "advance") && ["prepare", "advance"].includes(failure);
+        const verifyFailure = args.sync_phase === "resume" && !["prepare", "advance"].includes(failure) &&
+          (!failure.endsWith("once") || failures === 0);
+        if (writeFailure || verifyFailure) {
+          failures += 1;
+          return { ok: false, status: failure.startsWith("body") ? 200 : failure === "application" ? 409 : failure === "busy" ? 503 : 0,
+            error: failure.startsWith("body") ? "worker_response_read_failed" : failure === "application" ? "google_sync_release_failed" : failure === "busy" ? "google_sync_busy" : "worker_request_failed",
+            run_id: failure === "wrong_run" ? "E2E-20260901T000000Z-aaaaaaaa" : RUN_ID, dirty: false };
+        }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`google_sync_${steps[index]}`]: 200, google_sync_full_input: 200, google_sync_shared_empty: 200 } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: { google_sync_shared_cleanup: 200 } } }),
+    }, "google_sync");
+    const execute = () => runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { fullApply: true, verify: { sleepImpl: async ms => waits.push(ms) } });
+    if (failure.endsWith("once")) {
+      await execute();
+      assert.equal(failures, 1);
+      assert.equal(calls.filter(c => c.args.sync_phase === "advance").length, 3);
+      assert.equal(calls.filter(c => c.args.sync_phase === "resume").length, 5);
+    } else {
+      await assert.rejects(execute(), /worker_request_failed|worker_response_read_failed|google_sync_release_failed|google_sync_busy/);
+      assert.equal(failures, failure.endsWith("persistent") ? 3 : 1);
+      assert.equal(calls.filter(c => c.args.sync_phase === "advance").length, failure === "advance" ? 1 : 0);
+    }
+    assert.equal(calls.filter(c => c.args.sync_phase === "prepare_full").length, 1);
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.deepEqual(waits, Array(failure.endsWith("once") ? 1 : failure.endsWith("persistent") ? 2 : 0).fill(3000));
+  });
+}
+
+for (const failure of [null, "input", "shared", "cleanup", "advance"]) {
+  test(`Google全件workflow: ${failure ?? "success"}`, async () => {
+    let index = 0;
+    const steps = ["pending", "drained", "updated", "deleted"];
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async (args) => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: !(failure === "advance" && index === 1), error: "google_sync_failed",
+          status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`google_sync_${steps[index]}`]: 200,
+            google_sync_full_input: failure === "input" ? undefined : 200,
+            google_sync_shared_empty: failure === "shared" ? undefined : 200 } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed",
+        stages: { google_sync_shared_cleanup: failure === "cleanup" ? undefined : 200 } } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { fullApply: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { fullApply: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_full", "resume", ...Array(3).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    assert.ok(COMMANDS.includes("deploy-and-google-full-smoke"));
+  });
+}
+
+for (const classification of ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed", "invalid"]) {
+  test(`Calendar診断: ${classification}を照合しcleanupを送らない`, async () => {
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async () => ({ ok: true, status: 200, dirty: false, run_id: RUN_ID, execution_status: classification }),
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) } }),
+    });
+    if (classification === "invalid") {
+      await assert.rejects(runGoogleCalendarCheck(callTool, RUN_ID), /google_sync_inspect_invalid/);
+    } else {
+      assert.equal((await runGoogleCalendarCheck(callTool, RUN_ID)).execution_status, classification);
+    }
+    assert.equal(calls.filter(c => c.name === "trigger_sync")[0].args.sync_phase, "inspect");
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 0);
+  });
+}
+
+for (const failure of [null, "stage", "input", "rejection", "cursor", "multi_rejection", "multi_cursor", "queue_drain", "series_cleanup", "pagination", "seven_inputs", "notion_failure", "notion_cursor", "delete_failure", "delete_cursor"]) {
+  test(`Google matrix workflow: ${failure ?? "success"}`, async () => {
+    const steps = [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
+      "prepared", "prepared", "pending", "pending", "pending", "drained", "retry_pending", "retried", "retry_pending", "retried"];
+    let index = 0;
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`google_matrix_step_${index}`]: failure === "stage" ? undefined : 200,
+            google_matrix_full_input: failure === "input" ? undefined : 200, google_sync_shared_empty: 200,
+            google_matrix_api_rejection: failure === "rejection" ? 503 : 400,
+            google_matrix_cursor_preserved: failure === "cursor" ? undefined : 200,
+            google_matrix_rejection_1: 400, google_matrix_rejection_2: 400,
+            google_matrix_rejection_4: failure === "multi_rejection" ? 503 : 400,
+            google_matrix_multi_cursor_preserved: failure === "multi_cursor" ? undefined : 200,
+            google_matrix_pagination: failure === "pagination" ? undefined : 200,
+            google_matrix_seven_inputs: failure === "seven_inputs" ? undefined : 200,
+            google_matrix_notion_failure_injected: failure === "notion_failure" ? undefined : 200,
+            google_matrix_notion_cursor_preserved: failure === "notion_cursor" ? undefined : 200,
+            google_matrix_delete_failure_injected: failure === "delete_failure" ? undefined : 200,
+            google_matrix_delete_cursor_preserved: failure === "delete_cursor" ? undefined : 200,
+            [`google_matrix_queue_drain_${index}`]: failure === "queue_drain" ? undefined : 200 } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
+        google_sync_shared_cleanup: 200, google_matrix_series_cleanup: failure === "series_cleanup" ? undefined : 200,
+      } } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { matrix: true, fullApply: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { matrix: true, fullApply: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_matrix", "resume", ...Array(27).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+  });
+}
+
+
+test("読み取り専用Calendar診断は回収対象へ追加しない", () => {
+  assert.deepEqual(touchedServicesFromAudit([
+    { run_id: RUN_ID, phase: "start", tool: "trigger_sync", target: "google_sync", sync_phase: "inspect" },
+  ], RUN_ID), []);
+});
+
+for (const failure of [null, "stage", "google_failure", "discord_failure", "cooldown", "contention", "version", "outcome"]) {
+  test(`全体同期workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"];
+    let index = 0;
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`all_sync_step_${index}`]: failure === "stage" ? undefined : 200,
+            all_sync_failure_4: failure === "google_failure" ? undefined : 200,
+            all_sync_failure_6: failure === "discord_failure" ? undefined : 200,
+            all_sync_cooldown: failure === "cooldown" ? undefined : 200,
+            all_sync_contention: failure === "contention" ? undefined : 200,
+          } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: failure === "outcome" ? "failed_clean" : "passed" } }),
+    });
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { allSync: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { allSync: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_all", "resume", ...Array(8).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+  });
+}
+
+for (const failure of [null, "stage", "dispatch", "version", "cleanup", "outcome"]) {
+  test(`通常HTTP全体同期workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["prepared", "drained", "updated", "drained"];
+    let index = 0;
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "http_advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true,
+        worker_version: { tag: RUN_ID, id_sha256: (failure === "version" ? "b" : "a").repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified",
+          stages: { [`all_http_step_${index}`]: failure === "stage" ? undefined : 200,
+            [`all_http_dispatch_${index}`]: failure === "dispatch" ? undefined : 200 } } } }),
+      assert_external_state: async () => ({ ok: true, manifest: {
+        outcome: failure === "outcome" ? "failed_clean" : "passed",
+        stages: { google_sync_shared_cleanup: failure === "cleanup" ? undefined : 200 } } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { httpSync: true }), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, { httpSync: true });
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_http", "resume", ...Array(3).fill(["http_advance", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+  });
+}
+
+
+for (const failure of [null, "maintenance", "callback", "alarm", "retry", "old_token", "old_guard", "old_accepted", "old_duplicate", "release_recovery", "release_cleanup", "cleanup", "queue_cleanup", "transport_once", "transport_always", "unauthorized"]) {
+  test(`通常watchと共有Webhook workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["prepared", "drained", "updated", "drained"];
+    let index = 0;
+    let readFailures = 0;
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "webhook_trigger") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => {
+        if (index === 3 && (["transport_always", "unauthorized"].includes(failure) || (failure === "transport_once" && readFailures === 0))) {
+          readFailures += 1;
+          return { ok: false, run_id: RUN_ID, status: failure === "unauthorized" ? 401 : 0,
+            error: failure === "unauthorized" ? "worker_http_401" : "worker_request_failed" };
+        }
+        return { ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: {
+          [`all_http_step_${index}`]: 200, [`all_http_dispatch_${index}`]: 200,
+          watch_shared_maintenance: failure === "maintenance" ? undefined : 200,
+          watch_shared_release_recovery: failure === "release_recovery" ? undefined : 200,
+          [`watch_shared_step_${index}`]: failure === "callback" ? undefined : 200,
+          [`watch_shared_alarm_${index}`]: failure === "alarm" ? undefined : 200,
+          watch_shared_busy_retry_recovered: failure === "retry" ? undefined : 200,
+          watch_shared_failure_retry_recovered: 200,
+          watch_shared_old_token_rejected: (index < 2 || failure === "old_token") ? undefined : 401,
+          watch_shared_old_channel_guard: (index < 2 || failure === "old_guard") ? undefined : 404,
+          watch_shared_old_channel_accepted: (index < 2 || failure === "old_accepted") ? undefined : 204,
+          watch_shared_old_channel_duplicate: (index < 2 || failure === "old_duplicate") ? undefined : 204,
+        } } } };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
+        google_sync_shared_cleanup: 200, watch_shared_cleanup: failure === "cleanup" ? undefined : 200,
+        watch_shared_queue_cleanup: failure === "queue_cleanup" ? undefined : 200,
+        watch_shared_release_recovery_cleanup: failure === "release_cleanup" ? undefined : 200,
+      } } }),
+    }, "google_sync");
+    const options = { httpSync: true, webhookSync: true, verify: { sleepImpl: async () => {} } };
+    if (failure && failure !== "transport_once") {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_|worker_request_failed|worker_http_401/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_webhook", "resume", ...Array(3).fill(["webhook_trigger", "resume"]).flat()]);
+    }
+    assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    if (failure === "transport_always") { assert.equal(readFailures, 3); }
+    if (["transport_once", "unauthorized"].includes(failure)) { assert.equal(readFailures, 1); }
+  });
+}
+
+
+test("deployはSDK既定60秒で打ち切らず、既存deployとrevision確認上限を待つ", async () => {
+  const { e2eCallOptions } = await import("./run_e2e_workflow.mjs");
+  assert.ok(e2eCallOptions("deploy_e2e", {}).timeout >= 300_000 + 20 * 60_000 + 19 * 3_000);
+  assert.equal(e2eCallOptions("trigger_sync", { scenario: "google_sync" }).timeout, 180_000);
+  assert.equal(e2eCallOptions("read_status", {}), undefined);
+});
+
+for (const failure of [null, "fail", "verify", "evidence"]) {
+  test(`通常3ジョブの失敗再試行は1deploy・独立検証・回収を要求: ${failure}`, async () => {
+    const phases = {};
+    const stages = {};
+    const prefixes = { qa_notification: "qa_normal", reminder: "reminder_normal", notion_cleanup: "cleanup_normal" };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        const prefix = Object.values(prefixes).find(p => job.startsWith(`${p}_`));
+        const phase = job.slice(prefix.length + 1);
+        stages[prefix] ??= {};
+        if (phase === "verify") {
+          if (failure === "verify" && phases[prefix] === "fail") {
+            return { ok: false, error: "failure_result_mismatch" };
+          }
+          stages[prefix][`${prefix}_verify_${phases[prefix]}`] = 200;
+        } else {
+          if (failure === "fail" && phase === "fail") {
+            return { ok: false, error: "failure_not_observed" };
+          }
+          phases[prefix] = phase;
+          stages[prefix][`${prefix}_${phase}`] = 200;
+          if (phase === "fail" && failure !== "evidence") {
+            stages[prefix][`${prefix}_failed_http`] = 500;
+          }
+        }
+        return { ok: true, stages: { ...stages[prefix] } };
+      },
+      assert_external_state: async ({ service }) => {
+        const prefix = prefixes[service];
+        return { ok: true, manifest: { outcome: "passed", stages: { ...stages[prefix], [`${prefix}_cleanup`]: 200 } } };
+      },
+    });
+    const task = runDeployAndJobsRetrySmoke(callTool, RUN_ID, { sleepImpl: async () => {} });
+    if (failure) {
+      await assert.rejects(task, /failure_|job_retry_evidence_missing/);
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    } else {
+      assert.deepEqual((await task).scenarios, Object.keys(prefixes));
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 3);
+      for (const prefix of Object.values(prefixes)) {
+        assert.equal(calls.filter(c => c.args.job === `${prefix}_fail`).length, 1);
+        assert.equal(stages[prefix][`${prefix}_verify_fail`], 200);
+      }
+    }
+    assert.equal(calls.filter(c => c.name === "deploy_e2e").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(Object.values(prefixes).map(prefix => ({
+      run_id: RUN_ID, phase: "start", tool: "trigger_job", target: `${prefix}_fail`,
+    })), RUN_ID).sort(), Object.keys(prefixes).sort());
+  });
+}
+
+
+for (const failure of [null, "fail", "verify", "evidence"]) {
+  test(`通常Notion一覧の失敗再試行は1deploy・独立検証・回収を要求: ${failure}`, async () => {
+    const phases = {};
+    const stages = {};
+    const prefixes = { qa_notification: "qa_normal", notion_cleanup: "cleanup_normal" };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        const prefix = Object.values(prefixes).find(p => job.startsWith(`${p}_`));
+        const phase = job.slice(prefix.length + 1);
+        stages[prefix] ??= {};
+        if (phase === "verify") {
+          if (failure === "verify" && phases[prefix].startsWith("list_fail")) {
+            return { ok: false, error: "failure_result_mismatch" };
+          }
+          stages[prefix][`${prefix}_verify_${phases[prefix]}`] = 200;
+        } else {
+          if (failure === "fail" && phase.startsWith("list_fail")) {
+            return { ok: false, error: "failure_not_observed" };
+          }
+          phases[prefix] = phase;
+          stages[prefix][`${prefix}_${phase}`] = 200;
+          if (phase.startsWith("list_fail") && failure !== "evidence") {
+            stages[prefix][`${prefix}_${phase}_http`] = 500;
+            stages[prefix][`${prefix}_${phase}_injected`] = 503;
+            stages[prefix][`${prefix}_${phase}_first_page`] = 200;
+          }
+        }
+        return { ok: true, stages: { ...stages[prefix] } };
+      },
+      assert_external_state: async ({ service }) => {
+        const prefix = prefixes[service];
+        return { ok: true, manifest: { outcome: "passed", stages: { ...stages[prefix], [`${prefix}_cleanup`]: 200 } } };
+      },
+    });
+    const task = runDeployAndJobsListRetrySmoke(callTool, RUN_ID, { sleepImpl: async () => {} });
+    if (failure) {
+      await assert.rejects(task, /failure_|job_list_retry_evidence_missing/);
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    } else {
+      assert.deepEqual((await task).scenarios, Object.keys(prefixes));
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 2);
+      for (const prefix of Object.values(prefixes)) {
+        assert.equal(calls.filter(c => c.args.job === `${prefix}_list_fail`).length, 1);
+        assert.equal(stages[prefix][`${prefix}_verify_list_fail`], 200);
+      }
+    }
+    assert.equal(calls.filter(c => c.name === "deploy_e2e").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(Object.values(prefixes).map(prefix => ({
+      run_id: RUN_ID, phase: "start", tool: "trigger_job", target: `${prefix}_list_fail`,
+    })), RUN_ID).sort(), Object.keys(prefixes).sort());
+  });
+}
+
+
+for (const failure of [null, "job", "verify", "evidence"]) {
+  test(`通常ジョブKV再試行は保存前後の証跡と独立検証・回収を要求: ${failure}`, async () => {
+    const phases = {};
+    const stages = {};
+    const prefixes = { qa_notification: "qa_normal", reminder: "reminder_normal", notion_cleanup: "cleanup_normal" };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        const prefix = Object.values(prefixes).find(p => job.startsWith(`${p}_`));
+        const phase = job.slice(prefix.length + 1);
+        stages[prefix] ??= {};
+        if (phase === "verify") {
+          if (failure === "verify" && phases[prefix] === "notify") {
+            return { ok: false, error: "kv_result_mismatch" };
+          }
+          stages[prefix][`${prefix}_verify_${phases[prefix]}`] = 200;
+        } else {
+          phases[prefix] = phase === "kv_prepare" ? "prepare" : phase;
+          stages[prefix][`${prefix}_${phases[prefix]}`] = 200;
+          if (["notify", "execute"].includes(phase)) {
+            if (failure === "job") {
+              return { ok: false, error: "kv_retry_not_observed" };
+            }
+            for (const key of ["cache", "result"]) {
+              for (const step of ["before", "after", "recovered"]) {
+                if (failure !== "evidence" || step !== "recovered") {
+                  stages[prefix][`${prefix}_kv_${key}_${step}`] = 200;
+                }
+              }
+            }
+          }
+        }
+        return { ok: true, stages: { ...stages[prefix] } };
+      },
+      assert_external_state: async ({ service }) => {
+        const prefix = prefixes[service];
+        return { ok: true, manifest: { outcome: "passed", stages: { ...stages[prefix], [`${prefix}_cleanup`]: 200 } } };
+      },
+    });
+    const task = runDeployAndJobsKvRetrySmoke(callTool, RUN_ID, { sleepImpl: async () => {} });
+    if (failure) {
+      await assert.rejects(task, /kv_|job_kv_retry_evidence_missing/);
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    } else {
+      assert.deepEqual((await task).scenarios, Object.keys(prefixes));
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 3);
+      for (const prefix of Object.values(prefixes)) {
+        assert.equal(calls.filter(c => c.args.job === `${prefix}_kv_prepare`).length, 1);
+        assert.equal(stages[prefix][`${prefix}_verify_duplicate`], 200);
+      }
+    }
+    assert.equal(calls.filter(c => c.name === "deploy_e2e").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(Object.values(prefixes).map(prefix => ({
+      run_id: RUN_ID, phase: "start", tool: "trigger_job", target: `${prefix}_kv_prepare`,
+    })), RUN_ID).sort(), Object.keys(prefixes).sort());
+  });
+}
+
+for (const failure of [null, "stage", "input", "queue", "cursor", "count", "slot", "cleanup"]) {
+  test(`Google17件・上限5件workflow: ${failure ?? "success"}`, async () => {
+    const steps = [...Array(18).fill("prepared"), ...Array(4).fill("pending"), ...Array(5).fill("drained")];
+    let index = 0;
+    let cleanups = 0;
+    const stages = () => ({
+      google_sync_shared_empty: 200,
+      [`google_boundary_step_${index}`]: failure === "stage" ? undefined : 200,
+      google_boundary_input_17: failure === "input" ? undefined : 200,
+      google_boundary_initial_cursor_preserved: 200,
+      [`google_boundary_queue_${Math.max(0, 17 - Math.max(0, index - 18) * 5)}`]: failure === "queue" ? undefined : 200,
+      [`google_boundary_cursor_queue_${index}`]: failure === "cursor" ? undefined : 200,
+      [`google_boundary_apply_${index}_${index === 22 ? 2 : 5}`]: failure === "count" ? undefined : 200,
+      ...Object.fromEntries(Array.from({ length: 17 }, (_, slot) => [`google_boundary_slot_${slot}`, failure === "slot" && slot === 16 ? undefined : 200])),
+    });
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: stages() } } }),
+      cleanup_run: async () => {
+        cleanups += 1;
+        return cleanups < 4 ? { ok: false, dirty: true, error: "google_sync_cleanup_pending" } : { ok: true, dirty: false };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
+        google_sync_shared_cleanup: 200,
+        ...Object.fromEntries(Array.from({ length: 17 }, (_, slot) => [`google_boundary_cleanup_${slot}`, failure === "cleanup" && slot === 16 ? undefined : 200])),
+      } } }),
+    }, "google_sync");
+    const options = { boundary: true, fullApply: true, cleanup: { sleepImpl: async () => {} } };
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_boundary", "resume", ...Array(26).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(cleanups, 4);
+  });
+}
+
+for (const failure of [null, "notion_query_step_3", "notion_query_unique_2", "notion_query_api_rejection", "notion_query_validation_error", "notion_query_failed_dispatch", "notion_query_cursor_preserved", "notion_query_queue_only_retry", "notion_query_reapply", "notion_query_cleanup_2"]) {
+  test(`Notion照会復旧workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["pending", "retry_pending", "retried", "drained"];
+    let index = 0;
+    let cleanups = 0;
+    const stages = () => {
+      const result = { google_sync_shared_empty: 200, google_sync_full_input: 200,
+        [`notion_query_step_${index}`]: 200, [`notion_query_unique_${index}`]: 200,
+        notion_query_api_rejection: 400, notion_query_validation_error: 200,
+        notion_query_failed_dispatch: 500, notion_query_cursor_preserved: 200,
+        notion_query_queue_only_retry: 200, notion_query_reapply: 200,
+        google_sync_shared_cleanup: 200,
+        notion_query_cleanup_0: 200, notion_query_cleanup_1: 200, notion_query_cleanup_2: 200 };
+      if (failure) { delete result[failure]; }
+      return result;
+    };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: stages() } } }),
+      cleanup_run: async () => { cleanups += 1; return { ok: true, dirty: false }; },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: stages() } }),
+    }, "google_sync");
+    const options = { notionQuery: true, fullApply: true };
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_notion_query", "resume", ...Array(3).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(cleanups, 1);
+  });
+}
+
+for (const failure of [null, "notion_create_step_3", "notion_create_unique_2", "notion_create_api_rejection", "notion_create_validation_error", "notion_create_failed_dispatch", "notion_create_cursor_preserved", "notion_create_queue_only_retry", "notion_create_reapply", "notion_create_cleanup_2"]) {
+  test(`Notion作成復旧workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["pending", "retry_pending", "retried", "drained"];
+    let index = 0;
+    let cleanups = 0;
+    const stages = () => {
+      const result = { google_sync_shared_empty: 200, google_sync_full_input: 200,
+        [`notion_create_step_${index}`]: 200, [`notion_create_unique_${index}`]: 200,
+        notion_create_api_rejection: 400, notion_create_validation_error: 200,
+        notion_create_failed_dispatch: 500, notion_create_cursor_preserved: 200,
+        notion_create_queue_only_retry: 200, notion_create_reapply: 200,
+        google_sync_shared_cleanup: 200,
+        notion_create_cleanup_0: 200, notion_create_cleanup_1: 200, notion_create_cleanup_2: 200 };
+      if (failure) { delete result[failure]; }
+      return result;
+    };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: stages() } } }),
+      cleanup_run: async () => { cleanups += 1; return { ok: true, dirty: false }; },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: stages() } }),
+    }, "google_sync");
+    const options = { notionCreate: true, fullApply: true };
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_notion_create", "resume", ...Array(3).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(cleanups, 1);
+  });
+}
+
+for (const failure of [null, "notion_writeback_step_3", "notion_writeback_unique_2", "notion_writeback_api_rejection", "notion_writeback_validation_error", "notion_writeback_failed_dispatch", "notion_writeback_cursor_preserved", "notion_writeback_queue_only_retry", "notion_writeback_reapply", "notion_writeback_cleanup_2", "notion_writeback_partial_maps", "notion_writeback_writeback_missing", "notion_writeback_same_ids"]) {
+  test(`Notion書戻し復旧workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["pending", "retry_pending", "retried", "drained"];
+    let index = 0;
+    let cleanups = 0;
+    const stages = () => {
+      const result = { google_sync_shared_empty: 200, google_sync_full_input: 200,
+        [`notion_writeback_step_${index}`]: 200, [`notion_writeback_unique_${index}`]: 200,
+        notion_writeback_api_rejection: 400, notion_writeback_validation_error: 200,
+        notion_writeback_failed_dispatch: 500, notion_writeback_cursor_preserved: 200,
+        notion_writeback_queue_only_retry: 200, notion_writeback_reapply: 200,
+        notion_writeback_partial_maps: 200, notion_writeback_writeback_missing: 200, notion_writeback_same_ids: 200,
+        google_sync_shared_cleanup: 200,
+        notion_writeback_cleanup_0: 200, notion_writeback_cleanup_1: 200, notion_writeback_cleanup_2: 200 };
+      if (failure) { delete result[failure]; }
+      return result;
+    };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: stages() } } }),
+      cleanup_run: async () => { cleanups += 1; return { ok: true, dirty: false }; },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: stages() } }),
+    }, "google_sync");
+    const options = { notionWriteback: true, fullApply: true };
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_notion_writeback", "resume", ...Array(3).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(cleanups, 1);
   });
 }

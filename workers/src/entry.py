@@ -17,7 +17,7 @@ from google_calendar_sync import run_google_delta_fetch
 from google_watch import ensure_watch_active
 from health_checks import run_connectivity_checks
 from jobs import run_auto_clean_job, run_day_before_reminder_job, run_qa_notification_job
-from state import StateStore
+from state import JobStateWriteError, StateStore
 from sync_lock_do import SyncCoordinator
 from sync_lock_release import (
     _RPC_TIMEOUT_SECONDS, _recover_release, _release_error_type, _release_retry_blocked,
@@ -51,6 +51,15 @@ def _bool_env(value: str | None, default: bool = False) -> bool:
 
 def _detail_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"ok": bool(value)}
+
+
+async def _save_job_result(state, name: str, payload: dict) -> dict:
+    if state.enabled():
+        try:
+            await state.set_last_result(name, payload)
+        except JobStateWriteError as exc:
+            return {**payload, "ok": False, "error": str(exc)}
+    return payload
 
 
 def _gcal_webhook_token_status(env, request) -> int:
@@ -148,6 +157,14 @@ class Default(WorkerEntrypoint):
 
         # Google Calendar webhook 通知の受信口
         if path == "/gcal/webhook":
+            if str(request.method or "GET").upper() != "POST":
+                return _json_response({"ok": False, "error": "method_not_allowed"}, status=405)
+            token_status = _gcal_webhook_token_status(self.env, request)
+            if token_status:
+                return Response("webhook unavailable" if token_status == 503 else "unauthorized", status=token_status)
+            if getattr(self.env, "SYNC_COORDINATOR", None) is not None:
+                from google_webhook_queue import enqueue
+                return await enqueue(self.env, request)
             return await self._handle_gcal_webhook(request, state)
 
         # Q&A 未回答更新通知ジョブを実行
@@ -155,13 +172,8 @@ class Default(WorkerEntrypoint):
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
             detail = _detail_dict(await run_qa_notification_job(self.env, state, return_detail=True))
-            ok = bool(detail.get("ok"))
-            if state.enabled():
-                await state.set_last_result(
-                    "job_qa_check",
-                    {"mode": "native", **detail},
-                )
-            return _json_response({"mode": "native", **detail}, status=200 if ok else 500)
+            payload = await _save_job_result(state, "job_qa_check", {"mode": "native", **detail})
+            return _json_response(payload, status=200 if payload.get("ok") else 500)
         
         # 前日リマインドジョブを実行
         if path == "/jobs/reminder":
@@ -170,26 +182,16 @@ class Default(WorkerEntrypoint):
             detail = _detail_dict(
                 await run_day_before_reminder_job(self.env, state, return_detail=True)
             )
-            ok = bool(detail.get("ok"))
-            if state.enabled():
-                await state.set_last_result(
-                    "job_reminder",
-                    {"mode": "native", **detail},
-                )
-            return _json_response({"mode": "native", **detail}, status=200 if ok else 500)
+            payload = await _save_job_result(state, "job_reminder", {"mode": "native", **detail})
+            return _json_response(payload, status=200 if payload.get("ok") else 500)
 
         # Notion cleanup ジョブを実行
         if path == "/jobs/cleanup":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
             detail = _detail_dict(await run_auto_clean_job(self.env, state, return_detail=True))
-            ok = bool(detail.get("ok"))
-            if state.enabled():
-                await state.set_last_result(
-                    "job_cleanup",
-                    {"mode": "native", **detail},
-                )
-            return _json_response({"mode": "native", **detail}, status=200 if ok else 500)
+            payload = await _save_job_result(state, "job_cleanup", {"mode": "native", **detail})
+            return _json_response(payload, status=200 if payload.get("ok") else 500)
         """
         全部まとめて実行する。
         手順:
@@ -309,13 +311,11 @@ class Default(WorkerEntrypoint):
                     return_detail=True,
                 )
             )
-            ok = bool(qa_detail.get("ok"))
+            payload = await _save_job_result(
+                StateStore(self.env), "job_qa_check", {"mode": "native", "source": "cron", **qa_detail},
+            )
+            ok = bool(payload.get("ok"))
             results.append({"ok": ok, "path": "/jobs/qa-check", "status": 200 if ok else 500})
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result(
-                    "job_qa_check",
-                    {"mode": "native", "source": "cron", **qa_detail},
-                )
         if run_reminder:
             reminder_detail = _detail_dict(
                 await run_day_before_reminder_job(
@@ -324,13 +324,11 @@ class Default(WorkerEntrypoint):
                     return_detail=True,
                 )
             )
-            ok = bool(reminder_detail.get("ok"))
+            payload = await _save_job_result(
+                StateStore(self.env), "job_reminder", {"mode": "native", "source": "cron", **reminder_detail},
+            )
+            ok = bool(payload.get("ok"))
             results.append({"ok": ok, "path": "/jobs/reminder", "status": 200 if ok else 500})
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result(
-                    "job_reminder",
-                    {"mode": "native", "source": "cron", **reminder_detail},
-                )
         if run_cleanup:
             cleanup_detail = _detail_dict(
                 await run_auto_clean_job(
@@ -339,13 +337,11 @@ class Default(WorkerEntrypoint):
                     return_detail=True,
                 )
             )
-            ok = bool(cleanup_detail.get("ok"))
+            payload = await _save_job_result(
+                StateStore(self.env), "job_cleanup", {"mode": "native", "source": "cron", **cleanup_detail},
+            )
+            ok = bool(payload.get("ok"))
             results.append({"ok": ok, "path": "/jobs/cleanup", "status": 200 if ok else 500})
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result(
-                    "job_cleanup",
-                    {"mode": "native", "source": "cron", **cleanup_detail},
-                )
         return results
 
     async def _handle_gcal_webhook(
@@ -366,25 +362,39 @@ class Default(WorkerEntrypoint):
         if token_status:
             return Response("unauthorized", status=401)
 
-        if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
-            goog_channel = _header(request, "X-Goog-Channel-ID")
-            goog_msg = _header(request, "X-Goog-Message-Number")
-            duplicated = await state.mark_google_message_seen(
-                goog_channel or "",
-                goog_msg or "",
+        claim = None
+        finished = False
+        try:
+            if state.enabled() and StateStore.is_gcal_dedupe_enabled(self.env):
+                claim = await state.claim_google_message(
+                    _header(request, "X-Goog-Channel-ID") or "",
+                    _header(request, "X-Goog-Message-Number") or "",
+                    self._sync_lock_ttl_seconds() + 30,
+                )
+                if claim["status"] == "duplicate":
+                    return Response("", status=204)
+                if claim["status"] == "busy":
+                    return Response("sync in progress", status=503)
+            sync_resp = await self._run_sync_dispatch(
+                request, state, source="webhook", google_applier=google_applier,
             )
-            if duplicated:
+            succeeded = 200 <= int(sync_resp.status) < 300
+            if claim:
+                await state.finish_google_message(claim, succeeded=succeeded)
+                finished = True
+            if succeeded:
                 return Response("", status=204)
-
-        sync_resp = await self._run_sync_dispatch(
-            request,
-            state,
-            source="webhook",
-            google_applier=google_applier,
-        )
-        if int(sync_resp.status) >= 500:
-            return Response("sync failed", status=500)
-        return Response("", status=204)
+            return Response("sync failed", status=500 if int(sync_resp.status) == 500 else 503)
+        except Exception:
+            # 例外時に成功応答を返さず、通知の再送を許す。
+            return Response("sync unavailable", status=503)
+        finally:
+            if claim and claim.get("status") == "claimed" and not finished:
+                try:
+                    await state.finish_google_message(claim, succeeded=False)
+                except Exception:
+                    # DO障害時も処理済みにはせず、短期leaseの期限後に再取得可能。
+                    pass
 
     def _authorized(self, request) -> bool:
         """
@@ -414,6 +424,7 @@ class Default(WorkerEntrypoint):
         google_fetcher=None,
         discord_runner=None,
         lock_ttl_seconds=None,
+        dispatch_env=None,
     ):
         """
         同期処理の中核ディスパッチ。
@@ -428,13 +439,15 @@ class Default(WorkerEntrypoint):
         production の apply_google_events を使用する。
         google_fetcher / discord_runner はロックE2Eの同期本体を隔離する。
         通常経路では省略し、既存の取得・ポーリングを呼ぶ。
+        dispatch_env は全体同期E2Eのリクエスト内設定。省略時は通常設定を使う。
         """
+        run_env = self.env if dispatch_env is None else dispatch_env
         # 同期間隔を取得
-        sync_interval = self._sync_interval_seconds()
+        sync_interval = self._sync_interval_seconds(run_env)
         # KV クールダウン判定
         if (
             state.enabled()
-            and StateStore.is_kv_sync_cooldown_enabled(self.env)
+            and StateStore.is_kv_sync_cooldown_enabled(run_env)
             and await state.should_skip_sync_by_cooldown(sync_interval)
         ):
             return _json_response(
@@ -444,7 +457,7 @@ class Default(WorkerEntrypoint):
                     "interval_seconds": sync_interval,
                     "source": source,
                 },
-                status=200,
+                status=503 if source == "webhook" else 200,
             )
         lock_owner = None
         # Durable Object ロック要求(別の実行がまだ進行中なら失敗)
@@ -460,19 +473,19 @@ class Default(WorkerEntrypoint):
                         "source": source,
                         "lock": acquired,
                     },
-                    status=200,
+                    status=503 if source == "webhook" else 200,
                 )
             lock_owner = acquired.get("owner")
         try:
             mode = self._sync_all_mode()
             # Google 差分取得
-            google_result = await (google_fetcher or run_google_delta_fetch)(self.env, state, commit_cursor=False)
+            google_result = await (google_fetcher or run_google_delta_fetch)(run_env, state, commit_cursor=False)
             await self._require_sync_owner(lock_owner)
             apply_result = {"ok": True, "skipped": True}
             if google_result.get("ok"):
                 selected_applier = google_applier or apply_google_events
                 apply_result = await selected_applier(
-                    self.env,
+                    run_env,
                     state,
                     google_result.get("items") or [],
                 )
@@ -489,8 +502,8 @@ class Default(WorkerEntrypoint):
                     await state.set_sync_updated_min(next_cursor)
             await self._require_sync_owner(lock_owner)
             discord_result = {"ok": True, "skipped": True}
-            if self._sync_all_include_discord_notion():
-                discord_result = await (discord_runner or run_discord_notion_poll_sync)(self.env, state)
+            if _bool_env(getattr(run_env, "SYNC_ALL_INCLUDE_DISCORD_NOTION", "false")):
+                discord_result = await (discord_runner or run_discord_notion_poll_sync)(run_env, state)
             await self._require_sync_owner(lock_owner)
             # 全体成功判定
             ok = (
@@ -557,9 +570,9 @@ class Default(WorkerEntrypoint):
             if owner:
                 await self._release_sync_lock(owner)
 
-    def _sync_interval_seconds(self) -> float:
+    def _sync_interval_seconds(self, env=None) -> float:
         """同期クールダウン秒数を返す。"""
-        value = getattr(self.env, "SYNC_INTERVAL_SECONDS", "300")
+        value = getattr(self.env if env is None else env, "SYNC_INTERVAL_SECONDS", "300")
         try:
             return max(0.0, float(value))
         except Exception:
@@ -810,3 +823,16 @@ class Default(WorkerEntrypoint):
         # 最初の値だけ使う
         value = str(values[0]).strip().lower()
         return value in ("1", "true", "yes", "on")
+
+
+class Application:
+    """Alarmと検証から通常アプリケーション処理を呼ぶbinding view。"""
+
+    def __init__(self, env):
+        self.env = env
+
+    def __getattr__(self, name):
+        descriptor = Default.__dict__.get(name)
+        if descriptor is None:
+            raise AttributeError(name)
+        return descriptor.__get__(self, type(self))

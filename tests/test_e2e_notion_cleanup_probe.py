@@ -141,13 +141,15 @@ def install_notion_api_stub(
             ]
             if control["hide_query_results"]:
                 matches = []
+            start = int(payload.get("start_cursor", "0"))
+            end = start + payload.get("page_size", 100)
             return Response(
                 json.dumps(
                     {
                         "object": "list",
-                        "results": matches,
-                        "has_more": False,
-                        "next_cursor": None,
+                        "results": matches[start:end],
+                        "has_more": end < len(matches),
+                        "next_cursor": str(end) if end < len(matches) else None,
                     }
                 ),
                 status=200,

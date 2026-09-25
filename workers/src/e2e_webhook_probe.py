@@ -94,19 +94,16 @@ class _RunScopedSyncState:
         if op_name == "sync_all" and isinstance(payload, dict):
             self.last_result_written = True
 
-    async def mark_google_message_seen(
-        self,
-        channel_id: str,
-        message_number: str,
-    ) -> bool:
+    async def claim_google_message(self, channel_id: str, message_number: str, lease_seconds: float) -> dict:
         if channel_id != self._channel_id or message_number != self._message_number:
             raise RuntimeError("webhook_dedupe_target_mismatch")
         self.dedupe_calls += 1
-        return await self._dedupe_state.mark_e2e_google_message_seen(
-            channel_id,
-            message_number,
-            self._run_id,
+        return await self._dedupe_state.claim_google_message(
+            channel_id, message_number, lease_seconds, owner_run_id=self._run_id,
         )
+
+    async def finish_google_message(self, claim: dict, *, succeeded: bool) -> None:
+        await self._dedupe_state.finish_google_message(claim, succeeded=succeeded)
 
 
 class _WebhookHeaders:

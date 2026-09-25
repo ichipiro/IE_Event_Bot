@@ -20,6 +20,49 @@ import {
 
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
+
+test("通常Q&Aの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "first", "update", "fail", "list_fail_first", "list_fail", "notify", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `qa_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/qa-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
+test("通常リマインドの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "fail", "notify", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `reminder_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/reminder-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
+test("通常Notion cleanupの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "fail", "list_fail", "execute", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `cleanup_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
 const ENV = Object.freeze({
   E2E_WORKER_URL: "https://ie-event-bot-e2e.personal.workers.dev",
   E2E_WORKER_URL_SHA256: createHash("sha256")
@@ -49,6 +92,75 @@ const PLAYWRIGHT_ARGS = [
   "--timeout-navigation",
   "60000",
 ];
+
+for (const phase of ["prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "advance", "resume", "cleanup", "inspect"]) {
+  test(`Google同期${phase}のHTTP待機時間はWorkerの上限を上回る`, async (t) => {
+    const budgets = new WeakMap();
+    t.mock.method(AbortSignal, "timeout", (milliseconds) => {
+      const signal = new AbortController().signal;
+      budgets.set(signal, milliseconds);
+      return signal;
+    });
+    let observedBudget;
+    await withClient({ env: ENV, auditImpl: async () => {},
+      fetchImpl: async (url, options) => {
+        observedBudget = budgets.get(options.signal);
+        return jsonResponse({ ok: true, dirty: phase !== "cleanup" && phase !== "inspect", run_id: RUN_ID,
+          status: phase === "inspect" ? "calendar_deleted" : "pending", stage: "google_pending_verified" });
+      },
+    }, async (client) => {
+      await client.callTool({ name: phase === "cleanup" ? "cleanup_run" : "trigger_sync",
+        arguments: phase === "cleanup" ? { run_id: RUN_ID, service: "google_sync", confirmation: `cleanup:google_sync:${RUN_ID}` }
+          : { run_id: RUN_ID, scenario: "google_sync", sync_phase: phase } });
+    });
+    assert.equal(observedBudget, phase === "inspect" ? 60_000 : 120_000);
+  });
+}
+
+test("Google matrixは専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_matrix",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_matrix",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/matrix"]);
+  assert.equal(audit[1].sync_phase, "prepare_matrix");
+  assert.equal(audit[1].execution_status, "prepared");
+});
+test("全体同期は専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_all",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_all",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/all"]);
+  assert.equal(audit[1].sync_phase, "prepare_all");
+  assert.equal(audit[1].execution_status, "prepared");
+});
 const PLAYWRIGHT_ALLOWED_TOOLS = [
   "browser_close",
   "browser_console_messages",
@@ -1765,3 +1877,301 @@ for (const status of ["pending", "deleted", "retry_pending", "retried"]) {
     assert.equal(audit.find(entry => entry.phase === "finish").execution_status, status);
   });
 }
+
+for (const [index, phase, name, code, expectedCode] of [
+  [0, "fetch", "TypeError", "UND_ERR_SOCKET", "UND_ERR_SOCKET"],
+  [1, "body", "TypeError", "ECONNRESET", "ECONNRESET"],
+  [2, "fetch", "TimeoutError", undefined, "other"],
+  [3, "fetch", "private-class", "private-code", "other"],
+]) {
+  test(`通信例外は${phase}/${expectedCode}の固定値だけを監査と成果物へ保存する: ${index}`, async () => {
+    const runId = `E2E-20260924T000000Z-abcde03${index}`;
+    const diagnostic = { phase, name: name === "private-class" ? "other" : name, code: expectedCode };
+    const failure = Object.assign(new Error("private-token private-url private-address"), {
+      name, cause: { code, message: "private-cause", address: "private-address" },
+    });
+    await withClient({ env: ENV,
+      repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+      fetchImpl: async url => {
+        if (new URL(url).pathname.endsWith("/status")) { return jsonResponse({ ok: true }); }
+        if (phase === "fetch") { throw failure; }
+        return { status: 200, text: async () => { throw failure; } };
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: runId, scenario: "google_sync", sync_phase: "resume",
+      } }));
+      assert.equal(result.status, phase === "fetch" ? 0 : 200);
+      assert.equal(result.error, phase === "fetch" ? "worker_request_failed" : "worker_response_read_failed");
+      assert.deepEqual(result.transport_diagnostic, diagnostic);
+      const saved = await readAuditEntries(runId);
+      assert.deepEqual(saved.at(-1).transport_diagnostic, diagnostic);
+      const evidence = parseToolResult(await client.callTool({ name: "collect_evidence", arguments: { run_id: runId } }));
+      assert.deepEqual(evidence.manifest.operations.at(-1).transport_diagnostic, diagnostic);
+      assert.equal(JSON.stringify([result, saved, evidence]).includes("private"), false);
+    });
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync", phase: "finish",
+      error: "worker_request_failed", transport_diagnostic: { phase: "private-phase", name, code } });
+    assert.equal(Object.hasOwn((await readAuditEntries(runId)).at(-1), "transport_diagnostic"), false);
+  });
+}
+
+test("Googleロック解放診断は応答からJSONLとmanifestまで固定値だけを保持する", async () => {
+  const runId = "E2E-20260924T000000Z-abcde024";
+  const diagnostic = { step: "status_rpc", exception: "type_error",
+    release_ok: true, status_ok: null, owner_matches: null, cause: "disconnected",
+    fresh_status_ok: true, fresh_owner_matches: false };
+  await withClient({ env: ENV,
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+    fetchImpl: async (url) => new URL(url).pathname.endsWith("/status")
+      ? jsonResponse({ ok: true })
+      : jsonResponse({ ok: false, dirty: true, error: "google_sync_release_failed",
+        release_diagnostic: { ...diagnostic, owner: "private-owner", message: "private-token" } }, 409),
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: runId, scenario: "google_sync", sync_phase: "advance",
+    } }));
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.release_diagnostic, diagnostic);
+    const saved = await readAuditEntries(runId);
+    assert.deepEqual(saved.at(-1).release_diagnostic, diagnostic);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: runId },
+    }));
+    assert.deepEqual(evidence.manifest.operations.at(-1).release_diagnostic, diagnostic);
+    assert.equal(JSON.stringify([result, saved, evidence]).includes("private"), false);
+  });
+  // 監査の直接入力にも同じ制限を適用する。
+  for (const step of ["owner_check", "private-step"]) {
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync",
+      phase: "finish", ok: false, status: 409, error: "google_sync_release_failed",
+      release_diagnostic: { step, exception: "private-class", release_ok: "private-token",
+        status_ok: 1, owner_matches: "private-owner", message: "private-message",
+        cause: "private-cause", fresh_status_ok: "private-value", fresh_owner_matches: 1 } });
+  }
+  const saved = await readAuditEntries(runId);
+  assert.deepEqual(saved.at(-2).release_diagnostic, { step: "owner_check", exception: "other",
+    release_ok: null, status_ok: null, owner_matches: null, cause: "unknown",
+    fresh_status_ok: null, fresh_owner_matches: null });
+  assert.equal(Object.hasOwn(saved.at(-1), "release_diagnostic"), false);
+  assert.equal(JSON.stringify(saved).includes("private"), false);
+});
+
+test("全件prepareはGoogle専用routeと監査へ接続する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url) => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_full",
+    } }));
+    assert.equal(result.ok, true);
+    for (const scenario of ["discord_delta", "sync_faults", "google_notion"]) {
+      const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario, sync_phase: "prepare_full",
+      } }));
+      assert.equal(refused.error, "sync_phase_forbidden");
+    }
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/full"]);
+  assert.equal(audit.length, 2);
+  assert.ok(audit.every(entry => entry.sync_phase === "prepare_full"));
+});
+
+for (const classification of ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed"]) {
+  test(`Calendar診断MCPは固定分類${classification}だけを監査する`, async () => {
+    const audit = [];
+    await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+      fetchImpl: async (url) => {
+        assert.equal(new URL(url).pathname, "/admin/e2e/google-sync/inspect");
+        return jsonResponse({ ok: true, dirty: false, run_id: RUN_ID, status: classification, events: [{ summary: "private" }] });
+      },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "inspect",
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.execution_status, classification);
+      assert.equal(result.dirty, false);
+      assert.ok(!JSON.stringify(result).includes("private"));
+    });
+    assert.ok(audit.every(entry => entry.sync_phase === "inspect"));
+    assert.equal(audit[1].execution_status, classification);
+    assert.ok(!JSON.stringify(audit).includes("private"));
+  });
+}
+
+test("通常HTTP全体同期の固定入口と監査phase", async () => {
+  const paths = [], audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry), fetchImpl: async (url, options) => {
+    assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+    assert.equal(options.headers["X-E2E-Run-ID"], RUN_ID);
+    const path = new URL(url).pathname;
+    paths.push(path);
+    return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID,
+      status: path === "/sync/all" ? "drained" : "prepared", stage: "ready" });
+  } }, async client => {
+    for (const phase of ["prepare_http", "http_advance"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      const rejected = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_delta", sync_phase: phase,
+      } }));
+      assert.equal(rejected.error, "sync_phase_forbidden");
+    }
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/http", "/sync/all"]);
+  assert.deepEqual(audit.filter(e => e.phase === "finish").map(e => e.sync_phase), ["prepare_http", "http_advance"]);
+});
+
+for (const stage of ["working", "ready", "cleanup"]) {
+  test(`google回収の${stage}だけを所有する場合も旧revisionを待機する`, async () => {
+    let reads = 0;
+    const waits = [];
+    await withClient({ env: ENV, auditImpl: async () => {},
+      deployImpl: async () => ({ ok: true, status: 0 }),
+      delayImpl: async ms => waits.push(ms),
+      fetchImpl: async () => {
+        const status = redeployStatus();
+        status.scenarios = { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage } };
+        if (++reads >= 3) { status.worker_version.id_sha256 = "d".repeat(64); }
+        return jsonResponse(status);
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        previous_version_sha256: "c".repeat(64),
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.version_sha256, "d".repeat(64));
+      assert.equal(waits.length, 1);
+    });
+  });
+}
+
+for (const mode of ["transient", "persistent", "transport", "other", "wrong_status"]) {
+  test(`Google同期は書込み前のversion拒否だけ上限付き再送: ${mode}`, async () => {
+    let requests = 0;
+    const waits = [];
+    await withClient({ env: ENV, auditImpl: async () => {},
+      delayImpl: async (ms) => waits.push(ms),
+      fetchImpl: async (url, options) => {
+        requests += 1;
+        assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+        if (mode === "transport") { throw new Error("private transport failure"); }
+        if (mode === "other") { return jsonResponse({ ok: false, error: "google_sync_failed" }, 409); }
+        if (mode === "wrong_status") { return jsonResponse({ ok: false, error: "worker_version_mismatch" }, 500); }
+        if (mode === "persistent" || requests === 1) {
+          return jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409);
+        }
+        return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
+      },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_webhook",
+      } }));
+      assert.equal(result.ok, mode === "transient");
+      assert.equal(requests, mode === "persistent" ? 20 : mode === "transient" ? 2 : 1);
+      assert.equal(waits.length, requests - 1);
+      assert.ok(waits.every(ms => ms === 3000));
+    });
+  });
+}
+
+test("Google boundaryは専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_boundary",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_boundary",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/boundary"]);
+  assert.equal(audit[1].sync_phase, "prepare_boundary");
+  assert.equal(audit[1].execution_status, "prepared");
+});
+
+test("Notion照会復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_query",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_query",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-query"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_query");
+  assert.equal(audit[1].execution_status, "pending");
+});
+
+test("Notion作成復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_create",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_create",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-create"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_create");
+  assert.equal(audit[1].execution_status, "pending");
+});
+
+test("Notion書戻し復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_writeback",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_writeback",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-writeback"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_writeback");
+  assert.equal(audit[1].execution_status, "pending");
+});

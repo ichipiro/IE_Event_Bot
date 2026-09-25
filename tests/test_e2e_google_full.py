@@ -16,8 +16,14 @@ import e2e_google_sync_probe as probe
 
 def test_full_allows_slow_phase_and_releases_control(monkeypatch):
     test = Scenario(monkeypatch)
+    wait_for = asyncio.wait_for
+    phase_timeouts = []
 
     async def slow_phase(coro, timeout):
+        # 解放RPCまで61秒遅延したことにはせず、外部APIを含む段階だけを遅延させる。
+        if getattr(coro, "cr_code", None) is not probe._phase.__code__:
+            return await wait_for(coro, timeout)
+        phase_timeouts.append(timeout)
         result = await coro
         # API待ちを含めて61秒かかった場合を、実時間を待たずに再現する。
         if timeout <= 61:
@@ -31,6 +37,7 @@ def test_full_allows_slow_phase_and_releases_control(monkeypatch):
     assert test.call("verify")[0] == 200
     assert test.call("cleanup")[0] == 200
     assert not test.owner()["dirty"]
+    assert phase_timeouts
 
 
 def test_full_input_shared_keys_and_cleanup(monkeypatch):

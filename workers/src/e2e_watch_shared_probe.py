@@ -180,6 +180,8 @@ async def maintain(env, store, owner, token):
             owner["stages"]["watch_shared_noop"] = 200
     owner["stages"]["watch_shared_maintenance"] = 200
     await google._save(store, owner)
+    from e2e_lock_release_probe import run
+    await run(env, store, owner)
 
 
 async def trigger(env, store, run_id, owner):
@@ -294,6 +296,9 @@ async def verify_watch(env, store, owner):
 
 async def cleanup_watches(env, store, owner, token):
     require(owner["watch_url_sha256"] == digest(env.GCAL_WEBHOOK_URL), "cleanup_target")
+    from e2e_lock_release_probe import cleanup
+    await cleanup(env, owner["run_id"])
+    owner["stages"]["watch_shared_release_recovery_cleanup"] = 200
     for watch in owner["watches"]:
         await stop(env, store, owner, watch, token)
     from google_webhook_queue import clear_owned_queue

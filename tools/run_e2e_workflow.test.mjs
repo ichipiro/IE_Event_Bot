@@ -1636,7 +1636,7 @@ for (const failure of [null, "stage", "dispatch", "version", "cleanup", "outcome
 }
 
 
-for (const failure of [null, "maintenance", "callback", "alarm", "retry", "cleanup", "queue_cleanup", "transport_once", "transport_always", "unauthorized"]) {
+for (const failure of [null, "maintenance", "callback", "alarm", "retry", "release_recovery", "release_cleanup", "cleanup", "queue_cleanup", "transport_once", "transport_always", "unauthorized"]) {
   test(`通常watchと共有Webhook workflow: ${failure ?? "success"}`, async () => {
     const steps = ["prepared", "drained", "updated", "drained"];
     let index = 0;
@@ -1656,6 +1656,7 @@ for (const failure of [null, "maintenance", "callback", "alarm", "retry", "clean
         scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: {
           [`all_http_step_${index}`]: 200, [`all_http_dispatch_${index}`]: 200,
           watch_shared_maintenance: failure === "maintenance" ? undefined : 200,
+          watch_shared_release_recovery: failure === "release_recovery" ? undefined : 200,
           [`watch_shared_step_${index}`]: failure === "callback" ? undefined : 200,
           [`watch_shared_alarm_${index}`]: failure === "alarm" ? undefined : 200,
           watch_shared_busy_retry_recovered: failure === "retry" ? undefined : 200,
@@ -1665,6 +1666,7 @@ for (const failure of [null, "maintenance", "callback", "alarm", "retry", "clean
       assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
         google_sync_shared_cleanup: 200, watch_shared_cleanup: failure === "cleanup" ? undefined : 200,
         watch_shared_queue_cleanup: failure === "queue_cleanup" ? undefined : 200,
+        watch_shared_release_recovery_cleanup: failure === "release_cleanup" ? undefined : 200,
       } } }),
     }, "google_sync");
     const options = { httpSync: true, webhookSync: true, verify: { sleepImpl: async () => {} } };

@@ -1,4 +1,4 @@
-"""解放失敗を固定分類し、新しい接続の読取りだけでロック残留を区別する。"""
+"""解放失敗を固定分類し、限定再試行後も残留するロックを区別する。"""
 
 import asyncio
 import json
@@ -18,7 +18,7 @@ import e2e_google_sync_probe as probe
     ("Cannot perform I/O on behalf of a different request", "io_context"),
     ("unknown private error", "unknown"),
 ])
-def test_release_error_keeps_only_fixed_cause_and_fresh_read(message, cause):
+def test_release_error_keeps_fixed_cause_after_recovery_attempts(message, cause):
     old, fresh = object(), object()
     calls = []
 
@@ -40,7 +40,8 @@ def test_release_error_keeps_only_fixed_cause_and_fresh_read(message, cause):
         "release_ok": None, "status_ok": None, "owner_matches": None,
         "fresh_status_ok": True, "fresh_owner_matches": True,
     }
-    assert calls == [(old, "release"), (fresh, "status")]
+    assert calls == [(old, "release"), (fresh, "status"), (fresh, "release"),
+                     (fresh, "status"), (fresh, "release"), (fresh, "status")]
     assert "private" not in json.dumps(result)
 
 

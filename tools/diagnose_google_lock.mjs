@@ -8,6 +8,10 @@ const WINDOWS = [
   ["watch_recovery", "2026-09-25T09:22:00Z", "2026-09-25T09:23:30Z"],
 ];
 const CLASSIFIERS = {
+  lock_release_failed: /sync_lock_release_failed/i,
+  lock_release_recovered: /sync_lock_release_recovered/i,
+  lock_release_recovery_failed: /sync_lock_release_recovery_failed/i,
+  lock_release_probe_passed: /e2e_lock_release_probe_passed/i,
   release_failed: /google_sync_release_failed/i,
   busy: /google_sync_busy/i,
   storage_timeout: /storage operation exceeded timeout/i,
@@ -124,12 +128,23 @@ export function redactEvent(event) {
   };
 }
 
+export function diagnosticWindows(runId, now = Date.now()) {
+  if (!runId) { return WINDOWS; }
+  const match = /^E2E-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-[a-f0-9]{8}$/.exec(runId);
+  if (!match) { throw new Error("diagnostic_run_invalid"); }
+  const from = Date.parse(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`);
+  if (!Number.isFinite(from) || now < from || now - from > 3600000) {
+    throw new Error("diagnostic_run_invalid");
+  }
+  return [["release_recovery", new Date(from).toISOString(), new Date(now).toISOString()]];
+}
+
 export async function diagnose(env, request = fetch) {
   const account = env.CLOUDFLARE_ACCOUNT_ID;
   const token = env.CLOUDFLARE_API_TOKEN;
   if (!/^[a-f0-9]{32}$/.test(account ?? "") || !token) throw new Error("diagnostic_credentials_missing");
   const report = { script: SCRIPT, windows: [] };
-  for (const [label, from, to] of WINDOWS) {
+  for (const [label, from, to] of diagnosticWindows(env.E2E_DIAGNOSTIC_RUN_ID)) {
     const summary = { label, from, to, events: [], complete: false };
     let offset;
     for (let page = 0; page < 5; page++) {
@@ -173,5 +188,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   await mkdir("test-results/google-lock-diagnostics", { recursive: true });
   await writeFile("test-results/google-lock-diagnostics/report.json", `${JSON.stringify(report, null, 2)}\n`);
+  if (process.env.E2E_DIAGNOSTIC_RUN_ID && !report.error) {
+    const events = report.windows.flatMap(window => window.events);
+    const count = category => events.filter(event => event.categories.includes(category)).length;
+    if (!report.windows.every(window => window.complete) || count("lock_release_recovered") < 6 ||
+        count("lock_release_recovery_failed") < 2 || count("lock_release_probe_passed") < 8) {
+      console.log("release_recovery_log_evidence_incomplete");
+      process.exitCode = 1;
+    }
+  }
   console.log(report.error ?? "google_lock_diagnostics_collected");
 }

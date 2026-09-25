@@ -1,3 +1,4 @@
+import asyncio
 import json
 import math
 import time
@@ -18,6 +19,9 @@ from health_checks import run_connectivity_checks
 from jobs import run_auto_clean_job, run_day_before_reminder_job, run_qa_notification_job
 from state import JobStateWriteError, StateStore
 from sync_lock_do import SyncCoordinator
+from sync_lock_release import (
+    _RPC_TIMEOUT_SECONDS, _recover_release, _release_error_type, _release_retry_blocked,
+)
 
 
 def _json_response(payload: dict, status: int = 200) -> Response:
@@ -656,19 +660,39 @@ class Default(WorkerEntrypoint):
             raise SyncLockLost()
 
     async def _release_sync_lock(self, owner: str):
-        """取得済みロックを解放する。解放失敗は握りつぶす。"""
+        """解放失敗を記録して限定再試行し、同期本体の結果や例外は維持する。"""
         do_ns = getattr(self.env, "SYNC_COORDINATOR", None)
         if do_ns is None or not owner:
             return
+        stage = "get_stub"
+        error_type = "none"
+        blocked = False
         try:
             stub = self._get_sync_stub(do_ns)
-            # SyncCoordinator release をRPCで呼ぶ
-            await self._do_stub_rpc(
+            stage = "rpc_call"
+            result = await asyncio.wait_for(self._do_stub_rpc(
                 stub,
                 {"action": "release", "owner": owner},
-            )
-        except Exception:
-            return
+            ), _RPC_TIMEOUT_SECONDS)
+            stage = "decode_rpc"
+            data = self._decode_do_rpc(result)
+            if data.get("ok") is True:
+                return
+            stage = "release_response"
+        except Exception as exc:
+            # 例外本文・任意のクラス名・owner・応答本文をログへ流さない。
+            error_type = _release_error_type(exc)
+            blocked = _release_retry_blocked(exc)
+        print(json.dumps({
+            "event": "sync_lock_release_failed", "level": "error",
+            "stage": stage, "error_type": error_type,
+        }, ensure_ascii=False))
+
+        async def rpc(stub, action, payload=None):
+            raw = await self._do_stub_rpc(stub, {"action": action, **(payload or {})})
+            return self._decode_do_rpc(raw)
+
+        await _recover_release(lambda: self._get_sync_stub(do_ns), rpc, owner, "global", blocked=blocked)
 
     def _sync_lock_ttl_seconds(self) -> float:
         """ロック TTL を秒で返す（最小 10 秒）。"""

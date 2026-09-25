@@ -71,6 +71,36 @@ def run_to(test, last):
         assert status == 200, (step, payload)
 
 
+@pytest.mark.parametrize("phase", ["matrix", "cleanup"])
+@pytest.mark.parametrize("response_lost", [False, True])
+def test_transient_release_failure_keeps_phase_result_and_cleanup(monkeypatch, phase, response_lost):
+    test = MatrixScenario(monkeypatch)
+    if phase == "cleanup":
+        assert test.call("matrix")[0] == 200
+    stub = test.env.SYNC_COORDINATOR.getByName("e2e:google-sync-control")
+    original = stub.sync_state
+    releases = []
+
+    async def fail_once(payload):
+        if json.loads(payload)["action"] == "release":
+            releases.append(payload)
+            if len(releases) == 1:
+                if response_lost:
+                    await original(payload)
+                raise RuntimeError("transient release failure")
+        return await original(payload)
+
+    monkeypatch.setattr(stub, "sync_state", fail_once)
+    status, payload = test.call(phase)
+    assert status == 200 and payload["ok"] is True
+    assert "release_diagnostic" not in payload
+    assert len(releases) == (1 if response_lost else 2)
+    if phase == "matrix":
+        assert test.owner()["stage"] == "ready"
+        assert test.call("cleanup")[0] == 200
+    assert test.owner()["dirty"] is False
+
+
 @pytest.mark.parametrize("action", ["release", "status"])
 @pytest.mark.parametrize("failure", ["exception", "invalid_json"])
 def test_step11_control_failure_distinguishes_lock_residue(monkeypatch, action, failure):

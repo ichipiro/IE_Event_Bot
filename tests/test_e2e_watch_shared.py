@@ -95,6 +95,11 @@ def test_watch_maintenance_real_ingress_shared_sync_and_cleanup(monkeypatch):
     test = WatchScenario(monkeypatch)
     before = deepcopy(test.env.STATE_KV.data)
     test.prepare()
+    from e2e_lock_release_probe import CASES, probe_name
+    from state import StateStore
+    assert all(test.owner()["stages"]["watch_shared_release_" + case] == 200 for case in CASES)
+    probe_stub = test.env.SYNC_COORDINATOR.getByName(probe_name(test.owner()["run_id"]))
+    assert not (asyncio.run(StateStore._sync_do_rpc(probe_stub, "status")) or {})["lock"].get("owner")
     assert len(test.channels) == 6 and len(test.stops) == 5
     for step in range(1, 4):
         test.deliver(step)
@@ -112,6 +117,7 @@ def test_watch_maintenance_real_ingress_shared_sync_and_cleanup(monkeypatch):
     assert test.env.STATE_KV.data == before
     assert not test.discord
     assert test.owner()["stages"]["watch_shared_cleanup"] == 200
+    assert test.owner()["stages"]["watch_shared_release_recovery_cleanup"] == 200
 
 
 def test_reject_old_watch_wrong_token_foreign_channel_and_manual_advance(monkeypatch):

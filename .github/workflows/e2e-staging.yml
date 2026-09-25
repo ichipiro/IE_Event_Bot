@@ -332,6 +332,21 @@ jobs:
           E2E_WORKER_URL_SHA256: ${{ secrets.E2E_WORKER_URL_SHA256 }}
           INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
         run: node tools/run_e2e_workflow.mjs evidence --run-id "$E2E_RUN_ID"
+      - name: Collect lock recovery logs
+        if: ${{ always() && inputs.mode == 'deploy-and-watch-shared-smoke' && steps.run_id.outcome == 'success' }}
+        env:
+          E2E_DIAGNOSTIC_RUN_ID: ${{ steps.run_id.outputs.run_id }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/diagnose_google_lock.mjs
+      - name: Upload lock recovery logs
+        if: ${{ always() && inputs.mode == 'deploy-and-watch-shared-smoke' && steps.run_id.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-recovery-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/google-lock-diagnostics/report.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload redacted evidence
         if: ${{ always() && steps.run_id.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

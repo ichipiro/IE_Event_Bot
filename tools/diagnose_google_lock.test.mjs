@@ -1,8 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { diagnose, failureReport, queryBody, redactApiError, redactEvent } from "./diagnose_google_lock.mjs";
+import { diagnose, diagnosticWindows, failureReport, queryBody, redactApiError, redactEvent } from "./diagnose_google_lock.mjs";
 
 const credentials = { CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: "fake-token" };
+
+test("復旧検証のログを当該run開始から1時間以内に限定する", () => {
+  const now = Date.parse("2026-09-25T10:10:00Z");
+  assert.deepEqual(diagnosticWindows("E2E-20260925T100000Z-123456ab", now),
+    [["release_recovery", "2026-09-25T10:00:00.000Z", "2026-09-25T10:10:00.000Z"]]);
+  for (const run of ["private-value", "E2E-20260925T080000Z-123456ab", "E2E-20260925T110000Z-123456ab"]) {
+    assert.throws(() => diagnosticWindows(run, now), /diagnostic_run_invalid/);
+  }
+});
+
+test("復旧ログを固定分類し、任意の本文は残さない", () => {
+  for (const [name, category] of [["sync_lock_release_recovered", "lock_release_recovered"],
+    ["sync_lock_release_recovery_failed", "lock_release_recovery_failed"],
+    ["e2e_lock_release_probe_passed", "lock_release_probe_passed"]]) {
+    const raw = event();
+    raw.source.message = JSON.stringify({ event: name, secret: "private-log-value" });
+    const redacted = redactEvent(raw);
+    assert.ok(redacted.categories.includes(category));
+    assert.ok(!JSON.stringify(redacted).includes("private-log-value"));
+  }
+});
 function event(timestamp = Date.parse("2026-09-24T09:26:58Z")) {
   return { timestamp, $metadata: { service: "ie-event-bot-e2e", statusCode: 409,
     error: "secret-test-value: Durable Object storage operation exceeded timeout" },

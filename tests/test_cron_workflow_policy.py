@@ -13,6 +13,8 @@ POLICY = runpy.run_path(str(ROOT / "tools/validate_e2e_workflow.py"))
      "name: Approved real Cron E2E", "cron_mode_guard_missing"),
     ("always() && steps.cron_run.outcome == 'success'", "success()", "cron_cleanup_missing"),
     ("node tools/run_cron_e2e.mjs run --run-id", "echo", "cron_runner_missing"),
+    ("E2E_DIAGNOSTIC_RUN_ID: ${{ steps.run_id.outputs.run_id }}", "E2E_DIAGNOSTIC_RUN_ID: arbitrary",
+     "release_recovery_log_guard_missing"),
 ])
 def test_cron_workflow_guards(before, after, expected):
     text = (ROOT / ".github/workflows/e2e-staging.yml").read_text()

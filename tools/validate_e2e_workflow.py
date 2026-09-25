@@ -91,7 +91,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-discord-batch-google-smoke") == 3, "discord_batch_google_mode_contract_changed")
     _expect(errors, text.count("deploy-and-sync-lock-smoke") == 3, "sync_lock_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-calendar-check") == 2, "google_calendar_check_contract_changed")
-    _expect(errors, text.count("deploy-and-watch-shared-smoke") == 3, "watch_shared_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-watch-shared-smoke") == 5, "watch_shared_mode_contract_changed")
     _expect(errors, text.count("deploy-and-jobs-list-retry-smoke") == 3, "jobs_list_retry_mode_contract_changed")
     _expect(errors, text.count("deploy-and-jobs-kv-retry-smoke") == 3, "jobs_kv_retry_mode_contract_changed")
     _expect(errors, text.count("deploy-and-jobs-retry-smoke") == 3, "jobs_retry_mode_contract_changed")
@@ -169,7 +169,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "always()" in text, "always_cleanup_missing")
     _expect(
         errors,
-        text.count("retention-days: 14") == 4,
+        text.count("retention-days: 14") == 5,
         "artifact_retention_changed",
     )
     _expect(
@@ -198,6 +198,12 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "inputs.mode == 'deploy-and-discord-batch-notification-smoke'" in cleanup_block, "cleanup_discord_batch_notification_mode_guard_missing")
     evidence_block = _step_block(text, "Collect redacted evidence")
     diagnostic_block = _step_block(text, "Read-only Google lock diagnostics")
+    recovery_logs = _step_block(text, "Collect lock recovery logs")
+    _expect(errors, "inputs.mode == 'deploy-and-watch-shared-smoke'" in recovery_logs
+            and "steps.run_id.outcome == 'success'" in recovery_logs
+            and "E2E_DIAGNOSTIC_RUN_ID: ${{ steps.run_id.outputs.run_id }}" in recovery_logs
+            and "run: node tools/diagnose_google_lock.mjs" in recovery_logs,
+            "release_recovery_log_guard_missing")
     cron_deploy = _step_block(text, "Deploy isolated Worker and wait for real Cron")
     cron_cleanup = _step_block(text, "Always remove Cron Worker and owned KV")
     _expect(errors, "name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention' || inputs.mode == 'read-only-real-cron-diagnostics' }}" in text,
@@ -233,7 +239,8 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, bool(evidence_block), "evidence_step_missing")
     for name in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"):
         assignments = re.findall(rf"^\s+{re.escape(name)}:", text, re.MULTILINE)
-        _expect(errors, len(assignments) == 5, f"cloudflare_secret_scope_changed:{name}")
+        _expect(errors, len(assignments) == 6, f"cloudflare_secret_scope_changed:{name}")
+        _expect(errors, name in recovery_logs, f"cloudflare_secret_not_in_recovery_logs:{name}")
         _expect(errors, name in cron_deploy and name in cron_cleanup, f"cron_secret_missing:{name}")
         _expect(errors, name in deploy_block, f"cloudflare_secret_not_in_deploy:{name}")
         _expect(errors, name in diagnostic_block, f"cloudflare_secret_not_in_diagnostic:{name}")

@@ -134,6 +134,7 @@ _GOOGLE_SYNC_PHASES = {
     "/admin/e2e/google-sync/full": "prepare_full",
     "/admin/e2e/google-sync/notion-query": "prepare_notion_query",
     "/admin/e2e/google-sync/notion-create": "prepare_notion_create",
+    "/admin/e2e/google-sync/notion-writeback": "prepare_notion_writeback",
     "/admin/e2e/google-sync/boundary": "prepare_boundary",
     "/admin/e2e/google-sync/matrix": "prepare_matrix",
     "/admin/e2e/google-sync/all": "prepare_all",

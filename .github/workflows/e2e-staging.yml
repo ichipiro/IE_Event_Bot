@@ -28,6 +28,7 @@ on:
           - deploy-and-google-calendar-check
           - deploy-and-notion-query-retry-smoke
           - deploy-and-notion-create-retry-smoke
+          - deploy-and-notion-writeback-retry-smoke
           - deploy-and-google-full-smoke
           - deploy-and-watch-shared-smoke
           - deploy-and-all-http-smoke
@@ -253,6 +254,7 @@ jobs:
           inputs.mode == 'deploy-and-google-calendar-check' ||
           inputs.mode == 'deploy-and-notion-query-retry-smoke' ||
           inputs.mode == 'deploy-and-notion-create-retry-smoke' ||
+          inputs.mode == 'deploy-and-notion-writeback-retry-smoke' ||
           inputs.mode == 'deploy-and-google-full-smoke' ||
           inputs.mode == 'deploy-and-watch-shared-smoke' ||
           inputs.mode == 'deploy-and-all-http-smoke' ||
@@ -303,6 +305,7 @@ jobs:
           inputs.mode == 'deploy-and-sync-faults-smoke' ||
           inputs.mode == 'deploy-and-notion-query-retry-smoke' ||
           inputs.mode == 'deploy-and-notion-create-retry-smoke' ||
+          inputs.mode == 'deploy-and-notion-writeback-retry-smoke' ||
           inputs.mode == 'deploy-and-google-full-smoke' ||
           inputs.mode == 'deploy-and-watch-shared-smoke' ||
           inputs.mode == 'deploy-and-all-http-smoke' ||

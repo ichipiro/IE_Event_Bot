@@ -1,4 +1,4 @@
-"""Notion照会・作成の実API拒否、共有queue再試行、重複検査を段階実行する。"""
+"""Notion照会・作成・書戻しの実API拒否と共有queue復旧を段階実行する。"""
 
 import json
 from urllib.parse import quote
@@ -14,7 +14,8 @@ from google_calendar_sync import run_google_delta_fetch
 
 async def apply_phase(env, store, owner, token, invoke):
     creating = owner.get("notion_create_retry", False)
-    prefix = "notion_create" if creating else "notion_query"
+    writeback = owner.get("notion_writeback_retry", False)
+    prefix = "notion_writeback" if writeback else "notion_create" if creating else "notion_query"
     kv = GoogleKV(store, owner)
     probe_env = GoogleEnv(env, token)
     failing = owner["step"] == 1
@@ -22,11 +23,29 @@ async def apply_phase(env, store, owner, token, invoke):
     before = {key: await kv.get(key) for key in KEYS}
     queue = json.loads(before[KEYS[3]] or "[]")
     rejected = 0
+    partial = {}
 
     async def query_fetch(url, options):
         nonlocal rejected
         body = json.loads(options["body"])
-        if creating:
+        if writeback:
+            slot = next(s for s in owner["fixtures"] if s["google_event_id"] == queue[0]["id"])
+            page_id = url.rsplit("/", 1)[-1]
+            props = body.get("properties", {})
+            message = props.get("メッセージID", {}).get("rich_text", [])
+            if (rejected or options.get("method") != "PATCH"
+                    or url != f"https://api.notion.com/v1/pages/{page_id}"
+                    or set(props) != {"メッセージID"} or len(message) != 1):
+                raise GoogleStateError(f"{prefix}_injection_mismatch")
+            event_id = message[0].get("text", {}).get("content")
+            status, page = await notion_request(env, owner["stages"], {}, f"{prefix}_owner", "GET", f"/pages/{quote(page_id, safe='')}")
+            if status != 200 or not _page_owned(env, page, slot) or not event_id:
+                raise GoogleStateError(f"{prefix}_injection_mismatch")
+            partial.update(google_id=queue[0]["id"], page_id=page_id, event_id=event_id)
+            valid = True
+            # 所有ページと認証を保持し、メッセージIDのrich_text型だけを壊す。
+            invalid_body = {"properties": {"メッセージID": {"rich_text": "invalid"}}}
+        elif creating:
             google_id = body.get("properties", {}).get("GoogleイベントID", {}).get("rich_text", [])
             valid = (url == "https://api.notion.com/v1/pages"
                      and body.get("parent") == {"database_id": env.NOTION_EVENT_INTERNAL_ID}
@@ -37,7 +56,7 @@ async def apply_phase(env, store, owner, token, invoke):
             valid = (url == f"https://api.notion.com/v1/databases/{env.NOTION_EVENT_INTERNAL_ID}/query"
                      and body.get("filter", {}).get("rich_text", {}).get("equals") == queue[0]["id"])
             invalid_body = {**body, "page_size": "invalid"}
-        if rejected or options.get("method") != "POST" or not valid:
+        if rejected or options.get("method") != ("PATCH" if writeback else "POST") or not valid:
             raise GoogleStateError(f"{prefix}_injection_mismatch")
         response = await google_apply_sync.fetch(url, {
             **options, "body": json.dumps(invalid_body),
@@ -56,7 +75,7 @@ async def apply_phase(env, store, owner, token, invoke):
         return response
 
     if failing:
-        setattr(probe_env, "_google_notion_create_fetch" if creating else "_google_notion_query_fetch", query_fetch)
+        setattr(probe_env, f"_google_{prefix}_fetch", query_fetch)
 
     async def fetcher(_env, state, *, commit_cursor):
         result = await run_google_delta_fetch(probe_env, state, commit_cursor=False)
@@ -88,10 +107,19 @@ async def apply_phase(env, store, owner, token, invoke):
         raise GoogleStateError(f"{prefix}_dispatch_mismatch")
     if failing:
         expected_error = f"notion_internal_create_failed:{queue[0]['id']}" if creating else f"exception:{queue[0]['id']}:RuntimeError"
+        preserved = (KEYS[0], KEYS[3], KEYS[4]) if writeback else KEYS[:-1]
         if (rejected != 1 or applied.get("error_count") != 1
                 or applied.get("errors") != [expected_error]
-                or any(before[k] != after[k] for k in KEYS[:-1])):
+                or any(before[k] != after[k] for k in preserved)):
             raise GoogleStateError(f"{prefix}_failure_state_mismatch")
+        if writeback:
+            notion_map = json.loads(before[KEYS[1]] or "{}")
+            notion_map.setdefault("internal", {})[partial["google_id"]] = partial["page_id"]
+            discord_map = json.loads(before[KEYS[2]] or "{}")
+            discord_map[partial["google_id"]] = partial["event_id"]
+            if json.loads(after[KEYS[1]] or "{}") != notion_map or json.loads(after[KEYS[2]] or "{}") != discord_map:
+                raise GoogleStateError(f"{prefix}_partial_map_mismatch")
+            owner["stages"][f"{prefix}_partial_maps"] = 200
         owner["stages"][f"{prefix}_failed_dispatch"] = 500
         owner["stages"][f"{prefix}_cursor_preserved"] = 200
     else:
@@ -108,6 +136,8 @@ async def apply_phase(env, store, owner, token, invoke):
                 if slot.get(field) not in (None, value):
                     raise GoogleStateError("google_sync_reference_mismatch")
                 slot[field] = value
+    if writeback and owner["step"] == 2:
+        owner["stages"][f"{prefix}_same_ids"] = 200
     owner["hashes"] = kv.hashes
     owner["stage"] = "ready"
     await _save(store, owner)
@@ -115,7 +145,8 @@ async def apply_phase(env, store, owner, token, invoke):
 
 async def verify_phase(env, store, owner):
     """別HTTPの一覧取得で、未作成・正確な件数・同じID・書戻しを確認する。"""
-    prefix = "notion_create" if owner.get("notion_create_retry") else "notion_query"
+    writeback = owner.get("notion_writeback_retry", False)
+    prefix = "notion_writeback" if writeback else "notion_create" if owner.get("notion_create_retry") else "notion_query"
     status, data = await notion_request(env, owner["stages"], {}, f"{prefix}_pages", "POST",
         f"/databases/{quote(env.NOTION_EVENT_INTERNAL_ID, safe='')}/query", {"page_size": 100})
     if status != 200 or data.get("has_more") is not False or not isinstance(data.get("results"), list):
@@ -124,7 +155,7 @@ async def verify_phase(env, store, owner):
     status, events = await discord_request(env, owner["stages"], {}, f"{prefix}_events", "GET",
         f"/guilds/{quote(env.DISCORD_GUILD_ID, safe='')}/scheduled-events")
     slots = [s for s in owner["fixtures"] if s.get("notion_page_id")]
-    expected = 1 if owner["step"] <= 1 else 3
+    expected = 2 if writeback and owner["step"] == 1 else 1 if owner["step"] <= 1 else 3
     if status != 200 or not isinstance(events, list) or len(pages) != expected or len(events) != expected or len(slots) != expected:
         raise GoogleStateError("google_sync_not_ready")
     if ({p.get("id") for p in pages} != {s["notion_page_id"] for s in slots}
@@ -133,10 +164,13 @@ async def verify_phase(env, store, owner):
     for slot in slots:
         page = next(p for p in pages if p["id"] == slot["notion_page_id"])
         event = next(e for e in events if e["id"] == slot["discord_event_id"])
+        missing = writeback and owner["step"] == 1 and slot["google_event_id"] == owner["pending_ids"][0]
         if (not _page_owned(env, page, slot)
-                or _property_text(page, "メッセージID", "rich_text") != slot["discord_event_id"]
+                or _property_text(page, "メッセージID", "rich_text") != ("" if missing else slot["discord_event_id"])
                 or not _discord_event_is_owned(event, event_id=slot["discord_event_id"], guild_id=env.DISCORD_GUILD_ID, run_id=slot["run_id"])):
             raise GoogleStateError(f"{prefix}_reference_mismatch")
+        if missing:
+            owner["stages"][f"{prefix}_writeback_missing"] = 200
     owner["stages"][f"{prefix}_step_{owner['step']}"] = 200
     owner["stages"][f"{prefix}_unique_{owner['step']}"] = 200
 

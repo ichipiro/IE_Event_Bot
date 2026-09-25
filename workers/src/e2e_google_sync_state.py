@@ -21,7 +21,7 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "notion_query_retry", "notion_create_retry", "boundary", "matrix", "all_sync", "http_sync", "webhook_sync")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "notion_query_retry", "notion_create_retry", "notion_writeback_retry", "boundary", "matrix", "all_sync", "http_sync", "webhook_sync")
 ALL_KEYS = KEYS + ("discord:snapshot", "sync:discord_notion_queue")
 WATCH_KEYS = ("gcal_watch_state", "result:gcal_watch_ensure")
 
@@ -64,7 +64,7 @@ def final_step(owner):
 
 
 def valid_google_transition(previous, value):
-    if (value.get("notion_query_retry") or value.get("notion_create_retry")) and any(value.get(k) for k in ("matrix", "boundary", "all_sync")):
+    if (value.get("notion_query_retry") or value.get("notion_create_retry") or value.get("notion_writeback_retry")) and any(value.get(k) for k in ("matrix", "boundary", "all_sync")):
         return False
     if value.get("boundary") or previous.get("boundary"):
         from e2e_google_boundary_state import valid_transition
@@ -94,8 +94,9 @@ def valid_google_transition(previous, value):
             and len(slots) == (3 if value.get("full_apply") else 2)
             and type(value.get("notion_query_retry", False)) is bool
             and type(value.get("notion_create_retry", False)) is bool
-            and not (value.get("notion_query_retry") and value.get("notion_create_retry"))
-            and (not (value.get("notion_query_retry") or value.get("notion_create_retry")) or (value.get("full_apply") is True and not any(value.get(k) for k in ("matrix", "boundary", "all_sync"))))
+            and type(value.get("notion_writeback_retry", False)) is bool
+            and sum(bool(value.get(k)) for k in ("notion_query_retry", "notion_create_retry", "notion_writeback_retry")) <= 1
+            and (not (value.get("notion_query_retry") or value.get("notion_create_retry") or value.get("notion_writeback_retry")) or (value.get("full_apply") is True and not any(value.get(k) for k in ("matrix", "boundary", "all_sync"))))
             and type(value.get("full_apply", False)) is bool
             and type(value.get("all_sync", False)) is bool
             and type(value.get("http_sync", False)) is bool
@@ -125,7 +126,7 @@ def valid_google_transition(previous, value):
                 return False
         writes = value.get("shared_writes", {})
         baseline = value.get("baseline_deleted", {})
-        if (value.get("notion_query_retry") or value.get("notion_create_retry")):
+        if (value.get("notion_query_retry") or value.get("notion_create_retry") or value.get("notion_writeback_retry")):
             if (not isinstance(baseline, list) or len(baseline) > MAX_QUERY_BASELINE_DELETED
                     or any(not re.fullmatch(r"[0-9a-f]{64}", str(item)) for item in baseline)
                     or len(set(baseline)) != len(baseline)):
@@ -159,7 +160,7 @@ def valid_google_transition(previous, value):
                 or len(set(pending)) != len(pending)
                 or not set(pending) <= {slot.get("google_event_id") for slot in slots if isinstance(slot, dict)}
                 or (value["stage"] in ("ready", "verified")
-                    and len(pending) != (len(slots) - 1 if value["step"] == 0 or ((value.get("notion_query_retry") or value.get("notion_create_retry")) and value["step"] == 1) else 0))
+                    and len(pending) != (len(slots) - 1 if value["step"] == 0 or ((value.get("notion_query_retry") or value.get("notion_create_retry") or value.get("notion_writeback_retry")) and value["step"] == 1) else 0))
             ):
                 return False
         for index, slot in enumerate(slots):

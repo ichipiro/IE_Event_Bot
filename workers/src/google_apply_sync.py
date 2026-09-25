@@ -315,8 +315,12 @@ async def _notion_update_event(
     if location is not None:
         props[prop_location] = {"rich_text": [{"text": {"content": str(location)}}]}
 
-    # Notion API リクエスト
-    response = await fetch(
+    # 所有資源E2EではDiscord IDだけの書戻し要求にAPI拒否を注入する。
+    update_fetch = (
+        getattr(env, "_google_notion_writeback_fetch", None)
+        if set(props) == {prop_message_id} else None
+    ) or fetch
+    response = await update_fetch(
         f"https://api.notion.com/v1/pages/{page_id}",
         {
             "method": "PATCH",

@@ -100,7 +100,7 @@ def _deleted_fingerprint(event):
 
 def _baseline_matches(owner, event):
     baseline = owner.get("baseline_deleted", {})
-    if (owner.get("notion_query_retry") or owner.get("notion_create_retry")):
+    if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
         # fingerprint自体にIDも含むため、既知IDの内容変更も受け入れない。
         return _deleted_fingerprint(event) in baseline
     return baseline.get(digest(event["id"])) == _deleted_fingerprint(event)
@@ -206,7 +206,7 @@ def _discord_path(env, event_id):
 
 
 async def _apply(env, store, owner, token, invoke):
-    if (owner.get("notion_query_retry") or owner.get("notion_create_retry")) and owner["step"] > 0:
+    if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")) and owner["step"] > 0:
         from e2e_google_notion_query import apply_phase
         return await apply_phase(env, store, owner, token, invoke)
     kv = GoogleKV(store, owner)
@@ -405,15 +405,17 @@ async def _verify(env, store, owner, token):
         raise GoogleStateError("google_sync_queue_mismatch")
     result = json.loads(values[KEYS[5]] or "{}").get("payload", {})
     if any(
-        result.get(k) is not (owner["step"] != 4 and not ((owner.get("notion_query_retry") or owner.get("notion_create_retry")) and owner["step"] == 1)) for k in ("ok", "google_apply_ok")
+        result.get(k) is not (owner["step"] != 4 and not ((owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")) and owner["step"] == 1)) for k in ("ok", "google_apply_ok")
     ):
         raise GoogleStateError("google_sync_result_mismatch")
     notion_map = json.loads(values[KEYS[1]] or "{}")["internal"]
     discord_map = json.loads(values[KEYS[2]] or "{}")
     for index, slot in enumerate(owner["fixtures"]):
-        absent = (slot["google_event_id"] in expected and (owner["step"] == 0 or (owner.get("notion_query_retry") or owner.get("notion_create_retry")))) or (
-            owner["step"] >= 3 and index == 0 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry"))
+        absent = (slot["google_event_id"] in expected and (owner["step"] == 0 or (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")))) or (
+            owner["step"] >= 3 and index == 0 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry"))
         )
+        if owner.get("notion_writeback_retry") and owner["step"] == 1:
+            absent = slot["google_event_id"] in expected[1:]
         if absent:
             if (
                 slot["google_event_id"] in notion_map
@@ -488,7 +490,7 @@ async def _verify(env, store, owner, token):
             _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]),
             token,
         )
-        if owner["step"] >= 3 and index == 0 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry")):
+        if owner["step"] >= 3 and index == 0 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             if status not in (404, 410) and not (
                 status == 200 and event.get("status") == "cancelled"
             ):
@@ -579,10 +581,10 @@ async def _cleanup(env, store, owner, token):
                 if status not in (200, 204, 404, 410):
                     raise GoogleStateError("google_sync_cleanup_failed")
                 owner["stages"]["google_sync_source_delete"] = status
-        if (owner.get("notion_query_retry") or owner.get("notion_create_retry")):
+        if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             from e2e_google_notion_query import verify_removed
             await verify_removed(env, owner, slot, token)
-            owner["stages"][f"{'notion_create' if owner.get('notion_create_retry') else 'notion_query'}_cleanup_{index}"] = 200
+            owner["stages"][f"{'notion_writeback' if owner.get('notion_writeback_retry') else 'notion_create' if owner.get('notion_create_retry') else 'notion_query'}_cleanup_{index}"] = 200
             await _save(store, owner)
         if owner.get("boundary"):
             # 各資源の消失を読戻してから完了を保存し、次HTTPでは未回収分だけ扱う。
@@ -672,7 +674,8 @@ async def _check_full_empty(env, token, stages, *, origin_maps=None, compact=Fal
 async def _phase(env, store, run_id, phase, invoke):
     notion_query_retry = phase == "prepare_notion_query"
     notion_create_retry = phase == "prepare_notion_create"
-    full_apply = phase in ("prepare_full", "prepare_notion_query", "prepare_notion_create")
+    notion_writeback_retry = phase == "prepare_notion_writeback"
+    full_apply = phase in ("prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback")
     if full_apply:
         phase = "prepare"
     owner = await store.get_e2e_manifest(SERVICE)
@@ -719,7 +722,7 @@ async def _phase(env, store, run_id, phase, invoke):
             )
         ):
             raise GoogleStateError("google_sync_target_mismatch")
-        baseline = await _check_full_empty(env, token, stages, compact=notion_query_retry or notion_create_retry) if full_apply else {}
+        baseline = await _check_full_empty(env, token, stages, compact=notion_query_retry or notion_create_retry or notion_writeback_retry) if full_apply else {}
         slots = []
         for index in range(3 if full_apply else 2):
             subrun = slot_run_id(run_id, index)
@@ -746,6 +749,7 @@ async def _phase(env, store, run_id, phase, invoke):
             "full_apply": full_apply,
             "notion_query_retry": notion_query_retry,
             "notion_create_retry": notion_create_retry,
+            "notion_writeback_retry": notion_writeback_retry,
             "shared_writes": {},
             "baseline_deleted": baseline,
             "stage": "working",
@@ -787,7 +791,7 @@ async def _phase(env, store, run_id, phase, invoke):
             owner["stage"] = "ready"
             await _save(store, owner)
         await _verify(env, store, owner, token)
-        if (owner.get("notion_query_retry") or owner.get("notion_create_retry")):
+        if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             from e2e_google_notion_query import verify_phase
             await verify_phase(env, store, owner)
         owner["stage"] = "verified"
@@ -801,7 +805,7 @@ async def _phase(env, store, run_id, phase, invoke):
         await _save(store, owner)
         slot = owner["fixtures"][int(owner["step"] >= 4)]
         path = _event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"])
-        if owner["step"] in (2, 4) and not (owner.get("notion_query_retry") or owner.get("notion_create_retry")):
+        if owner["step"] in (2, 4) and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             if owner["step"] == 4:
                 slot["retry_previous_description"] = slot["source"]["description"]
             slot["source"]["description"] += (
@@ -816,7 +820,7 @@ async def _phase(env, store, run_id, phase, invoke):
             )
             if status != 200 or not _source_owned(event, slot):
                 raise GoogleStateError("google_sync_source_update_failed")
-        if owner["step"] == 3 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry")):
+        if owner["step"] == 3 and not (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")):
             slot["delete_attempted"] = True
             await _save(store, owner)
             status, _ = await _google_request(
@@ -835,7 +839,7 @@ async def _phase(env, store, run_id, phase, invoke):
         await _save(store, owner)
         clean = await _cleanup(env, store, owner, token)
         return {"ok": True, "dirty": False, "_clean_manifest": clean}
-    steps = ("pending", "retry_pending", "retried", "drained") if (owner.get("notion_query_retry") or owner.get("notion_create_retry")) else STEPS
+    steps = ("pending", "retry_pending", "retried", "drained") if (owner.get("notion_query_retry") or owner.get("notion_create_retry") or owner.get("notion_writeback_retry")) else STEPS
     return {
         "ok": True,
         "dirty": True,
@@ -956,6 +960,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
         "prepare_full",
         "prepare_notion_query",
         "prepare_notion_create",
+        "prepare_notion_writeback",
         "prepare_matrix",
         "prepare_boundary",
         "prepare_all",
@@ -998,7 +1003,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             return {"ok": False, "dirty": False, "run_id": run_id,
                     "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
     existing = await store.get_e2e_manifest(SERVICE)
-    full_mode = phase in ("prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
+    full_mode = phase in ("prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
     if full_mode:
         # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。
         disabled = (

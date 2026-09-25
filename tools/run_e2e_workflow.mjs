@@ -56,6 +56,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-full-smoke",
   "deploy-and-notion-query-retry-smoke",
   "deploy-and-notion-create-retry-smoke",
+  "deploy-and-notion-writeback-retry-smoke",
   "deploy-and-google-boundary-smoke",
   "deploy-and-google-matrix-smoke",
   "deploy-and-all-sync-smoke",
@@ -666,8 +667,8 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
     throw new E2eWorkflowError("google_sync_version_missing");
   }
   await runPreflight(callTool, runId, options.preflight);
-  const notionRetry = options.notionQuery || options.notionCreate;
-  const notionPrefix = options.notionCreate ? "notion_create" : "notion_query";
+  const notionRetry = options.notionQuery || options.notionCreate || options.notionWriteback;
+  const notionPrefix = options.notionWriteback ? "notion_writeback" : options.notionCreate ? "notion_create" : "notion_query";
   let primaryError = null;
   try {
     const steps = notionRetry ? ["pending", "retry_pending", "retried", "drained"] : options.boundary ? [...Array(18).fill("prepared"), ...Array(4).fill("pending"), ...Array(5).fill("drained")] : options.httpSync ? ["prepared", "drained", "updated", "drained"] : options.allSync ? ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"] : options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
@@ -676,7 +677,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       : ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     for (const [index, step] of steps.entries()) {
       const written = await requireTool(callTool, "trigger_sync", {
-        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (notionRetry ? (options.notionCreate ? "prepare_notion_create" : "prepare_notion_query") : options.boundary ? "prepare_boundary" : options.webhookSync ? "prepare_webhook" : options.httpSync ? "prepare_http" : options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : options.webhookSync ? "webhook_trigger" : options.httpSync ? "http_advance" : "advance",
+        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (notionRetry ? (options.notionWriteback ? "prepare_notion_writeback" : options.notionCreate ? "prepare_notion_create" : "prepare_notion_query") : options.boundary ? "prepare_boundary" : options.webhookSync ? "prepare_webhook" : options.httpSync ? "prepare_http" : options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : options.webhookSync ? "webhook_trigger" : options.httpSync ? "http_advance" : "advance",
       });
       if (written.status !== 200 || !written.dirty || written.run_id !== runId || written.execution_status !== step) {
         throw new E2eWorkflowError("google_sync_phase_mismatch");
@@ -718,6 +719,9 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
               manifest.stages?.[`${notionPrefix}_failed_dispatch`] !== 500 || manifest.stages?.[`${notionPrefix}_cursor_preserved`] !== 200)) ||
             (index >= 2 && manifest.stages?.[`${notionPrefix}_queue_only_retry`] !== 200) ||
             (index === 3 && manifest.stages?.[`${notionPrefix}_reapply`] !== 200))) ||
+          (options.notionWriteback && ((index >= 1 && (manifest.stages?.notion_writeback_partial_maps !== 200 ||
+            manifest.stages?.notion_writeback_writeback_missing !== 200)) ||
+            (index >= 2 && manifest.stages?.notion_writeback_same_ids !== 200))) ||
           (options.boundary && (manifest.stages?.google_sync_shared_empty !== 200 ||
             (index >= 18 && (manifest.stages?.google_boundary_input_17 !== 200 ||
               manifest.stages?.google_boundary_initial_cursor_preserved !== 200 ||
@@ -1554,6 +1558,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-matrix-smoke") {
       await runDeployAndGoogleSyncSmoke(callTool, runId, { fullApply: true, matrix: true });
+      return;
+    }
+    if (command === "deploy-and-notion-writeback-retry-smoke") {
+      await runDeployAndGoogleSyncSmoke(callTool, runId, { fullApply: true, notionWriteback: true });
       return;
     }
     if (command === "deploy-and-notion-create-retry-smoke") {

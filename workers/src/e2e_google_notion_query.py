@@ -6,7 +6,7 @@ from urllib.parse import quote
 import google_apply_sync
 from e2e_google_sync_state import GoogleKV, GoogleStateError, KEYS
 from e2e_google_sync_probe import (
-    GoogleEnv, _save, _source_owned, _deleted_fingerprint, _page_owned,
+    GoogleEnv, _save, _source_owned, _baseline_matches, _page_owned,
     _discord_event_is_owned, _property_text, notion_request, discord_request,
 )
 from google_calendar_sync import run_google_delta_fetch
@@ -57,9 +57,8 @@ async def apply_phase(env, store, owner, token, invoke):
             slot = slots.get(event.get("id"))
             if slot and _source_owned(event, slot) and event.get("description") == slot["source"]["description"]:
                 continue
-            from e2e_google_sync_state import digest
             if (event.get("status") == "cancelled"
-                    and owner["baseline_deleted"].get(digest(event["id"])) == _deleted_fingerprint(event)):
+                    and _baseline_matches(owner, event)):
                 continue
             raise GoogleStateError("google_sync_unowned_source")
         # 次HTTPの回復元は保存queueだけ。最後の段階は全所有入力を再適用する。

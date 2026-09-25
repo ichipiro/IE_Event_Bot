@@ -28,4 +28,12 @@ Notion APIの[照会仕様](https://developers.notion.com/reference/post-databas
 
 ## 実行記録
 
-実サービス結果は実行後にworkflow・artifactと照合して追記する。
+初回[実行36143962340](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36143962340)はcommit `f7c53bd`、run `E2E-20260925T135630Z-b8e008ac`。
+事前検証は成功したが、専用Calendarの削除履歴が100件を超え、`google_sync_baseline_limit` で資源作成前に停止した。
+今回runのmanifestは作成されていない。既存manifestの `passed` は前回試験の結果であり、今回の成功ではない。
+回収要求8回は別runのclean manifestを変更せず `google_sync_run_mismatch` で拒否された。最終artifactの全manifestは `dirty=false`、今回の新規資源はない。
+
+修正版は今回の試験に限り、削除履歴のIDを含むイベント全体のSHA-256を一覧で保存する。
+最大256件まで許可し、ID別digestの二重保存を避ける。履歴の内容変更・所有外予定・257件以上は拒否し、既存履歴を削除しない。
+256件を保持した全段階・回収と32 KiB未満のmanifestをローカルで確認した。従来モードの100件制限は維持する。
+再試験の結果はworkflow・artifactと照合して追記する。

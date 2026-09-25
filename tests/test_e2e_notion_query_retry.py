@@ -122,3 +122,45 @@ def test_retry_failure_is_not_accepted(monkeypatch):
     assert test.call("verify")[0] == 409
     assert test.call("cleanup")[0] == 200
     assert test.owner()["outcome"] == "failed_clean"
+
+
+def test_many_tombstones_preserved_with_bounded_manifest(monkeypatch):
+    test = scenario(monkeypatch)
+    tombstones = {f"old-{i}": {"id": f"old-{i}", "status": "cancelled"} for i in range(256)}
+    test.google.update(deepcopy(tombstones))
+    advance(test, 3)
+    assert len(json.dumps(test.owner()).encode()) < 32768
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "passed"
+    assert {k: test.google[k] for k in tombstones} == tombstones
+
+
+@pytest.mark.parametrize("mutation", ["removed", "changed"])
+def test_tombstone_baseline_is_immutable(monkeypatch, mutation):
+    test = scenario(monkeypatch)
+    test.google["old"] = {"id": "old", "status": "cancelled"}
+    advance(test, 0)
+    owner = test.owner()
+    owner["baseline_deleted"] = [] if mutation == "removed" else ["a" * 64]
+    with pytest.raises(RuntimeError, match="e2e_manifest_write_failed"):
+        asyncio.run(test.store.put_e2e_manifest(SERVICE, owner))
+
+
+def test_changed_tombstone_is_not_applied(monkeypatch):
+    test = scenario(monkeypatch)
+    test.google["old"] = {"id": "old", "status": "cancelled"}
+    advance(test, 0)
+    test.google["old"]["description"] = "changed"
+    assert test.call("advance")[0] == 409
+    assert test.rejections == 0
+    assert test.call("cleanup")[0] == 200
+    assert test.google["old"]["description"] == "changed"
+
+
+def test_tombstone_limit_rejects_before_writes(monkeypatch):
+    test = scenario(monkeypatch)
+    test.google.update({f"old-{i}": {"id": f"old-{i}", "status": "cancelled"} for i in range(257)})
+    status, payload = test.call("notion-query")
+    assert status == 409 and payload["error"] == "google_sync_baseline_limit"
+    assert not test.pages and not test.discord and len(test.google) == 257
+    assert not asyncio.run(test.store.get_e2e_manifest(SERVICE))

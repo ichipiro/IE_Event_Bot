@@ -23,6 +23,7 @@ from e2e_google_sync_state import (
     KIND,
     KEYS,
     MAX_BASELINE_DELETED,
+    MAX_QUERY_BASELINE_DELETED,
     STEPS,
     GoogleKV,
     GoogleStateError,
@@ -95,6 +96,14 @@ def _source_owned(event, slot):
 
 def _deleted_fingerprint(event):
     return digest(json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+
+
+def _baseline_matches(owner, event):
+    baseline = owner.get("baseline_deleted", {})
+    if owner.get("notion_query_retry"):
+        # fingerprint自体にIDも含むため、既知IDの内容変更も受け入れない。
+        return _deleted_fingerprint(event) in baseline
+    return baseline.get(digest(event["id"])) == _deleted_fingerprint(event)
 
 
 def _page_owned(env, page, slot):
@@ -223,8 +232,7 @@ async def _apply(env, store, owner, token, invoke):
                     isinstance(event, dict)
                     and isinstance(event.get("id"), str)
                     and event.get("status") == "cancelled"
-                    and owner.get("baseline_deleted", {}).get(digest(event["id"]))
-                    == _deleted_fingerprint(event)
+                    and _baseline_matches(owner, event)
                 ):
                     owner["stages"]["google_sync_baseline_preserved"] = 200
                     continue
@@ -619,7 +627,7 @@ async def _check_shared_cleanup(env, owner, *, keys=KEYS):
             raise GoogleStateError("google_sync_shared_owner_mismatch")
 
 
-async def _check_full_empty(env, token, stages, *, origin_maps=None):
+async def _check_full_empty(env, token, stages, *, origin_maps=None, compact=False):
     if any([await _raw_shared(env, key) is not None for key in KEYS]):
         raise GoogleStateError("google_sync_shared_not_empty")
     result = await run_google_delta_fetch(GoogleEnv(env, token), StateStore(_DeltaEnv(env)), commit_cursor=False)
@@ -643,7 +651,7 @@ async def _check_full_empty(env, token, stages, *, origin_maps=None):
             origin = _google_origin_discord_event_id(event)
             if origin:
                 origin_maps[key] = digest(origin)
-        if len(baseline) > MAX_BASELINE_DELETED:
+        if len(baseline) > (MAX_QUERY_BASELINE_DELETED if compact else MAX_BASELINE_DELETED):
             raise GoogleStateError("google_sync_baseline_limit")
     status, events = await discord_request(
         env, stages, {}, "google_sync_empty_guild", "GET",
@@ -658,7 +666,7 @@ async def _check_full_empty(env, token, stages, *, origin_maps=None):
     if status != 200 or pages.get("results") != [] or pages.get("has_more") is not False:
         raise GoogleStateError("google_sync_database_not_empty")
     stages["google_sync_shared_empty"] = 200
-    return baseline
+    return list(baseline.values()) if compact else baseline
 
 
 async def _phase(env, store, run_id, phase, invoke):
@@ -710,7 +718,7 @@ async def _phase(env, store, run_id, phase, invoke):
             )
         ):
             raise GoogleStateError("google_sync_target_mismatch")
-        baseline = await _check_full_empty(env, token, stages) if full_apply else {}
+        baseline = await _check_full_empty(env, token, stages, compact=notion_query_retry) if full_apply else {}
         slots = []
         for index in range(3 if full_apply else 2):
             subrun = slot_run_id(run_id, index)

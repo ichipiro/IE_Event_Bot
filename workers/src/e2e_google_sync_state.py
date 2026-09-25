@@ -33,6 +33,8 @@ def state_keys(owner):
 ALL_STEPS = ("prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained")
 # 32 KiBのmanifestにfixture・KV書込み記録の余地を残す。
 MAX_BASELINE_DELETED = 100
+# 照会復旧はイベント全体のdigestだけを保存し、256件でも32 KiB内に収める。
+MAX_QUERY_BASELINE_DELETED = 256
 
 
 def digest(value):
@@ -121,7 +123,12 @@ def valid_google_transition(previous, value):
                 return False
         writes = value.get("shared_writes", {})
         baseline = value.get("baseline_deleted", {})
-        if (
+        if value.get("notion_query_retry"):
+            if (not isinstance(baseline, list) or len(baseline) > MAX_QUERY_BASELINE_DELETED
+                    or any(not re.fullmatch(r"[0-9a-f]{64}", str(item)) for item in baseline)
+                    or len(set(baseline)) != len(baseline)):
+                return False
+        elif (
             not isinstance(baseline, dict)
             or len(baseline) > MAX_BASELINE_DELETED
             or (baseline and not (value.get("full_apply") or value.get("all_sync")))

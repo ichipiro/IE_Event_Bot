@@ -1371,7 +1371,9 @@ export function createE2eMcpServer(options = {}) {
             versionSha256,
             responseMode,
           );
-          for (let attempt = 1; scenario === "discord_delta" && attempt < DEPLOY_VERIFY_ATTEMPTS &&
+          // 両経路の409 version拒否は所有manifest・外部書込みに到達する前に返る。
+          // 応答不明の通信失敗や通常の処理失敗は再送しない。
+          for (let attempt = 1; ["discord_delta", "google_sync"].includes(scenario) && attempt < DEPLOY_VERIFY_ATTEMPTS &&
                response.status === 409 && response.payload.error === "worker_version_mismatch"; attempt += 1) {
             await delayImpl(DEPLOY_VERIFY_INTERVAL_MS);
             response = await workerRequest(config, operationRoute("trigger_sync", scenario, syncPhase),

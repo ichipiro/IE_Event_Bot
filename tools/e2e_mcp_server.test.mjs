@@ -2054,3 +2054,32 @@ for (const stage of ["working", "ready", "cleanup"]) {
     });
   });
 }
+
+for (const mode of ["transient", "persistent", "transport", "other", "wrong_status"]) {
+  test(`Google同期は書込み前のversion拒否だけ上限付き再送: ${mode}`, async () => {
+    let requests = 0;
+    const waits = [];
+    await withClient({ env: ENV, auditImpl: async () => {},
+      delayImpl: async (ms) => waits.push(ms),
+      fetchImpl: async (url, options) => {
+        requests += 1;
+        assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+        if (mode === "transport") { throw new Error("private transport failure"); }
+        if (mode === "other") { return jsonResponse({ ok: false, error: "google_sync_failed" }, 409); }
+        if (mode === "wrong_status") { return jsonResponse({ ok: false, error: "worker_version_mismatch" }, 500); }
+        if (mode === "persistent" || requests === 1) {
+          return jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409);
+        }
+        return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
+      },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_webhook",
+      } }));
+      assert.equal(result.ok, mode === "transient");
+      assert.equal(requests, mode === "persistent" ? 20 : mode === "transient" ? 2 : 1);
+      assert.equal(waits.length, requests - 1);
+      assert.ok(waits.every(ms => ms === 3000));
+    });
+  });
+}

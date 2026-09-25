@@ -1919,7 +1919,8 @@ for (const [index, phase, name, code, expectedCode] of [
 test("Googleロック解放診断は応答からJSONLとmanifestまで固定値だけを保持する", async () => {
   const runId = "E2E-20260924T000000Z-abcde024";
   const diagnostic = { step: "status_rpc", exception: "type_error",
-    release_ok: true, status_ok: null, owner_matches: null };
+    release_ok: true, status_ok: null, owner_matches: null, cause: "disconnected",
+    fresh_status_ok: true, fresh_owner_matches: false };
   await withClient({ env: ENV,
     repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
     fetchImpl: async (url) => new URL(url).pathname.endsWith("/status")
@@ -1945,11 +1946,13 @@ test("Googleロック解放診断は応答からJSONLとmanifestまで固定値�
     await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync",
       phase: "finish", ok: false, status: 409, error: "google_sync_release_failed",
       release_diagnostic: { step, exception: "private-class", release_ok: "private-token",
-        status_ok: 1, owner_matches: "private-owner", message: "private-message" } });
+        status_ok: 1, owner_matches: "private-owner", message: "private-message",
+        cause: "private-cause", fresh_status_ok: "private-value", fresh_owner_matches: 1 } });
   }
   const saved = await readAuditEntries(runId);
   assert.deepEqual(saved.at(-2).release_diagnostic, { step: "owner_check", exception: "other",
-    release_ok: null, status_ok: null, owner_matches: null });
+    release_ok: null, status_ok: null, owner_matches: null, cause: "unknown",
+    fresh_status_ok: null, fresh_owner_matches: null });
   assert.equal(Object.hasOwn(saved.at(-1), "release_diagnostic"), false);
   assert.equal(JSON.stringify(saved).includes("private"), false);
 });

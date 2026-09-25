@@ -367,6 +367,13 @@ function releaseDiagnosticEvidence(entry) {
     release_ok: typeof value.release_ok === "boolean" ? value.release_ok : null,
     status_ok: typeof value.status_ok === "boolean" ? value.status_ok : null,
     owner_matches: typeof value.owner_matches === "boolean" ? value.owner_matches : null,
+    ...(Object.hasOwn(value, "cause") ? {
+      cause: ["connection_limit", "object_reset", "subrequest_limit", "storage_timeout", "overloaded",
+        "cpu_limit", "memory_limit", "python_proxy", "io_context", "request_cancelled", "disconnected",
+        "internal_error", "data_clone"].includes(value.cause) ? value.cause : "unknown",
+      fresh_status_ok: typeof value.fresh_status_ok === "boolean" ? value.fresh_status_ok : null,
+      fresh_owner_matches: typeof value.fresh_owner_matches === "boolean" ? value.fresh_owner_matches : null,
+    } : {}),
   } };
 }
 

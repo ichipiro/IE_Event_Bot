@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -837,6 +838,27 @@ async def _inspect_calendar(env, run_id):
     return {"ok": True, "dirty": False, "run_id": run_id, "status": f"calendar_{classification}"}
 
 
+def _release_exception_cause(exc):
+    # 任意の例外本文は分類にだけ使用し、応答・ログ・manifestへコピーしない。
+    message = str(exc)
+    patterns = (
+        ("connection_limit", r"connection limit|too many (?:open )?connections"),
+        ("object_reset", r"durable object.*reset|object.*reset.*code.*updated"),
+        ("subrequest_limit", r"too many subrequests|subrequest.*limit"),
+        ("storage_timeout", r"storage operation exceeded timeout"),
+        ("overloaded", r"overloaded|too many (?:requests|concurrent|queued)|queued for too long"),
+        ("cpu_limit", r"cpu.*(?:limit|exceeded)"),
+        ("memory_limit", r"memory.*(?:limit|exceeded)"),
+        ("python_proxy", r"borrowed proxy|pyproxy|jsproxy"),
+        ("io_context", r"different request|different.*I/O context|I/O.*context"),
+        ("request_cancelled", r"I/O.*cancel|request.*cancel|context.*cancel"),
+        ("disconnected", r"disconnected|broken pipe|network connection lost"),
+        ("internal_error", r"internal error"),
+        ("data_clone", r"DataCloneError|could not be cloned"),
+    )
+    return next((kind for kind, pattern in patterns if re.search(pattern, message, re.I)), "unknown")
+
+
 async def _release_control(store, stub, control):
     """解放失敗の位置だけを残す。例外本文やownerは返さない。"""
     diagnostic = {
@@ -870,6 +892,19 @@ async def _release_control(store, stub, control):
             else "js_exception" if type(exc).__name__ == "JsException"
             else "other"
         )
+        diagnostic["cause"] = _release_exception_cause(exc)
+        diagnostic["fresh_status_ok"] = False
+        diagnostic["fresh_owner_matches"] = None
+        try:
+            # 接続の故障とDO内ロックの残留を、別接続での読取りだけで区別する。
+            fresh = store.env.SYNC_COORDINATOR.getByName("e2e:google-sync-control")
+            status = await store._sync_do_rpc(fresh, "status")
+            diagnostic["fresh_status_ok"] = bool(status and status.get("ok"))
+            if status and isinstance(status.get("lock"), dict):
+                diagnostic["fresh_owner_matches"] = status["lock"].get("owner") == control
+        except Exception:
+            # 診断の失敗で元の解放失敗分類を上書きしない。
+            pass
     return diagnostic
 
 

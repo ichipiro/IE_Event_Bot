@@ -58,6 +58,7 @@ def test_release_exception_redaction(action, exception, classification):
         "step": f"{action}_rpc", "exception": classification,
         "release_ok": True if action == "status" else None,
         "status_ok": None, "owner_matches": None,
+        "cause": "unknown", "fresh_status_ok": False, "fresh_owner_matches": None,
     }
     assert actions == (["release", "status"] if action == "status" else ["release"])
     assert "private" not in json.dumps(result)

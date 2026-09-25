@@ -128,10 +128,12 @@
 ## 12. リリース・本番反映
 
 - [x] ロック解放の可視化・自動復旧6ファイルはupstream PR #80・fork PR #65で統合した。
-- [ ] その他の追加変更のPR・CI・マージ・fork同期を行い、本番候補revisionと必要な回帰範囲を確定する。
-- [ ] 正式リリース対象を確定し、upstreamのリリース工程を行う。
+- [x] その他の追加変更を[upstream PR #81](https://github.com/ichipiro/IE_Event_Bot/pull/81)で統合し、本番候補revisionと必要な回帰範囲を確定した。Python1,119件・Node381件・Cron契約13件・静的検査・通常/E2E dry-runとPR CIが成功。アプリケーションコードは最新E2E実行commitと同一。
+- [x] [昇格PR #82](https://github.com/ichipiro/IE_Event_Bot/pull/82)・[Release Please PR #83](https://github.com/ichipiro/IE_Event_Bot/pull/83)を経て、[v0.6.0](https://github.com/ichipiro/IE_Event_Bot/releases/tag/v0.6.0)を公開した。タグcommitは `ea62da9739c5d6727995e80b5fe86049b287b622`。
 - [ ] 本番binding・Secret登録状態・変数・Cron設定を確認し、デプロイと稼働versionの照合を行う。
 - [ ] 通常同期・Webhook・Cronの稼働結果と復旧手順を確認する。
+
+リリース後のmain→developは[PR #84](https://github.com/ichipiro/IE_Event_Bot/pull/84)、続くfork同期は[運用手順](fork-upstream-workflow.md#11-upstreamdevelopをorigindevelopへ同期する)で扱う。同期完了は各PRのmergeと最終祖先関係・内容一致の照合で確認する。
 
 実装順は1→2・3→4→5→6・7→8とする。9と11を各段階で実施し、最後に12へ進む。Gitマージ、Release、デプロイは別工程として記録する。
 

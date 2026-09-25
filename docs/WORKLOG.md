@@ -1,5 +1,15 @@
 # 作業履歴
 
+## 2026-09-26: v0.6.0の正式リリースと戻し同期
+
+- 対象内E2Eの完了記録を確定し、Issue #17のclosedを確認した。24実行の成功・commit・保存済み回収証跡を再照合した。
+- [upstream PR #81](https://github.com/ichipiro/IE_Event_Bot/pull/81)で追加修正・E2E・文書を統合。[PR #82](https://github.com/ichipiro/IE_Event_Bot/pull/82)でmainへ昇格し、[Release Please PR #83](https://github.com/ichipiro/IE_Event_Bot/pull/83)で0.6.0へ更新した。各PRのCI・Commitlint・PR Target Guardは成功した。
+- [v0.6.0](https://github.com/ichipiro/IE_Event_Bot/releases/tag/v0.6.0)の公開、draft/prereleaseがfalse、対象commit `ea62da9739c5d6727995e80b5fe86049b287b622` をGitHubから確認した。Release Please実行36151785883は成功。
+- 統合後Python1,119件、Node381件、Cron契約13件、Ruff・Pyright・E2E契約、通常/E2E dry-runが成功。最新E2E実行commitからアプリケーションコードの変更なし。統合時に既存回帰テスト2件と文書を保持した。
+- 戻し同期は[PR #84](https://github.com/ichipiro/IE_Event_Bot/pull/84)で追跡し、forkへはupstream/developをmerge commitで同期する。最終照合は `test-results/release-completion-20260925/final-verification.json` に保存する。
+- 本番Workerのデプロイ・本番稼働確認は別工程として残す。
+
+
 ## 2026-09-25: 対象内E2Eの完了判定と統合準備
 
 既存19実行と追加5実行のGitHub成功・commit、保存済み所有・回収証跡を再照合した。有限ケースの完了と保証外事項を整理し、開始時からの6文書の未コミット変更を保持したまま完了記録へ統合した。Issue #17の完了条件を更新し、closedをGitHubから読戻し確認した。

@@ -630,3 +630,9 @@ POST・不正待機値・上限超過は再試行しない。継続する429も�
 [実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
 
 詳細と再試行上限超過・実障害・実Cronなどの境界は[専用検証記録](E2E-JOBS-KV-RETRY.md)を参照。
+
+## NotionへのDiscord ID書戻し拒否後の復旧
+
+[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)で、実Notion APIの400拒否後も作成済みNotion・Discord各2件のIDとqueue2件を保持し、次HTTPで同じIDへ書戻しを完了した。全3件の再適用で重複がないこと、Google・Discord各3件・Notion3ページ・共有KV6キーの回収、`passed`・全manifest `dirty=false` を確認した。
+
+ローカルの[27ケース](../tests/test_e2e_notion_writeback_retry.py)では、想定外応答、途中回収、所有条件の変更、queue・対応表の改変、誤った書戻しID、回復後の重複を拒否する。詳細は[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)。自然発生障害、応答喪失、Notion作成直後のページUUID書戻し失敗、本番反映は含めない。

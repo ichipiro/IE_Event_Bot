@@ -2,6 +2,8 @@
 
 ## 2026-09-25
 
+- NotionへのDiscord ID書戻し拒否後の復旧E2Eを追加し、[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)の成功、部分反映IDの再利用、queue復旧・重複なし・全資源回収の独立照合を[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)へ保存した。
+
 - Notionページ作成拒否後の復旧E2Eを追加し、[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)の成功、queue維持・再試行・重複なし・全資源回収の独立照合を[検証記録](E2E-NOTION-CREATE-RETRY.md)へ保存した。
 
 - 通常Notion cleanupの全件取得・共有KV・別HTTPでの実行間隔抑止・所有資源回収を実サービスで確認（[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)）。計画を完了へ更新し、実Cronと失敗後再試行は別の未検証範囲として残した。

@@ -1,5 +1,11 @@
 # 作業履歴
 
+## 2026-09-25: NotionへのDiscord ID書戻し失敗後の復旧E2E
+
+- [実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)（`41a618e`）で初回成功。実APIの400拒否、queue2件・cursor・最終成功時刻の維持、部分反映したNotion・Discord IDの再利用と書戻し完了、再適用時の重複なしを確認した。
+- Google・Discord各3件、Notion3ページ、共有KV6キーを回収。監査22行・11操作、48検証stage、run/version/commit、JUnit1,117件、`passed`・全manifest `dirty=false` を独立照合した。回収失敗なし。
+- ローカルPython1,117件、Node381件、Cron契約13件、Ruff・Pyright・E2E契約・dry-run成功。詳細は[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)。自然発生障害・応答喪失・本番反映は含めない。既存の未コミット文書変更は保持した。
+
 ## 2026-09-25: Notionページ作成失敗後の復旧E2E
 
 - 専用入口・MCP・workflowを追加し、実Notion APIの400拒否を通常作成処理へ接続した。

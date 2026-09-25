@@ -30,3 +30,21 @@ Notion APIの[ページ更新仕様](https://developers.notion.com/reference/pat
 ローカルPython 1,117件、Node 381件、Cron契約13件、Ruff・Pyright、依存import、E2E設定・機密保護・workflow契約検査、Wrangler E2E dry-runが成功。
 Pyrightは仮想環境の有効化後に成功した。直接起動時の外側Python参照によるimport解決エラーとは区別する。
 外部APIを代替したローカル結果は、実サービス試験の成功を示さない。
+
+## 実サービス試験結果
+
+[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)は初回で成功した。
+
+- run: `E2E-20260925T143153Z-5c34160b`
+- commit: `41a618e57cb249eac1f5e0a53c79cf1f70b67ec6`。実行checkoutはclean、`e2e` Environmentの承認記録も確認した。
+- Worker version SHA-256: `db1817ebf21db53b2960e2ca1e16921c4770fc76aaa98cbcff6fedf13499e274`。deploy監査と最終読戻しが一致し、version tagもrun IDと一致。
+- 全4段階と別HTTPのverify、計8HTTPが成功。実Notion APIの400・`validation_error`、通常dispatchの500、queue2件の内容・順序とcursor・最終成功時刻の維持を確認した。
+- 失敗時にNotion・Discord各2件と対応表の追加を読み戻し、対象ページのDiscord IDだけが空であることを確認した。
+- 次HTTPで保存queue2件だけを消化し、queue0件、Notion・Discord各3件となった。部分反映した2件目も同じページ・イベントIDを再利用して書戻しを完了した。
+- 全3件の再適用後も同じ対応ID・各3件で重複はなかった。
+- Google予定3件・Discord予定3件を削除、Notionページ3件をarchiveし、それぞれGETで確認した。共有KV6キーは削除後の不在を確認した。
+- 今回scenarioは `outcome=passed`。全service／scenario manifestが `dirty=false`、watch不在。本体と後処理の回収2回とも成功し、失敗した回収はなかった。
+- 監査22行・11操作、検証stage48件、run/version/commit、JUnit1,117件・失敗0を独立照合した。CIのNode381件・Cron契約13件と静的検査・E2E契約検査・dry-runも成功。
+
+秘匿済み成果物と独立照合スクリプトは `test-results/notion-writeback-retry-36147796164/`、照合結果は同ディレクトリの `verification.json` に保存した。
+入力検証による書戻し拒否からの復旧を確認した。自然発生障害、Notion作成直後のページUUID書戻し失敗、応答喪失、本番反映は本実行に含めない。

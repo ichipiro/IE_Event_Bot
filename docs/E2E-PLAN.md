@@ -49,7 +49,7 @@
 - [x] 所有予定へのDiscord失敗の固定注入と、次のHTTPでのqueueだけの再試行を既存E2E・MCP・手動workflowへ接続する。
 - [x] 上記の部分失敗・再試行モデルを実API反映と実KV・DOで検証する（[実行34866761198](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34866761198)）。固定注入後の部分反映・cursor保護・次のHTTPでのqueue回復と全資源回収が成功。実際のDiscord障害の観測ではない。
 - [x] Notion照会・取得・作成・archive・Discord ID書戻し、Discord削除のHTTP失敗とsubrequest上限での残件消失・成功誤判定を再現・修正し、queueだけでの回復をローカル検証する。
-- [x] Notionページ作成失敗後の復旧を個別に検証する。[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)で400拒否、queue・cursor等の維持、次HTTPのqueue2件消化、重複なし、全資源・共有KV6キーの回収を確認。`passed`・全manifest `dirty=false`。照会復旧も[別実行で完了](E2E-NOTION-QUERY-RETRY.md)しているが、Discord ID書戻し失敗は残す。詳細は[検証記録](E2E-NOTION-CREATE-RETRY.md)。
+- [x] Notionページ作成失敗後の復旧を個別に検証する。[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)で400拒否、queue・cursor等の維持、次HTTPのqueue2件消化、重複なし、全資源・共有KV6キーの回収を確認。`passed`・全manifest `dirty=false`。照会復旧も[別実行で完了](E2E-NOTION-QUERY-RETRY.md)している。Discord ID書戻し復旧は下記の別実行で確認した。詳細は[検証記録](E2E-NOTION-CREATE-RETRY.md)。
 - [x] 所有Discord予定への不正な更新によるHTTP 400・code 50035の確認を既存E2Eへ追加し、次のHTTPでの回復、想定外応答の拒否、workflow証跡の必須化をローカル検証する。
 - [x] 上記のAPI拒否・queue再試行を既存E2E専用環境で実行し、全所有資源の回収とartifactを照合する。[実行35959152201](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35959152201)で不正日時へのHTTP 400・code 50035、cursor保護、別HTTPのqueue回復、全6段階と回収が成功した。入力検証による拒否とサービス障害は区別する。
 - [x] 初回[実行35952552380](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35952552380)のdirty資源を回収する。[復旧実行35955045460](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35955045460)で、記録済みID・Guild・run marker・空名を照合した回収、`failed_clean`・全資源 `dirty=false` を確認した。不正日時を使う修正版E2Eも再実行で成功した。
@@ -60,6 +60,7 @@
 - [x] 3日間の終日・UTC日跨ぎ予定、3件同時のAPI拒否と上限1件の共有queue再試行を18stepへ拡張し、workflow証跡・途中回収をローカル検証する。件数1・2・5・17と上限1・2・5の12組もローカル検証する。
 - [x] 上記18stepを専用環境で実行し、3件のAPI拒否・分割再試行・全資源回収とartifactを照合する。[実行35982356318](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/35982356318)で全18段階、共有queueの3→2→1→0の消化、既存ID維持、全資源回収が成功した。監査78行・39操作、run/version/commit、passed・全manifest dirty=falseを確認した。初回のロック解放失敗の原因は未確定。
 - [ ] 任意イベントの構成・件数への適用、外部APIの実障害・途中再試行を実サービスで検証する。
+- [x] Notion照会・作成・Discord ID書戻しのAPI拒否を個別に検証し、次HTTPのqueue再試行・重複有無・回収を確認する。照会36144536848・作成36145925999に加え、[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)で書戻し400拒否後の部分反映ID維持、queue2件からの復旧、再適用時の重複なし、全資源・共有KV6キー回収、`passed`・全manifest `dirty=false` を確認した。詳細は[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)。自然発生障害の観測は含めない。
 - [x] matrixを計7件・28stepへ拡張し、少数件での複数ページ取得、上限2件の残件処理、Notion更新・Discord削除の固定失敗と次HTTPのqueue再試行、旧5件runの回収互換性をローカル検証する。
 - [x] 上記28stepを専用環境で実行し、ページ送り・部分反映・cursor保護・ID維持・回収とartifactを照合する。[実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)で全28段階・各verify、監査118行・59操作、run/version/commit一致、passed・全manifest dirty=falseを確認した。Notion更新／Discord削除の失敗は固定注入であり、実サービス障害の観測とは区別する。
 

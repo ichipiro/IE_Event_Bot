@@ -19,6 +19,7 @@ const CLASSIFIERS = {
   disconnected: /disconnected|broken pipe|network connection lost/i,
   connection_limit: /connection limit|too many (?:open )?connections|response closed due to connection/i,
   rpc_session: /rpc.*(?:session|disconnect)|session.*(?:rpc|disconnect)/i,
+  stalled_response: /stalled (?:HTTP )?response|prevent deadlock/i,
   internal_error: /internal error/i,
   data_clone: /DataCloneError|could not be cloned/i,
   awaitable_depth: /sync_state_rpc_awaitable_depth_exceeded/i,

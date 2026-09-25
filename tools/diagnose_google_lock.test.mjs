@@ -33,6 +33,13 @@ test("接続上限とRPC切断を本文を残さず分類する", () => {
   assert.ok(!JSON.stringify(redactEvent(raw)).includes("secret-test-value"));
 });
 
+test("runtimeの未消費応答警告を固定分類する", () => {
+  const raw = event();
+  raw.$metadata.error = "A stalled HTTP response was canceled to prevent deadlock. private-secret";
+  assert.deepEqual(redactEvent(raw).categories, ["stalled_response"]);
+  assert.ok(!JSON.stringify(redactEvent(raw)).includes("private-secret"));
+});
+
 test("2つの固定時間帯とE2E Workerだけを保存なしで照会する", async () => {
   const calls = [];
   const report = await diagnose(credentials, async (url, options) => {

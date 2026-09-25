@@ -11,6 +11,7 @@ on:
         options:
           - preflight
           - deploy-and-real-cron-smoke
+          - deploy-and-real-cron-contention
           - read-only-real-cron-diagnostics
           - read-only-google-lock-diagnostics
           - deploy-and-crud-smoke
@@ -120,7 +121,7 @@ jobs:
 
   cron-e2e:
     name: Approved real Cron E2E
-    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'read-only-real-cron-diagnostics' }}
+    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention' || inputs.mode == 'read-only-real-cron-diagnostics' }}
     needs: local-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -146,17 +147,21 @@ jobs:
           run_id="$(node --input-type=module -e 'import {createRunId} from "./tools/run_e2e_workflow.mjs"; import {scope} from "./tools/run_cron_e2e.mjs"; const id = process.env.E2E_MODE === "read-only-real-cron-diagnostics" ? process.env.E2E_RECOVERY_RUN_ID : createRunId(); scope(id); console.log(id);')"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
       - name: Deploy isolated Worker and wait for real Cron
-        if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' }}
+        if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention' }}
         timeout-minutes: 24
         env:
           E2E_RUN_ID: ${{ steps.cron_run.outputs.run_id }}
+          E2E_CRON_CONTENTION: ${{ inputs.mode == 'deploy-and-real-cron-contention' }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node tools/run_cron_e2e.mjs run --run-id "$E2E_RUN_ID"
       - name: Always remove Cron Worker and owned KV
-        if: ${{ always() && steps.cron_run.outcome == 'success' && inputs.mode == 'deploy-and-real-cron-smoke' }}
+        if: ${{ always() && steps.cron_run.outcome == 'success' && (inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention') }}
         env:
           E2E_RUN_ID: ${{ steps.cron_run.outputs.run_id }}
+          E2E_CRON_CONTENTION: ${{ inputs.mode == 'deploy-and-real-cron-contention' }}
+          INTERNAL_API_TOKEN: ${{ secrets.INTERNAL_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node tools/run_cron_e2e.mjs cleanup --run-id "$E2E_RUN_ID"
@@ -178,7 +183,7 @@ jobs:
 
   e2e:
     name: Approved E2E
-    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' && inputs.mode != 'read-only-real-cron-diagnostics' }}
+    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' && inputs.mode != 'deploy-and-real-cron-contention' && inputs.mode != 'read-only-real-cron-diagnostics' }}
     needs: local-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30

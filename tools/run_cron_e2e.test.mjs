@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import test from "node:test";
 import { CronE2E, scope, validateReceipt, redactCronEvent } from "./run_cron_e2e.mjs";
+import { CronContention, validateContention } from "./run_cron_contention.mjs";
 
 const START = 1_800_000_000_000;
 const COMMIT = "a".repeat(40);
@@ -170,4 +171,56 @@ test("diagnostics use only the fixed read-only telemetry API and bounded run win
   assert.equal(report.complete, true);
   assert.deepEqual(report.events, []);
   assert.equal(report.audit.length, 1);
+});
+
+const unlocked = { locked: false, holder: "", owner_sha256: "", now: 1, expires_at: 0 };
+const locked = (holder) => ({ locked: true, holder, owner_sha256: holder === "cron" ? "a".repeat(64) : "b".repeat(64), now: 1, expires_at: 100 });
+
+test("contention evidence rejects body execution on rejection and foreign result ownership", () => {
+  const run = newRun();
+  const report = { run_id: run, version_id: "v1", commit: COMMIT, start_ms: START, deadline_ms: START + 1_200_000 };
+  const good = { ...record(run, START + 76_000), completed_time_ms: START + 76_200,
+    status: 409, body_owner: "", body_calls: 0, result_writes: 0, before: locked("manual"), after: locked("manual") };
+  const key = `${scope(run).prefix}${good.scheduled_time_ms}`;
+  assert.equal(validateContention(good, report, key).status, 409);
+  for (const patch of [{ body_calls: 1 }, { result_writes: 1 }, { source: "fetch" },
+    { completed_time_ms: report.deadline_ms }, { version_id: "other" }]) {
+    assert.throws(() => validateContention({ ...good, ...patch }, report, key));
+  }
+  assert.throws(() => validateContention({ payload: { ...good, run_id: "other", ok: true, probe_mode: "after" } }, report, `${scope(run).prefix}result`));
+});
+
+test("both directions, release and independent result readback are required", async () => {
+  const runner = new CronContention({ ...env, INTERNAL_API_TOKEN: "test-only" }, { sleep: async () => {} });
+  const run = newRun();
+  const report = { run_id: run, version_id: "v1", commit: COMMIT, ...scope(run), cleanup: {}, receipts: [] };
+  runner.save = async () => {};
+  const identity = { run_id: run, version_id: "v1", version_tag: run, commit: COMMIT };
+  let manualHeld = false;
+  runner.http = async (r, mode) => {
+    if (!mode) { return manualHeld ? unlocked : locked("cron"); }
+    if (mode === "probe") { manualHeld = true; return { ...identity, status: 409, body_calls: 0, result_writes: 0, before: locked("cron"), after: locked("cron") }; }
+    return { ...identity, status: 200, body_owner: locked("manual").owner_sha256, body_calls: 1, result_writes: 1, before: unlocked, after: unlocked };
+  };
+  runner.api = async (r, label) => {
+    assert.ok(["schedule_disable_for_final_check", "result_readback"].includes(label));
+    return { payload: { ...identity, ok: true, probe_mode: "after" } };
+  };
+  runner.beforeDelete = async () => { report.cleanup.do_lock_absent = true; };
+  assert.equal(await runner.observe(report), false);
+  assert.ok(report.manual_rejected);
+  assert.ok(report.manual_hold);
+  report.receipts = [{ status: 200, body_owner: locked("cron").owner_sha256, after: unlocked }];
+  assert.equal(await runner.observe(report), false);
+  report.receipts.push({ status: 409, before: locked("manual"), after: locked("manual") });
+  assert.equal(await runner.observe(report), true);
+  assert.equal(report.result_readback.mode, "after");
+});
+
+test("lock cleanup refuses to force-release an active owner", async () => {
+  const runner = new CronContention(env, { sleep: async () => {} });
+  runner.baseUrl = "https://owned.test";
+  runner.http = async () => locked("manual");
+  runner.api = async () => assert.fail("must not force release or delete");
+  await assert.rejects(runner.beforeDelete({ http_ready: true, cleanup: {} }), /cron_contention_lock_not_released/);
 });

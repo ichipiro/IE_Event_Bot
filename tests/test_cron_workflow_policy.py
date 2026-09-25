@@ -9,7 +9,7 @@ POLICY = runpy.run_path(str(ROOT / "tools/validate_e2e_workflow.py"))
 
 
 @pytest.mark.parametrize("before,after,expected", [
-    ("name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'read-only-real-cron-diagnostics' }}",
+    ("name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention' || inputs.mode == 'read-only-real-cron-diagnostics' }}",
      "name: Approved real Cron E2E", "cron_mode_guard_missing"),
     ("always() && steps.cron_run.outcome == 'success'", "success()", "cron_cleanup_missing"),
     ("node tools/run_cron_e2e.mjs run --run-id", "echo", "cron_runner_missing"),

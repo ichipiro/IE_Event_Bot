@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const ROOT = fileURLToPath(new URL("../", import.meta.url));
+export const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const OUTPUT = resolve(ROOT, "test-results/cron-e2e");
 const RUN_PATTERN = /^E2E-\d{8}T\d{6}Z-[a-f0-9]{8}$/;
 const NAMESPACE = "119c6ebb96b0468cb7c25d96980b416e";
@@ -16,7 +16,7 @@ const execute = promisify(execFile);
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
-function requireThat(condition, code) {
+export function requireThat(condition, code) {
   if (!condition) { throw new Error(`cron_${code}`); }
 }
 
@@ -142,12 +142,19 @@ export class CronE2E {
   script(report) { return `workers/scripts/${scope(report.run_id).worker}`; }
   kv() { return `storage/kv/namespaces/${NAMESPACE}`; }
 
+  configure(config) { return config; }
+  async beforeSchedule(report) {}
+  async observe(report) { return new Set(report.receipts.map((r) => r.scheduled_time_ms)).size >= 2; }
+  async beforeDelete(report) {}
+  validateRecord(value, report, key) { return validateReceipt(value, report, key); }
+  validSuffix(suffix) { return /^\d{13}$/.test(suffix); }
+
   async keys(report) {
     const data = await this.api(report, "kv_list", `${this.kv()}/keys?prefix=${encodeURIComponent(scope(report.run_id).prefix)}&limit=1000`);
-    requireThat(Array.isArray(data.result) && !data.result_info?.cursor && data.result.length <= 21, "key_list_invalid");
+    requireThat(Array.isArray(data.result) && !data.result_info?.cursor && data.result.length <= 24, "key_list_invalid");
     for (const entry of data.result) {
       requireThat(typeof entry.name === "string" && entry.name.startsWith(scope(report.run_id).prefix)
-        && /^\d{13}$/.test(entry.name.slice(scope(report.run_id).prefix.length)), "key_scope_mismatch");
+        && this.validSuffix(entry.name.slice(scope(report.run_id).prefix.length)), "key_scope_mismatch");
     }
     return data.result.map((entry) => entry.name);
   }
@@ -183,7 +190,7 @@ export class CronE2E {
       config.vars = { ...config.vars, E2E_CRON_RUN_ID: runId, E2E_CRON_COMMIT: commit,
         E2E_CRON_START_MS: String(report.start_ms), E2E_CRON_DEADLINE_MS: String(report.deadline_ms) };
       const configPath = resolve(OUTPUT, `${runId}-config.json`);
-      await writeFile(configPath, JSON.stringify(config));
+      await writeFile(configPath, JSON.stringify(this.configure(config)));
       report.dirty = true;
       report.deploy_attempted = true;
       await this.save(report);
@@ -195,6 +202,7 @@ export class CronE2E {
       report.version_id = versions[0].version_id;
       const version = await this.api(report, "version", `${this.script(report)}/versions/${report.version_id}`);
       requireThat(version.result?.annotations?.["workers/tag"] === runId, "version_tag_mismatch");
+      await this.beforeSchedule(report);
       const before = await this.api(report, "schedule_before", `${this.script(report)}/schedules`);
       requireThat(Array.isArray(before.result?.schedules) && before.result.schedules.length === 0, "schedule_not_empty");
       await this.api(report, "schedule_enable", `${this.script(report)}/schedules`, { method: "PUT", body: [{ cron: CRON }] });
@@ -207,11 +215,11 @@ export class CronE2E {
         const receipts = [];
         for (const key of await this.keys(report)) {
           const value = await this.api(report, "receipt_read", `${this.kv()}/values/${encodeURIComponent(key)}`, { missing: true });
-          if (value !== null) { receipts.push(validateReceipt(value, report, key)); }
+          if (value !== null) { receipts.push(this.validateRecord(value, report, key)); }
         }
-        report.receipts = receipts.sort((a, b) => a.scheduled_time_ms - b.scheduled_time_ms);
+        report.receipts = receipts.filter((r) => r.source === "scheduled").sort((a, b) => a.scheduled_time_ms - b.scheduled_time_ms);
         await this.save(report);
-        if (new Set(receipts.map((r) => r.scheduled_time_ms)).size >= 2) {
+        if (await this.observe(report)) {
           report.scenario_passed = true;
           break;
         }
@@ -245,6 +253,7 @@ export class CronE2E {
         requireThat(schedules.result?.schedules?.length === 0, "schedule_cleanup_failed");
         report.cleanup.schedules_empty = true;
         await this.save(report);
+        await this.beforeDelete(report);
         await this.api(report, "worker_delete", this.script(report), { method: "DELETE" });
       }
       requireThat(await this.ownedSettings(report) === null, "worker_cleanup_failed");
@@ -259,7 +268,7 @@ export class CronE2E {
           const value = await this.api(report, "cleanup_receipt_read", `${this.kv()}/values/${encodeURIComponent(key)}`, { missing: true });
           if (value !== null) {
             // version読戻し前のdeploy失敗ではCronを有効化していないためキーは存在しない。
-            validateReceipt(value, report, key);
+            this.validateRecord(value, report, key);
             await this.api(report, "kv_delete", `${this.kv()}/values/${encodeURIComponent(key)}`, { method: "DELETE" });
             deleted.add(key);
             report.cleanup.deleted_keys = [...deleted];
@@ -299,7 +308,9 @@ async function main() {
   const [command, flag, runId] = process.argv.slice(2);
   requireThat(["run", "cleanup", "diagnose"].includes(command) && flag === "--run-id" && process.argv.length === 5, "arguments_invalid");
   scope(runId);
-  const runner = new CronE2E(process.env);
+  const Runner = process.env.E2E_CRON_CONTENTION === "true"
+    ? (await import("./run_cron_contention.mjs")).CronContention : CronE2E;
+  const runner = new Runner(process.env);
   if (command === "diagnose") {
     await runner.diagnose(runId);
   } else if (command === "cleanup") {

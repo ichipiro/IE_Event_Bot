@@ -197,9 +197,9 @@ def _check_workflow(text: str) -> list[str]:
     diagnostic_block = _step_block(text, "Read-only Google lock diagnostics")
     cron_deploy = _step_block(text, "Deploy isolated Worker and wait for real Cron")
     cron_cleanup = _step_block(text, "Always remove Cron Worker and owned KV")
-    _expect(errors, "name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'read-only-real-cron-diagnostics' }}" in text,
+    _expect(errors, "name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention' || inputs.mode == 'read-only-real-cron-diagnostics' }}" in text,
             "cron_mode_guard_missing")
-    _expect(errors, "name: Approved E2E\n    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' && inputs.mode != 'read-only-real-cron-diagnostics' }}" in text,
+    _expect(errors, "name: Approved E2E\n    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' && inputs.mode != 'deploy-and-real-cron-contention' && inputs.mode != 'read-only-real-cron-diagnostics' }}" in text,
             "cron_normal_job_not_excluded")
     cron_job = text.split("  cron-e2e:\n", 1)[-1].split("\n  e2e:\n", 1)[0]
     _expect(errors, "environment: e2e" in cron_job and "needs: local-validation" in cron_job,
@@ -212,6 +212,10 @@ def _check_workflow(text: str) -> list[str]:
     for block in (cron_deploy, cron_cleanup):
         _expect(errors, "inputs.mode == 'deploy-and-real-cron-smoke'" in block,
                 "cron_diagnostic_write_guard_missing")
+    for block in (cron_deploy, cron_cleanup):
+        _expect(errors, "inputs.mode == 'deploy-and-real-cron-contention'" in block
+                and "E2E_CRON_CONTENTION:" in block and "INTERNAL_API_TOKEN:" in block,
+                "cron_contention_guard_missing")
     cron_diagnostic = _step_block(text, "Read-only real Cron diagnostics")
     _expect(errors, "inputs.mode == 'read-only-real-cron-diagnostics'" in cron_diagnostic
             and "node tools/run_cron_e2e.mjs diagnose" in cron_diagnostic, "cron_diagnostic_missing")

@@ -5,7 +5,10 @@ import math
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from e2e_job_retry import check_failure, install_failure, previous_phase
+from e2e_job_retry import (
+    check_failure, install_failure, previous_phase,
+    install_list_failure, check_list_failure, list_retry_verified,
+)
 import e2e_notion_cleanup_probe as probe
 
 
@@ -46,7 +49,7 @@ def _matches(env, owner, page, kind, archived):
 
 async def _inputs(env, owner):
     pages = await _pages(env, owner)
-    kinds = ("due", "future") if owner["completed"] in ("prepare", "fail") else ("future",)
+    kinds = ("due", "future") if owner["completed"] in ("prepare", "fail", "list_fail") else ("future",)
     expected = {owner[f"{kind}_page_id"]: kind for kind in kinds}
     _require(len(pages) == len(expected) and {p.get("id") for p in pages} == set(expected)
              and all(_matches(env, owner, p, expected[p["id"]], False) for p in pages),
@@ -110,22 +113,22 @@ async def _verify(env, store, owner):
             env, owner["stages"], {}, f"cleanup_normal_read_{kind}", "GET",
             f"/pages/{owner[f'{kind}_page_id']}",
         )
-        archived = kind == "due" and completed not in ("prepare", "fail")
+        archived = kind == "due" and completed not in ("prepare", "fail", "list_fail")
         _require(status == 200 and isinstance(page, dict) and _matches(env, owner, page, kind, archived),
                  "cleanup_normal_page_verification_failed")
-    if completed not in ("prepare", "fail"):
+    if completed not in ("prepare", "fail", "list_fail"):
         _require(await store.get_text("cleanup:last_epoch") == owner.get("epoch")
                  and len(owner["writes"].get("cleanup:last_epoch", [])) == 1,
                  "cleanup_normal_epoch_rewritten")
         result = await store.get_last_result("job_cleanup")
         _require((result or {}).get("payload") == _detail(completed), "cleanup_normal_result_failed")
-        _require(len(owner["writes"].get("result:job_cleanup", [])) == ((1 if completed == "execute" else 2) + (1 if owner.get("retry") else 0)),
+        _require(len(owner["writes"].get("result:job_cleanup", [])) == ((1 if completed == "execute" else 2) + (1 if owner.get("retry") or owner.get("list_retry") else 0)),
                  "cleanup_normal_result_write_count_failed")
-    if completed == "fail":
+    if completed in ("fail", "list_fail"):
         _require(await store.get_text("cleanup:last_epoch") is None
                  and not owner["writes"].get("cleanup:last_epoch"), "cleanup_normal_failed_epoch_advanced")
         result = await store.get_last_result("job_cleanup")
-        _require((result or {}).get("payload") == owner["failure_detail"], "cleanup_normal_failure_result_mismatch")
+        _require((result or {}).get("payload") == owner["list_failure_detail" if completed == "list_fail" else "failure_detail"], "cleanup_normal_failure_result_mismatch")
     owner["stages"][f"cleanup_normal_verify_{completed}"] = 200
     await _save(store, owner)
 
@@ -182,9 +185,14 @@ async def _job(env, store, owner, phase, request):
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/cleanup", method="POST", headers=request.headers)
     job_env = _JobEnv(env, _OwnedKV(store, owner))
     calls = install_failure(job_env, owner, "cleanup_normal") if phase == "fail" else []
+    if phase.startswith("list_fail"):
+        calls = install_list_failure(job_env, owner, "cleanup_normal", phase)
     await _save(store, owner)
     response = await Application(job_env).fetch(job_request)
     detail = json.loads(await response.text())
+    if phase.startswith("list_fail"):
+        check_list_failure(owner, "cleanup_normal", phase, response.status, detail, calls)
+        return
     if phase == "fail":
         check_failure(owner, "cleanup_normal", response.status, detail, calls)
         return
@@ -223,6 +231,7 @@ async def cleanup(env, store, run_id):
         "version": 1, "kind": "notion_cleanup_job", "normal": True, "dirty": False,
         "last_run_id": run_id, "outcome": "passed" if owner["completed"] == "duplicate"
         and owner["stages"].get("cleanup_normal_verify_duplicate") == 200
+        and list_retry_verified(owner, "cleanup_normal")
         and (not owner.get("retry") or owner["stages"].get("cleanup_normal_verify_fail") == 200) else "failed_clean",
         "stages": owner["stages"], "resource_fingerprints": fingerprints,
     }
@@ -241,7 +250,7 @@ async def run(env, store, run_id, phase, request):
         if phase == "verify":
             await _verify(env, store, owner)
         else:
-            _require(phase in (*PHASES, "fail") and owner.get("completed") == previous_phase(owner, PHASES, phase, "execute")
+            _require(phase in (*PHASES, "fail", "list_fail") and owner.get("completed") == previous_phase(owner, PHASES, phase, "execute")
                      and owner.get("stage") != "working", "cleanup_normal_phase_mismatch")
             _require(owner["stages"].get(f"cleanup_normal_verify_{owner['completed']}") == 200,
                      "cleanup_normal_previous_unverified")

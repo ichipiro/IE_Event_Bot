@@ -45,8 +45,67 @@ def check_failure(owner, prefix, status, detail, calls):
 
 
 def previous_phase(owner, phases, phase, before):
+    if phase == "list_fail_first":
+        return "prepare"
+    if phase == "first" and owner.get("list_retry"):
+        return "list_fail_first"
+    if phase == "list_fail":
+        return phases[phases.index(before) - 1]
+    if phase == before and owner.get("list_retry"):
+        return "list_fail"
     if phase == "fail":
         return phases[phases.index(before) - 1]
     if phase == before and owner.get("retry"):
         return "fail"
     return phases[phases.index(phase) - 1]
+
+
+def install_list_failure(job_env, owner, prefix, phase):
+    """実queryを1件ずつ取得し、対象scanの2ページ目だけ503を注入する。"""
+    import json
+    from workers import Response
+
+    calls = []
+    scan = 0
+    target_scan = 2 if prefix == "qa_normal" and phase == "list_fail" else 1
+
+    async def query(url, options):
+        nonlocal scan
+        body = json.loads(options["body"])
+        if not body.get("start_cursor"):
+            scan += 1
+        if scan == target_scan and body.get("start_cursor"):
+            calls.append(503)
+            owner["stages"][f"{prefix}_{phase}_injected"] = 503
+            return Response("{}", status=503)
+        body["page_size"] = 1
+        response = await jobs.fetch(url, {**options, "body": json.dumps(body)})
+        if scan == target_scan:
+            data = json.loads(await response.text())
+            if (response.status != 200 or len(data.get("results", [])) != 1
+                    or data.get("has_more") is not True or not data.get("next_cursor")):
+                raise RuntimeError("job_list_first_page_invalid")
+            calls.append(200)
+            owner["stages"][f"{prefix}_{phase}_first_page"] = 200
+            return Response(json.dumps(data), status=200)
+        return response
+
+    job_env._job_notion_query_fetch = query
+    owner["list_retry"] = True
+    return calls
+
+
+def check_list_failure(owner, prefix, phase, status, detail, calls):
+    if (status != 500 or calls != [200, 503]
+            or detail != {"mode": "native", "ok": False, "error": "notion_query_failed_503"}):
+        raise RuntimeError("job_list_failure_not_observed")
+    owner["stages"][f"{prefix}_{phase}_http"] = status
+    owner["stages"][f"{prefix}_{phase}"] = 200
+    owner["list_failure_detail"] = detail
+
+
+def list_retry_verified(owner, prefix):
+    phases = ("list_fail_first", "list_fail") if prefix == "qa_normal" else ("list_fail",)
+    return not owner.get("list_retry") or all(
+        owner["stages"].get(f"{prefix}_verify_{phase}") == 200 for phase in phases
+    )

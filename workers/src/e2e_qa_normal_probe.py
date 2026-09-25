@@ -3,7 +3,10 @@
 import json
 from types import SimpleNamespace
 
-from e2e_job_retry import check_failure, install_failure, previous_phase
+from e2e_job_retry import (
+    check_failure, install_failure, previous_phase,
+    install_list_failure, check_list_failure, list_retry_verified,
+)
 import e2e_qa_notification_probe as qa
 from e2e_notion_probe import _property_number, _property_text, _rich_text, _title
 
@@ -103,6 +106,18 @@ async def _verify(env, store, owner):
         await _OwnedKV(store, owner).get(key)
     pages = await _inputs(env, owner)
     completed = owner["completed"]
+    if completed.startswith("list_fail"):
+        result = await store.get_last_result("job_qa_check")
+        _require((result or {}).get("payload") == owner["list_failure_detail"],
+                 "qa_normal_list_result_mismatch")
+        _require(await store.get_json("qa_cache", None) == owner.get("cache"),
+                 "qa_normal_cache_not_ready")
+        _require({p["id"]: p["properties"] for p in pages} == owner["list_properties"],
+                 "qa_normal_list_pages_changed")
+        _require(not await _messages(env, owner), "qa_normal_message_count_failed")
+        owner["stages"][f"qa_normal_verify_{completed}"] = 200
+        await _save(store, owner)
+        return
     if completed in ("first", "update", "fail", "notify", "duplicate"):
         _require({_property_number(p, "質問番号") for p in pages} == {41, 42, 43},
                  "qa_normal_numbers_failed")
@@ -182,7 +197,9 @@ async def _prepare(env, store, run_id):
 async def _job(env, store, owner, phase, request):
     from entry import Application
 
-    await _inputs(env, owner)
+    pages_before = await _inputs(env, owner)
+    if phase.startswith("list_fail"):
+        owner["list_properties"] = {p["id"]: p["properties"] for p in pages_before}
     for key in KEYS:
         await _OwnedKV(store, owner).get(key)
     owner["stage"] = "working"
@@ -191,9 +208,14 @@ async def _job(env, store, owner, phase, request):
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/qa-check", method="POST", headers=request.headers)
     job_env = _JobEnv(env, _OwnedKV(store, owner))
     calls = install_failure(job_env, owner, "qa_normal") if phase == "fail" else []
+    if phase.startswith("list_fail"):
+        calls = install_list_failure(job_env, owner, "qa_normal", phase)
     await _save(store, owner)
     response = await Application(job_env).fetch(job_request)
     detail = json.loads(await response.text())
+    if phase.startswith("list_fail"):
+        check_list_failure(owner, "qa_normal", phase, response.status, detail, calls)
+        return
     if phase == "fail":
         check_failure(owner, "qa_normal", response.status, detail, calls)
         failed = detail.get("failed_page_ids", [])
@@ -268,6 +290,7 @@ async def cleanup(env, store, run_id):
         "version": 1, "kind": "qa_notification_job", "normal": True, "dirty": False,
         "last_run_id": run_id, "outcome": "passed" if owner["completed"] == "duplicate"
         and owner["stages"].get("qa_normal_verify_duplicate") == 200
+        and list_retry_verified(owner, "qa_normal")
         and (not owner.get("retry") or owner["stages"].get("qa_normal_verify_fail") == 200) else "failed_clean",
         "stages": owner["stages"], "resource_fingerprints": _targets(env),
     }
@@ -286,7 +309,7 @@ async def run(env, store, run_id, phase, request):
         if phase == "verify":
             await _verify(env, store, owner)
         else:
-            _require(phase in (*PHASES, "fail") and owner.get("completed") == previous_phase(owner, PHASES, phase, "notify")
+            _require(phase in (*PHASES, "fail", "list_fail", "list_fail_first") and owner.get("completed") == previous_phase(owner, PHASES, phase, "notify")
                      and owner.get("stage") != "working", "qa_normal_phase_mismatch")
             _require(owner["stages"].get(f"qa_normal_verify_{owner['completed']}") == 200,
                      "qa_normal_previous_unverified")

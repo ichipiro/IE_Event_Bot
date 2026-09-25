@@ -25,7 +25,7 @@ Q&Aは `prepare → first → update → fail → notify → duplicate`、ほか
 
 Q&Aは送信失敗時に更新前のcache値を維持し、新規ページならcacheへ追加しない。cleanupはarchive失敗時に成功時刻を進めない。2件の不具合を失敗するローカルテストで再現してから修正した。
 
-今回の失敗は固定注入であり、Discord/Notionの実障害、POST受理後の応答喪失、回線断、Worker中断、KV書込み失敗、実Cron起動、一覧取得失敗、任意件数・ページ送り、KVの全リージョン一貫性を証明しない。通常Notion一覧取得の失敗処理はこのシナリオの対象外である。
+今回の失敗は固定注入であり、Discord/Notionの実障害、POST受理後の応答喪失、回線断、Worker中断、KV書込み失敗、実Cron起動、一覧取得失敗、任意件数・ページ送り、KVの全リージョン一貫性を証明しない。通常Notion一覧取得の失敗処理はこのシナリオの対象外であり、[一覧取得失敗の再試行](E2E-JOBS-LIST-RETRY.md)で別途扱う。
 
 関連: [全体計画](E2E-PLAN.md)、[通常cleanup](E2E-NOTION-CLEANUP-NORMAL.md)、[検証方法](TESTING.md)。
 

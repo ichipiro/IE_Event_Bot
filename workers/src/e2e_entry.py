@@ -166,7 +166,7 @@ _NOTION_AUTO_CLEAN_CLEANUP_PATH = "/admin/e2e/notion-cleanup/cleanup"
 _QA_NOTIFICATION_PATH = "/admin/e2e/qa-notification"
 _QA_NORMAL_PHASES = {
     f"/admin/e2e/qa-normal/{phase}": phase
-    for phase in ("prepare", "first", "update", "fail", "notify", "duplicate", "verify")
+    for phase in ("prepare", "first", "update", "fail", "list_fail_first", "list_fail", "notify", "duplicate", "verify")
 }
 _QA_NOTIFICATION_CLEANUP_PATH = "/admin/e2e/qa-notification/cleanup"
 _REMINDER_NORMAL_PHASES = {
@@ -175,7 +175,7 @@ _REMINDER_NORMAL_PHASES = {
 }
 _CLEANUP_NORMAL_PHASES = {
     f"/admin/e2e/notion-cleanup-normal/{phase}": phase
-    for phase in ("prepare", "fail", "execute", "duplicate", "verify")
+    for phase in ("prepare", "fail", "list_fail", "execute", "duplicate", "verify")
 }
 
 _REMINDER_PATH = "/admin/e2e/reminder"

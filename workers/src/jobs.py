@@ -129,45 +129,54 @@ def _extract_date(page: dict, prop_name: str):
     return (props.get(prop_name) or {}).get("date")
 
 
+class _NotionQueryError(RuntimeError):
+    """部分一覧を成功として適用しないための取得エラー。"""
+
+
 async def _notion_query_all_pages(env, db_id: str):
-    """
-    Notion DB 全件取得（ページネーション対応）。
-    途中失敗時は取得済み分を返して終了する。
-    """
-    if not db_id:
-        return []
-    token = getattr(env, "NOTION_TOKEN", None)
-    if not token:
-        return []
-    headers = _header_json(token)
+    """全ページが正常に取得できた場合だけ一覧を返す。"""
+    if not db_id or not getattr(env, "NOTION_TOKEN", None):
+        raise _NotionQueryError("notion_query_missing_configuration")
+    headers = _header_json(env.NOTION_TOKEN)
     url = f"https://api.notion.com/v1/databases/{db_id}/query"
     pages = []
-    cursor = None # ページネーション用の cursor
+    cursor = None
+    seen_cursors = set()
+    injected_fetch = getattr(env, "_job_notion_query_fetch", None)
+    query_fetch = cast(Callable[..., Awaitable[Any]], injected_fetch) if callable(injected_fetch) else fetch
     while True:
-        body = {}
-        if cursor:
-            body["start_cursor"] = cursor
-        # Notion query APIリクエスト
-        response = await fetch(
-            url,
-            {
-                "method": "POST",
-                "headers": headers,
+        body = {"start_cursor": cursor} if cursor else {}
+        try:
+            response = await query_fetch(url, {
+                "method": "POST", "headers": headers,
                 "body": json.dumps(body, ensure_ascii=False),
-            },
-        )
-        # 読み取り
-        if int(response.status) != 200:
-            break
-        data = json.loads(await response.text() or "{}")
-        pages.extend(data.get("results") or [])
-        if not data.get("has_more"):
-            break
-        # 次のカーソルを取得
+            })
+            status = int(response.status)
+            if status != 200:
+                raise _NotionQueryError(f"notion_query_failed_{status}")
+            text = await response.text()
+        except _NotionQueryError:
+            raise
+        except Exception:
+            # 外部応答・例外の本文には機密情報が含まれ得るため固定コードだけを返す。
+            raise _NotionQueryError("notion_query_transport_failed") from None
+        try:
+            data = json.loads(text)
+        except (ValueError, TypeError):
+            raise _NotionQueryError("notion_query_invalid_response") from None
+        if (not isinstance(data, dict) or not isinstance(data.get("results"), list)
+                or not isinstance(data.get("has_more"), bool)
+                or any(not isinstance(p, dict) or not isinstance(p.get("id"), str)
+                       or not p["id"] or not isinstance(p.get("properties"), dict)
+                       for p in data["results"])):
+            raise _NotionQueryError("notion_query_invalid_response")
+        pages.extend(data["results"])
+        if not data["has_more"]:
+            return pages
         cursor = data.get("next_cursor")
-        if not cursor:
-            break
-    return pages
+        if not isinstance(cursor, str) or not cursor.strip() or cursor in seen_cursors:
+            raise _NotionQueryError("notion_query_invalid_response")
+        seen_cursors.add(cursor)
 
 
 async def _notion_patch_page_number(env, page_id: str, number_value: int) -> bool:
@@ -369,9 +378,11 @@ async def run_qa_notification_job(env, state, return_detail: bool = False):
             }
         return True
 
-    await ensure_qa_question_numbers(env)
-    # Q&A DB の全ページを取得
-    pages = await _notion_query_all_pages(env, db_id)
+    try:
+        await ensure_qa_question_numbers(env)
+        pages = await _notion_query_all_pages(env, db_id)
+    except _NotionQueryError as exc:
+        return {"ok": False, "error": str(exc)} if return_detail else False
     return await _run_qa_notification_pages(
         env,
         state,
@@ -672,9 +683,12 @@ async def run_auto_clean_job(env, state, return_detail: bool = False):
     - 内部DBの条件に従って対象ページをアーカイブ
     - 最終実行時刻を KV に保存
     """
-    return await _run_auto_clean_pages(
-        env,
-        state,
-        None,
-        return_detail=return_detail,
-    )
+    try:
+        return await _run_auto_clean_pages(
+            env,
+            state,
+            None,
+            return_detail=return_detail,
+        )
+    except _NotionQueryError as exc:
+        return {"ok": False, "error": str(exc)} if return_detail else False

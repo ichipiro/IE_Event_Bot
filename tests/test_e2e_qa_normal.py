@@ -31,7 +31,11 @@ def install(monkeypatch):
         if path == f"/databases/{QA_DATABASE_ID}" and method == "GET":
             result = {"id": QA_DATABASE_ID, "object": "database", "properties": _schema(normal.qa._QA_SCHEMA)}
         elif path == f"/databases/{QA_DATABASE_ID}/query":
-            result = {"results": [p for p in pages.values() if not p.get("archived")], "has_more": False}
+            rows = [p for p in pages.values() if not p.get("archived")]
+            start = int(data.get("start_cursor", "0"))
+            end = start + data.get("page_size", 100)
+            result = {"results": rows[start:end], "has_more": end < len(rows),
+                      "next_cursor": str(end) if end < len(rows) else None}
         elif path == "/pages" and method == "POST":
             page_id = f"44444444-4444-4444-8444-{len(pages) + 1:012d}"
             result = {"id": page_id, "parent": {"database_id": QA_DATABASE_ID},

@@ -29,3 +29,19 @@ Notion APIの[ページ作成仕様](https://developers.notion.com/reference/pos
 
 ローカルPython 1,090件、Node 366件、Cron契約13件、Ruff・Pyright、E2E設定・機密保護・workflow契約検査、Wrangler E2E dry-runが成功。
 外部APIを代替したローカル結果は、実サービス試験の成功とは区別する。
+
+## 実サービス試験結果
+
+[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)は初回で成功した。
+
+- run: `E2E-20260925T141553Z-50109a17`
+- commit: `ed0251e2b08d4e6d99f082ebca2526ab13e6a693`。実行checkoutはclean。
+- Worker version SHA-256: `20f0b72ae33e18beff4d5bebab780e16d841183efcc827724fe773ee5b1022b6`。deploy監査と最終読戻しが一致し、version tagもrun IDと一致。
+- 全4段階と別HTTPのverify、計8HTTPが成功。実Notion APIの400・`validation_error`、通常dispatchの500、queue2件の内容と順序・対応表・cursor・最終成功時刻の維持を確認した。
+- 次HTTPで保存queue2件だけを消化し、queue0件、Notion・Discord各3件、既存ID維持とDiscord ID書戻しを確認した。全3件の再適用後も同じID・各3件で重複はなかった。
+- Google予定3件・Discord予定3件を削除、Notionページ3件をarchiveし、それぞれGETで確認した。共有KV6キーは削除後の不在を確認した。
+- 今回scenarioは `outcome=passed`。全service／scenario manifestが `dirty=false`、watch不在。本体と後処理の回収2回とも成功し、失敗した回収はなかった。
+- 監査22行・11操作、検証stage44件、run/version/commit、JUnit1,090件・失敗0を独立照合した。Node366件・Cron契約13件と静的検査・E2E契約検査・dry-runも成功。
+
+秘匿済み成果物と独立照合スクリプトは `test-results/notion-create-retry-36145925999/`、照合結果は同ディレクトリの `verification.json` に保存した。
+入力検証によるページ作成拒否からの復旧を確認した。自然発生障害、Discord ID書戻しのAPI拒否、本番反映は本実行に含めない。

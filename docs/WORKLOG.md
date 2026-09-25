@@ -1,5 +1,12 @@
 # 作業履歴
 
+## 2026-09-25: Notionページ作成失敗後の復旧E2E
+
+- 専用入口・MCP・workflowを追加し、実Notion APIの400拒否を通常作成処理へ接続した。
+- [実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)（`ed0251e`）で全4段階成功。失敗時のqueue2件・対応ID・cursor・最終成功時刻の維持、次HTTPでのqueue消化、全3件再適用後の重複なしを確認した。
+- Google・Discord各3件、Notion3ページ、共有KV6キーを回収。監査22行・11操作、44検証stage、run/version/commit、JUnit1,090件、`passed`・全manifest `dirty=false` を独立照合した。
+- 初回成功、回収失敗なし。自然発生障害・Discord ID書戻し失敗・本番反映は対象外。詳細は[検証記録](E2E-NOTION-CREATE-RETRY.md)。既存の未コミット文書変更は保持した。
+
 ## 2026-09-25: 通常Notion cleanupの実サービスE2E成功
 
 - [実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。

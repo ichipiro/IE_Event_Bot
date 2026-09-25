@@ -25,3 +25,10 @@ Node試験は専用route、HTTP待機時間、27段階の証跡必須判定、�
 実サービス結果はworkflow・artifactの独立照合後に追記する。
 
 関連: [試験計画](E2E-PLAN.md)、[残試験の棚卸し](E2E-AUDIT-20260925.md#残試験の具体化)。
+
+## 実行記録
+
+初回[36140023272](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36140023272)はcommit `4977d5c`、run `E2E-20260925T131955Z-160fe439`。
+step 0のWorker検証は成功したが、verify応答のstage名を `verified` としたため、MCPが要求する `google_prepared_verified` と不一致になり停止した。予定作成前の停止であり、件数境界の成功ではない。
+最終artifactから `failed_clean`・全manifest `dirty=false`・共有KV回収・watch不在を独立確認した。Node/Python試験の代替応答だけではこの接続不一致を検出できていなかった。
+Workerの実応答名を確認する再現テスト3件が修正前に失敗し、既存MCP契約に合わせて修正した。

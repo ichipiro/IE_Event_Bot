@@ -217,7 +217,7 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         if owner["step"] >= QUEUE_STEP:
             owner["stages"][f"google_boundary_queue_{pending_count(owner['step'])}"] = 200
         await _save(store, owner)
-        return {"ok": True, "dirty": True, "status": STATUSES[owner["step"]], "stage": "verified"}
+        return {"ok": True, "dirty": True, "status": STATUSES[owner["step"]], "stage": f"google_{STATUSES[owner['step']]}_verified"}
     elif phase == "advance":
         if owner["stage"] != "verified" or owner["step"] >= LAST_STEP:
             raise GoogleStateError("google_sync_phase_invalid")

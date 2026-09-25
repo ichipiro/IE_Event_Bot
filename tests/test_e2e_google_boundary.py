@@ -139,3 +139,13 @@ def test_failed_apply_preserves_cursor_and_reclaims_partial_targets(monkeypatch)
     test.fail_create = False
     cleanup(test)
     assert test.owner()["outcome"] == "failed_clean"
+
+
+@pytest.mark.parametrize("step", [0, 18, 22])
+def test_verify_response_matches_mcp_contract(monkeypatch, step):
+    """MCPが成功判定するstage名をWorkerの実応答から照合する。"""
+    test = scenario(monkeypatch)
+    run_to(test, step)
+    status, result = test.call("verify")
+    assert status == 200
+    assert result["stage"] == f"google_{result['status']}_verified"

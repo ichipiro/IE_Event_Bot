@@ -113,8 +113,9 @@ export class CronE2E {
   async run(runId, commit) {
     const owned = scope(runId);
     requireThat(/^[a-f0-9]{40}$/.test(commit ?? ""), "commit_invalid");
+    const start = this.now();
     const report = { run_id: runId, commit, ...owned, account_fingerprint: hash(this.env.CLOUDFLARE_ACCOUNT_ID),
-      start_ms: this.now(), deadline_ms: this.now() + WINDOW_MS, dirty: false,
+      start_ms: start, deadline_ms: start + WINDOW_MS, dirty: false,
       outcome: "preparing", receipts: [], audit: [], cleanup: {}, deploy_attempted: false };
     // 同じrun IDのmanifestを上書きしない。
     await mkdir(OUTPUT, { recursive: true });

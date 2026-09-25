@@ -11,7 +11,7 @@ const record = (run, at) => ({ run_id: run, version_id: "v1", version_tag: run, 
   cron: "* * * * *", source: "scheduled", job_count: 0, normal_dispatch_completed: true,
   scheduled_time_ms: at, observed_time_ms: at + 100 });
 
-function fixture({ timeout = false, foreign = false, failDelete = false, badVersion = false } = {}) {
+function fixture({ timeout = false, foreign = false, failDelete = false, badVersion = false, tick = false } = {}) {
   const run = newRun();
   let clock = START;
   let exists = false;
@@ -61,7 +61,7 @@ function fixture({ timeout = false, foreign = false, failDelete = false, badVers
     } else { assert.fail(`unexpected request ${path}`); }
     return new Response(JSON.stringify({ success: status === 200, result }), { status });
   };
-  const runner = new CronE2E(env, { request, now: () => clock,
+  const runner = new CronE2E(env, { request, now: () => tick ? clock++ : clock,
     sleep: async (ms) => { clock += ms; }, deploy: async () => { exists = true; } });
   runner.save = async (report) => { saved = structuredClone(report); };
   return { run, runner, calls, keys, report: () => saved };
@@ -89,6 +89,12 @@ test("delivery timeout is failed_clean, not passed", async () => {
   assert.equal(f.report().error, "cron_delivery_timeout");
   assert.equal(f.report().outcome, "failed_clean");
   assert.equal(f.report().dirty, false);
+});
+
+test("deadline uses the same clock sample as start", async () => {
+  const f = fixture({ tick: true });
+  const report = await f.runner.run(f.run, COMMIT);
+  assert.equal(report.deadline_ms - report.start_ms, 1_200_000);
 });
 
 test("foreign Worker blocks schedule mutations and cleanup", async () => {

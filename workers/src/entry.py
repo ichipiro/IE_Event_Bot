@@ -16,7 +16,7 @@ from google_calendar_sync import run_google_delta_fetch
 from google_watch import ensure_watch_active
 from health_checks import run_connectivity_checks
 from jobs import run_auto_clean_job, run_day_before_reminder_job, run_qa_notification_job
-from state import StateStore
+from state import JobStateWriteError, StateStore
 from sync_lock_do import SyncCoordinator
 
 
@@ -47,6 +47,15 @@ def _bool_env(value: str | None, default: bool = False) -> bool:
 
 def _detail_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {"ok": bool(value)}
+
+
+async def _save_job_result(state, name: str, payload: dict) -> dict:
+    if state.enabled():
+        try:
+            await state.set_last_result(name, payload)
+        except JobStateWriteError as exc:
+            return {**payload, "ok": False, "error": str(exc)}
+    return payload
 
 
 def _gcal_webhook_token_status(env, request) -> int:
@@ -159,13 +168,8 @@ class Default(WorkerEntrypoint):
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
             detail = _detail_dict(await run_qa_notification_job(self.env, state, return_detail=True))
-            ok = bool(detail.get("ok"))
-            if state.enabled():
-                await state.set_last_result(
-                    "job_qa_check",
-                    {"mode": "native", **detail},
-                )
-            return _json_response({"mode": "native", **detail}, status=200 if ok else 500)
+            payload = await _save_job_result(state, "job_qa_check", {"mode": "native", **detail})
+            return _json_response(payload, status=200 if payload.get("ok") else 500)
         
         # 前日リマインドジョブを実行
         if path == "/jobs/reminder":
@@ -174,26 +178,16 @@ class Default(WorkerEntrypoint):
             detail = _detail_dict(
                 await run_day_before_reminder_job(self.env, state, return_detail=True)
             )
-            ok = bool(detail.get("ok"))
-            if state.enabled():
-                await state.set_last_result(
-                    "job_reminder",
-                    {"mode": "native", **detail},
-                )
-            return _json_response({"mode": "native", **detail}, status=200 if ok else 500)
+            payload = await _save_job_result(state, "job_reminder", {"mode": "native", **detail})
+            return _json_response(payload, status=200 if payload.get("ok") else 500)
 
         # Notion cleanup ジョブを実行
         if path == "/jobs/cleanup":
             if not self._authorized(request):
                 return Response("unauthorized", status=401)
             detail = _detail_dict(await run_auto_clean_job(self.env, state, return_detail=True))
-            ok = bool(detail.get("ok"))
-            if state.enabled():
-                await state.set_last_result(
-                    "job_cleanup",
-                    {"mode": "native", **detail},
-                )
-            return _json_response({"mode": "native", **detail}, status=200 if ok else 500)
+            payload = await _save_job_result(state, "job_cleanup", {"mode": "native", **detail})
+            return _json_response(payload, status=200 if payload.get("ok") else 500)
         """
         全部まとめて実行する。
         手順:
@@ -313,13 +307,11 @@ class Default(WorkerEntrypoint):
                     return_detail=True,
                 )
             )
-            ok = bool(qa_detail.get("ok"))
+            payload = await _save_job_result(
+                StateStore(self.env), "job_qa_check", {"mode": "native", "source": "cron", **qa_detail},
+            )
+            ok = bool(payload.get("ok"))
             results.append({"ok": ok, "path": "/jobs/qa-check", "status": 200 if ok else 500})
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result(
-                    "job_qa_check",
-                    {"mode": "native", "source": "cron", **qa_detail},
-                )
         if run_reminder:
             reminder_detail = _detail_dict(
                 await run_day_before_reminder_job(
@@ -328,13 +320,11 @@ class Default(WorkerEntrypoint):
                     return_detail=True,
                 )
             )
-            ok = bool(reminder_detail.get("ok"))
+            payload = await _save_job_result(
+                StateStore(self.env), "job_reminder", {"mode": "native", "source": "cron", **reminder_detail},
+            )
+            ok = bool(payload.get("ok"))
             results.append({"ok": ok, "path": "/jobs/reminder", "status": 200 if ok else 500})
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result(
-                    "job_reminder",
-                    {"mode": "native", "source": "cron", **reminder_detail},
-                )
         if run_cleanup:
             cleanup_detail = _detail_dict(
                 await run_auto_clean_job(
@@ -343,13 +333,11 @@ class Default(WorkerEntrypoint):
                     return_detail=True,
                 )
             )
-            ok = bool(cleanup_detail.get("ok"))
+            payload = await _save_job_result(
+                StateStore(self.env), "job_cleanup", {"mode": "native", "source": "cron", **cleanup_detail},
+            )
+            ok = bool(payload.get("ok"))
             results.append({"ok": ok, "path": "/jobs/cleanup", "status": 200 if ok else 500})
-            if StateStore(self.env).enabled():
-                await StateStore(self.env).set_last_result(
-                    "job_cleanup",
-                    {"mode": "native", "source": "cron", **cleanup_detail},
-                )
         return results
 
     async def _handle_gcal_webhook(

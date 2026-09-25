@@ -1,6 +1,8 @@
 """空の専用Q&A DBで通常HTTPハンドラ・共有KVを段階検証する。"""
 
 import json
+
+from e2e_job_kv_retry import FaultKV, verified as kv_retry_verified
 from types import SimpleNamespace
 
 from e2e_job_retry import (
@@ -206,13 +208,17 @@ async def _job(env, store, owner, phase, request):
     await _save(store, owner)
     # 認証済みrequestのヘッダを維持し、通常fetchのQ&A分岐をそのまま呼ぶ。
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/qa-check", method="POST", headers=request.headers)
-    job_env = _JobEnv(env, _OwnedKV(store, owner))
+    kv = _OwnedKV(store, owner)
+    fault_kv = FaultKV(kv, owner, "qa_normal", KEYS) if owner.get("kv_retry") and phase == "notify" else None
+    job_env = _JobEnv(env, fault_kv or kv)
     calls = install_failure(job_env, owner, "qa_normal") if phase == "fail" else []
     if phase.startswith("list_fail"):
         calls = install_list_failure(job_env, owner, "qa_normal", phase)
     await _save(store, owner)
     response = await Application(job_env).fetch(job_request)
     detail = json.loads(await response.text())
+    if fault_kv is not None:
+        fault_kv.check()
     if phase.startswith("list_fail"):
         check_list_failure(owner, "qa_normal", phase, response.status, detail, calls)
         return
@@ -290,6 +296,7 @@ async def cleanup(env, store, run_id):
         "version": 1, "kind": "qa_notification_job", "normal": True, "dirty": False,
         "last_run_id": run_id, "outcome": "passed" if owner["completed"] == "duplicate"
         and owner["stages"].get("qa_normal_verify_duplicate") == 200
+        and kv_retry_verified(owner, "qa_normal")
         and list_retry_verified(owner, "qa_normal")
         and (not owner.get("retry") or owner["stages"].get("qa_normal_verify_fail") == 200) else "failed_clean",
         "stages": owner["stages"], "resource_fingerprints": _targets(env),
@@ -299,8 +306,12 @@ async def cleanup(env, store, run_id):
 
 
 async def run(env, store, run_id, phase, request):
-    if phase == "prepare":
+    if phase in ("prepare", "kv_prepare"):
         owner = await _prepare(env, store, run_id)
+        if phase == "kv_prepare":
+            owner["kv_retry"] = True
+            owner["stages"]["qa_normal_kv_prepare"] = 200
+            await _save(store, owner)
     else:
         owner = await store.get_e2e_manifest(SERVICE)
         _require(owner and owner.get("normal") and owner.get("dirty") is True

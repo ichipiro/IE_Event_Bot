@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from datetime import datetime, timezone
@@ -6,6 +7,17 @@ from uuid import uuid4
 
 
 _JS_ABSENT_VALUES = frozenset(("jsnull", "jsundefined"))
+_JOB_WRITE_KEYS = frozenset((
+    "qa_cache", "reminder_cache", "cleanup:last_epoch",
+    "result:job_qa_check", "result:job_reminder", "result:job_cleanup",
+))
+_JOB_WRITE_ATTEMPTS = 3
+
+
+class JobStateWriteError(RuntimeError):
+    """通常ジョブのKV保存が回数制限内に成功しなかった。"""
+
+
 _LEGACY_E2E_MANIFEST_KEYS = {
     "google": "e2e:google_calendar_crud",
     "discord": "e2e:discord_crud",
@@ -98,7 +110,19 @@ class StateStore:
         kv = self._kv()
         if kv is None:
             return
-        await kv.put(key, str(value))
+        text = str(value)
+        if key not in _JOB_WRITE_KEYS:
+            await kv.put(key, text)
+            return
+        # 外部通知やarchiveは再実行せず、応答喪失時も同じ値だけを再保存する。
+        for attempt in range(_JOB_WRITE_ATTEMPTS):
+            try:
+                await kv.put(key, text)
+                return
+            except Exception:
+                if attempt == _JOB_WRITE_ATTEMPTS - 1:
+                    raise JobStateWriteError("job_kv_write_failed") from None
+                await asyncio.sleep(attempt + 1)
 
     async def put_text_if_changed(self, key: str, value: str) -> bool:
         """現在値と異なる場合だけ KV へ文字列を書き込む。"""

@@ -209,7 +209,7 @@ def test_kv_write_response_loss_can_be_cleaned(monkeypatch):
         await put(key, value)
         raise RuntimeError("write_response_lost")
     env.STATE_KV.put = lost
-    with pytest.raises(RuntimeError, match="write_response_lost"):
+    with pytest.raises(RuntimeError, match="cleanup_normal_job_failed"):
         phase(env, request, "execute")
     env.STATE_KV.put = put
     assert run(normal.cleanup(env, StateStore(env), RUN_ID))["ok"]

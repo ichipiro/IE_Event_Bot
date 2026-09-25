@@ -33,6 +33,7 @@ import {
   runDeployAndNotionCleanupSmoke,
   runDeployAndQaNotificationSmoke,
   runDeployAndQaNormalSmoke,
+  runDeployAndJobsKvRetrySmoke,
   runDeployAndJobsRetrySmoke,
   runDeployAndJobsListRetrySmoke,
   runDeployAndReminderNormalSmoke,
@@ -1789,6 +1790,64 @@ for (const failure of [null, "fail", "verify", "evidence"]) {
     assert.equal(calls.filter(c => c.name === "deploy_e2e").length, 1);
     assert.deepEqual(touchedServicesFromAudit(Object.values(prefixes).map(prefix => ({
       run_id: RUN_ID, phase: "start", tool: "trigger_job", target: `${prefix}_list_fail`,
+    })), RUN_ID).sort(), Object.keys(prefixes).sort());
+  });
+}
+
+
+for (const failure of [null, "job", "verify", "evidence"]) {
+  test(`通常ジョブKV再試行は保存前後の証跡と独立検証・回収を要求: ${failure}`, async () => {
+    const phases = {};
+    const stages = {};
+    const prefixes = { qa_notification: "qa_normal", reminder: "reminder_normal", notion_cleanup: "cleanup_normal" };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        const prefix = Object.values(prefixes).find(p => job.startsWith(`${p}_`));
+        const phase = job.slice(prefix.length + 1);
+        stages[prefix] ??= {};
+        if (phase === "verify") {
+          if (failure === "verify" && phases[prefix] === "notify") {
+            return { ok: false, error: "kv_result_mismatch" };
+          }
+          stages[prefix][`${prefix}_verify_${phases[prefix]}`] = 200;
+        } else {
+          phases[prefix] = phase === "kv_prepare" ? "prepare" : phase;
+          stages[prefix][`${prefix}_${phases[prefix]}`] = 200;
+          if (["notify", "execute"].includes(phase)) {
+            if (failure === "job") {
+              return { ok: false, error: "kv_retry_not_observed" };
+            }
+            for (const key of ["cache", "result"]) {
+              for (const step of ["before", "after", "recovered"]) {
+                if (failure !== "evidence" || step !== "recovered") {
+                  stages[prefix][`${prefix}_kv_${key}_${step}`] = 200;
+                }
+              }
+            }
+          }
+        }
+        return { ok: true, stages: { ...stages[prefix] } };
+      },
+      assert_external_state: async ({ service }) => {
+        const prefix = prefixes[service];
+        return { ok: true, manifest: { outcome: "passed", stages: { ...stages[prefix], [`${prefix}_cleanup`]: 200 } } };
+      },
+    });
+    const task = runDeployAndJobsKvRetrySmoke(callTool, RUN_ID, { sleepImpl: async () => {} });
+    if (failure) {
+      await assert.rejects(task, /kv_|job_kv_retry_evidence_missing/);
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    } else {
+      assert.deepEqual((await task).scenarios, Object.keys(prefixes));
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 3);
+      for (const prefix of Object.values(prefixes)) {
+        assert.equal(calls.filter(c => c.args.job === `${prefix}_kv_prepare`).length, 1);
+        assert.equal(stages[prefix][`${prefix}_verify_duplicate`], 200);
+      }
+    }
+    assert.equal(calls.filter(c => c.name === "deploy_e2e").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(Object.values(prefixes).map(prefix => ({
+      run_id: RUN_ID, phase: "start", tool: "trigger_job", target: `${prefix}_kv_prepare`,
     })), RUN_ID).sort(), Object.keys(prefixes).sort());
   });
 }

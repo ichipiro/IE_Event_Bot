@@ -1,6 +1,8 @@
 """空の専用Notion DBで通常cleanup HTTP・共有KVを段階検証する。"""
 
 import json
+
+from e2e_job_kv_retry import FaultKV, verified as kv_retry_verified
 import math
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -118,11 +120,11 @@ async def _verify(env, store, owner):
                  "cleanup_normal_page_verification_failed")
     if completed not in ("prepare", "fail", "list_fail"):
         _require(await store.get_text("cleanup:last_epoch") == owner.get("epoch")
-                 and len(owner["writes"].get("cleanup:last_epoch", [])) == 1,
+                 and len(owner["writes"].get("cleanup:last_epoch", [])) == (2 if owner.get("kv_retry") else 1),
                  "cleanup_normal_epoch_rewritten")
         result = await store.get_last_result("job_cleanup")
         _require((result or {}).get("payload") == _detail(completed), "cleanup_normal_result_failed")
-        _require(len(owner["writes"].get("result:job_cleanup", [])) == ((1 if completed == "execute" else 2) + (1 if owner.get("retry") or owner.get("list_retry") else 0)),
+        _require(len(owner["writes"].get("result:job_cleanup", [])) == ((1 if completed == "execute" else 2) + (1 if owner.get("retry") or owner.get("list_retry") or owner.get("kv_retry") else 0)),
                  "cleanup_normal_result_write_count_failed")
     if completed in ("fail", "list_fail"):
         _require(await store.get_text("cleanup:last_epoch") is None
@@ -183,13 +185,17 @@ async def _job(env, store, owner, phase, request):
     owner["stage"] = "working"
     await _save(store, owner)
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/cleanup", method="POST", headers=request.headers)
-    job_env = _JobEnv(env, _OwnedKV(store, owner))
+    kv = _OwnedKV(store, owner)
+    fault_kv = FaultKV(kv, owner, "cleanup_normal", KEYS) if owner.get("kv_retry") and phase == "execute" else None
+    job_env = _JobEnv(env, fault_kv or kv)
     calls = install_failure(job_env, owner, "cleanup_normal") if phase == "fail" else []
     if phase.startswith("list_fail"):
         calls = install_list_failure(job_env, owner, "cleanup_normal", phase)
     await _save(store, owner)
     response = await Application(job_env).fetch(job_request)
     detail = json.loads(await response.text())
+    if fault_kv is not None:
+        fault_kv.check()
     if phase.startswith("list_fail"):
         check_list_failure(owner, "cleanup_normal", phase, response.status, detail, calls)
         return
@@ -231,6 +237,7 @@ async def cleanup(env, store, run_id):
         "version": 1, "kind": "notion_cleanup_job", "normal": True, "dirty": False,
         "last_run_id": run_id, "outcome": "passed" if owner["completed"] == "duplicate"
         and owner["stages"].get("cleanup_normal_verify_duplicate") == 200
+        and kv_retry_verified(owner, "cleanup_normal")
         and list_retry_verified(owner, "cleanup_normal")
         and (not owner.get("retry") or owner["stages"].get("cleanup_normal_verify_fail") == 200) else "failed_clean",
         "stages": owner["stages"], "resource_fingerprints": fingerprints,
@@ -240,8 +247,12 @@ async def cleanup(env, store, run_id):
 
 
 async def run(env, store, run_id, phase, request):
-    if phase == "prepare":
+    if phase in ("prepare", "kv_prepare"):
         owner = await _prepare(env, store, run_id)
+        if phase == "kv_prepare":
+            owner["kv_retry"] = True
+            owner["stages"]["cleanup_normal_kv_prepare"] = 200
+            await _save(store, owner)
     else:
         owner = await store.get_e2e_manifest(SERVICE)
         _require(owner and owner.get("normal") and owner.get("dirty") is True

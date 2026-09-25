@@ -1,6 +1,8 @@
 """専用Guildの全件取得・通常リマインドHTTP・共有KVを段階検証する。"""
 
 import json
+
+from e2e_job_kv_retry import FaultKV, verified as kv_retry_verified
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -132,7 +134,7 @@ async def _verify(env, store, owner):
         detail = (result or {}).get("payload", {})
         _require(detail.get("ok") is (completed != "fail") and detail.get("mode") == "native"
                  and detail.get("failed_count") == (1 if completed == "fail" else 0), "reminder_normal_result_failed")
-        _require(len(owner["writes"].get("reminder_cache", [])) == (2 if owner.get("retry") and completed != "fail" else 1),
+        _require(len(owner["writes"].get("reminder_cache", [])) == (2 if owner.get("kv_retry") or owner.get("retry") and completed != "fail" else 1),
                  "reminder_normal_cache_rewritten")
     if completed == "fail":
         _require(detail == owner["failure_detail"], "reminder_normal_failure_result_mismatch")
@@ -211,11 +213,15 @@ async def _job(env, store, owner, phase, request):
     owner["stage"] = "working"
     await _save(store, owner)
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/reminder", method="POST", headers=request.headers)
-    job_env = _JobEnv(env, _OwnedKV(store, owner))
+    kv = _OwnedKV(store, owner)
+    fault_kv = FaultKV(kv, owner, "reminder_normal", KEYS) if owner.get("kv_retry") and phase == "notify" else None
+    job_env = _JobEnv(env, fault_kv or kv)
     calls = install_failure(job_env, owner, "reminder_normal") if phase == "fail" else []
     await _save(store, owner)
     response = await Application(job_env).fetch(job_request)
     detail = json.loads(await response.text())
+    if fault_kv is not None:
+        fault_kv.check()
     if phase == "fail":
         check_failure(owner, "reminder_normal", response.status, detail, calls)
         failed = detail.get("failed_event_ids", [])
@@ -268,6 +274,7 @@ async def cleanup(env, store, run_id):
         "version": 1, "kind": "day_before_reminder", "normal": True, "dirty": False,
         "last_run_id": run_id, "outcome": "passed" if owner["completed"] == "duplicate"
         and owner["stages"].get("reminder_normal_verify_duplicate") == 200
+        and kv_retry_verified(owner, "reminder_normal")
         and (not owner.get("retry") or owner["stages"].get("reminder_normal_verify_fail") == 200) else "failed_clean",
         "stages": owner["stages"], "resource_fingerprints": _targets(env),
     }
@@ -276,8 +283,12 @@ async def cleanup(env, store, run_id):
 
 
 async def run(env, store, run_id, phase, request):
-    if phase == "prepare":
+    if phase in ("prepare", "kv_prepare"):
         owner = await _prepare(env, store, run_id)
+        if phase == "kv_prepare":
+            owner["kv_retry"] = True
+            owner["stages"]["reminder_normal_kv_prepare"] = 200
+            await _save(store, owner)
     else:
         owner = await store.get_e2e_manifest(SERVICE)
         _require(owner and owner.get("normal") and owner.get("dirty") is True

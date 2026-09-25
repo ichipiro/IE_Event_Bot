@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 from workers import fetch as _runtime_fetch
+from state import JobStateWriteError
 
 
 _DISCORD_GET_ATTEMPTS = 4
@@ -349,7 +350,10 @@ async def _run_qa_notification_pages(
                 new_cache.pop(page_id, None)
 
     if state.enabled():
-        await state.put_json_if_changed("qa_cache", new_cache)
+        try:
+            await state.put_json_if_changed("qa_cache", new_cache)
+        except JobStateWriteError as exc:
+            return {"ok": False, "error": str(exc)} if return_detail else False
     if return_detail:
         return {
             "ok": not had_error,
@@ -516,7 +520,10 @@ async def _run_reminder_events(
             failed_event_ids.append(event_id)
 
     if cache_changed and state.enabled():
-        await state.put_json_if_changed("reminder_cache", cache)
+        try:
+            await state.put_json_if_changed("reminder_cache", cache)
+        except JobStateWriteError as exc:
+            return {"ok": False, "error": str(exc)} if return_detail else False
     if return_detail:
         return {
             "ok": not had_error,
@@ -665,7 +672,10 @@ async def _run_auto_clean_pages(
 
     # 失敗したページを次回のinterval guardで抑止しない。
     if not had_error and state.enabled():
-        await state.put_text("cleanup:last_epoch", str(now_utc.timestamp()))
+        try:
+            await state.put_text("cleanup:last_epoch", str(now_utc.timestamp()))
+        except JobStateWriteError as exc:
+            return {"ok": False, "error": str(exc)} if return_detail else False
 
     if return_detail:
         return {

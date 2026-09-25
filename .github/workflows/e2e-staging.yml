@@ -38,6 +38,7 @@ on:
           - deploy-and-google-notion-smoke
           - deploy-and-qa-notification-smoke
           - deploy-and-jobs-list-retry-smoke
+          - deploy-and-jobs-kv-retry-smoke
           - deploy-and-jobs-retry-smoke
           - deploy-and-qa-normal-smoke
           - deploy-and-reminder-normal-smoke
@@ -259,6 +260,7 @@ jobs:
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||
           inputs.mode == 'deploy-and-jobs-list-retry-smoke' ||
+          inputs.mode == 'deploy-and-jobs-kv-retry-smoke' ||
           inputs.mode == 'deploy-and-jobs-retry-smoke' ||
           inputs.mode == 'deploy-and-qa-normal-smoke' ||
           inputs.mode == 'deploy-and-reminder-normal-smoke' ||
@@ -305,6 +307,7 @@ jobs:
           inputs.mode == 'deploy-and-google-notion-smoke' ||
           inputs.mode == 'deploy-and-qa-notification-smoke' ||
           inputs.mode == 'deploy-and-jobs-list-retry-smoke' ||
+          inputs.mode == 'deploy-and-jobs-kv-retry-smoke' ||
           inputs.mode == 'deploy-and-jobs-retry-smoke' ||
           inputs.mode == 'deploy-and-qa-normal-smoke' ||
           inputs.mode == 'deploy-and-reminder-normal-smoke' ||

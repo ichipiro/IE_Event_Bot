@@ -65,6 +65,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-notion-smoke",
   "deploy-and-qa-notification-smoke",
   "deploy-and-jobs-list-retry-smoke",
+  "deploy-and-jobs-kv-retry-smoke",
   "deploy-and-jobs-retry-smoke",
   "deploy-and-qa-normal-smoke",
   "deploy-and-reminder-normal-smoke",
@@ -879,6 +880,28 @@ export async function runDeployAndJobsListRetrySmoke(callTool, runId, options = 
 }
 
 
+export async function runDeployAndJobsKvRetrySmoke(callTool, runId, options = {}) {
+  await runDeployAndQaNormalSmoke(callTool, runId, { ...options, kvRetry: true });
+  await runDeployAndReminderNormalSmoke(callTool, runId, { ...options, kvRetry: true, deployed: true });
+  await runDeployAndNotionCleanupNormalSmoke(callTool, runId, { ...options, kvRetry: true, deployed: true });
+  return { ok: true, scenarios: ["qa_notification", "reminder", "notion_cleanup"] };
+}
+
+
+function requireKvRetryEvidence(assertion, prefix, options) {
+  if (!options.kvRetry) {
+    return;
+  }
+  for (const key of ["cache", "result"]) {
+    for (const step of ["before", "after", "recovered"]) {
+      if (assertion.manifest?.stages?.[`${prefix}_kv_${key}_${step}`] !== 200) {
+        throw new E2eWorkflowError("job_kv_retry_evidence_missing");
+      }
+    }
+  }
+}
+
+
 export async function runDeployAndJobsRetrySmoke(callTool, runId, options = {}) {
   await runDeployAndQaNormalSmoke(callTool, runId, { ...options, retry: true });
   await runDeployAndReminderNormalSmoke(callTool, runId, { ...options, retry: true, deployed: true });
@@ -903,7 +926,7 @@ export async function runDeployAndQaNormalSmoke(callTool, runId, options = {}) {
         await pause(65_000);
       }
       const operation = await requireTool(callTool, "trigger_job", {
-        run_id: runId, job: `qa_normal_${phase}`,
+        run_id: runId, job: `qa_normal_${options.kvRetry && phase === "prepare" ? "kv_prepare" : phase}`,
       });
       if (operation.stages?.[`qa_normal_${phase}`] !== 200) {
         throw new E2eWorkflowError("qa_normal_stage_missing");
@@ -936,6 +959,7 @@ export async function runDeployAndQaNormalSmoke(callTool, runId, options = {}) {
   if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.qa_normal_cleanup !== 200) {
     throw new E2eWorkflowError("qa_normal_evidence_missing");
   }
+  requireKvRetryEvidence(assertion, "qa_normal", options);
   if (options.retry && (assertion.manifest?.stages?.qa_normal_failed_http !== 500 ||
       assertion.manifest?.stages?.qa_normal_verify_fail !== 200)) {
     throw new E2eWorkflowError("job_retry_evidence_missing");
@@ -963,7 +987,7 @@ export async function runDeployAndReminderNormalSmoke(callTool, runId, options =
   try {
     for (const phase of (options.retry ? ["prepare", "fail", "notify", "duplicate"] : ["prepare", "notify", "duplicate"])) {
       const operation = await requireTool(callTool, "trigger_job", {
-        run_id: runId, job: `reminder_normal_${phase}`,
+        run_id: runId, job: `reminder_normal_${options.kvRetry && phase === "prepare" ? "kv_prepare" : phase}`,
       });
       if (operation.stages?.[`reminder_normal_${phase}`] !== 200) {
         throw new E2eWorkflowError("reminder_normal_stage_missing");
@@ -996,6 +1020,7 @@ export async function runDeployAndReminderNormalSmoke(callTool, runId, options =
   if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.reminder_normal_cleanup !== 200) {
     throw new E2eWorkflowError("reminder_normal_evidence_missing");
   }
+  requireKvRetryEvidence(assertion, "reminder_normal", options);
   if (options.retry && (assertion.manifest?.stages?.reminder_normal_failed_http !== 500 ||
       assertion.manifest?.stages?.reminder_normal_verify_fail !== 200)) {
     throw new E2eWorkflowError("job_retry_evidence_missing");
@@ -1016,7 +1041,7 @@ export async function runDeployAndNotionCleanupNormalSmoke(callTool, runId, opti
   try {
     for (const phase of (options.listRetry ? ["prepare", "list_fail", "execute", "duplicate"] : options.retry ? ["prepare", "fail", "execute", "duplicate"] : ["prepare", "execute", "duplicate"])) {
       const operation = await requireTool(callTool, "trigger_job", {
-        run_id: runId, job: `cleanup_normal_${phase}`,
+        run_id: runId, job: `cleanup_normal_${options.kvRetry && phase === "prepare" ? "kv_prepare" : phase}`,
       });
       if (operation.stages?.[`cleanup_normal_${phase}`] !== 200) {
         throw new E2eWorkflowError("cleanup_normal_stage_missing");
@@ -1049,6 +1074,7 @@ export async function runDeployAndNotionCleanupNormalSmoke(callTool, runId, opti
   if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.cleanup_normal_cleanup !== 200) {
     throw new E2eWorkflowError("cleanup_normal_evidence_missing");
   }
+  requireKvRetryEvidence(assertion, "cleanup_normal", options);
   if (options.retry && (assertion.manifest?.stages?.cleanup_normal_failed_http !== 500 ||
       assertion.manifest?.stages?.cleanup_normal_verify_fail !== 200)) {
     throw new E2eWorkflowError("job_retry_evidence_missing");
@@ -1297,7 +1323,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "google_notion",
           ].includes(entry.target)) ||
         (entry.tool === "trigger_job" &&
-          ["cleanup_normal_list_fail", "cleanup_normal_fail", "cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_fail", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_check", "reminder", "cleanup", "qa_normal_list_fail_first", "qa_normal_list_fail", "qa_normal_fail", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
+          ["cleanup_normal_list_fail", "cleanup_normal_fail", "cleanup_normal_kv_prepare", "cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_fail", "reminder_normal_kv_prepare", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_check", "reminder", "cleanup", "qa_normal_list_fail_first", "qa_normal_list_fail", "qa_normal_fail", "qa_normal_kv_prepare", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
         (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch") ||
         (entry.tool === "trigger_webhook_delivery" &&
           entry.target === "webhook_delivery") ||
@@ -1309,11 +1335,13 @@ export function touchedServicesFromAudit(entries, runId) {
         qa_check: "qa_notification",
         cleanup_normal_list_fail: "notion_cleanup",
         cleanup_normal_fail: "notion_cleanup",
+        cleanup_normal_kv_prepare: "notion_cleanup",
         cleanup_normal_prepare: "notion_cleanup",
         cleanup_normal_execute: "notion_cleanup",
         cleanup_normal_duplicate: "notion_cleanup",
         cleanup_normal_verify: "notion_cleanup",
         reminder_normal_fail: "reminder",
+        reminder_normal_kv_prepare: "reminder",
         reminder_normal_prepare: "reminder",
         reminder_normal_notify: "reminder",
         reminder_normal_duplicate: "reminder",
@@ -1321,6 +1349,7 @@ export function touchedServicesFromAudit(entries, runId) {
         qa_normal_list_fail_first: "qa_notification",
         qa_normal_list_fail: "qa_notification",
         qa_normal_fail: "qa_notification",
+        qa_normal_kv_prepare: "qa_notification",
         qa_normal_prepare: "qa_notification",
         qa_normal_first: "qa_notification",
         qa_normal_update: "qa_notification",
@@ -1568,6 +1597,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-jobs-list-retry-smoke") {
       await runDeployAndJobsListRetrySmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-jobs-kv-retry-smoke") {
+      await runDeployAndJobsKvRetrySmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-jobs-retry-smoke") {

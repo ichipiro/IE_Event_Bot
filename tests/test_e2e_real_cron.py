@@ -49,7 +49,7 @@ def test_external_job_flags_fail_closed(monkeypatch, flag):
     handler.env.STATE_KV.put.assert_not_called()
 
 
-@pytest.mark.parametrize("change", ["expired", "before_start", "future", "wrong_cron", "wrong_version", "bad_run", "long_window", "off_minute"])
+@pytest.mark.parametrize("change", ["expired", "before_start", "future", "wrong_cron", "wrong_version", "bad_run", "long_window"])
 def test_outside_scope_does_not_write(monkeypatch, change):
     handler, controller = worker(monkeypatch)
     if change == "expired":
@@ -66,10 +66,16 @@ def test_outside_scope_does_not_write(monkeypatch, change):
         handler.env.E2E_CRON_RUN_ID = "../../other"
     elif change == "long_window":
         handler.env.E2E_CRON_DEADLINE_MS = str(START + 1_200_001)
-    else:
-        controller.scheduledTime += 1
     asyncio.run(handler.scheduled(controller, handler.env, None))
     handler.env.STATE_KV.put.assert_not_called()
+
+
+def test_scheduled_time_does_not_require_minute_boundary(monkeypatch):
+    handler, controller = worker(monkeypatch)
+    controller.scheduledTime += 50
+    asyncio.run(handler.scheduled(controller, handler.env, None))
+    receipt = json.loads(handler.env.STATE_KV.put.call_args.args[1])
+    assert receipt["scheduled_time_ms"] == START + 60_050
 
 
 def test_http_cannot_trigger_or_read_receipts(monkeypatch):

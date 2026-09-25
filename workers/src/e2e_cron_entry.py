@@ -30,7 +30,6 @@ class Default(WorkerEntrypoint):
         now = int(time.time() * 1000)
         if (not 0 < deadline - start <= 1_200_000
                 or not start <= scheduled <= now < deadline
-                or scheduled % 60_000 != 0
                 or str(controller.cron) != "* * * * *"):
             return
         metadata = self.env.CF_VERSION_METADATA

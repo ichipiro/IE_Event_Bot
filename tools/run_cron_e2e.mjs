@@ -30,7 +30,7 @@ export function validateReceipt(value, report, key) {
     && value.version_id === report.version_id && value.commit === report.commit
     && value.source === "scheduled" && value.cron === CRON
     && value.normal_dispatch_completed === true && value.job_count === 0
-    && Number.isSafeInteger(value.scheduled_time_ms) && value.scheduled_time_ms % 60_000 === 0
+    && Number.isSafeInteger(value.scheduled_time_ms)
     && Number.isSafeInteger(value.observed_time_ms)
     && report.start_ms <= value.scheduled_time_ms
     && value.scheduled_time_ms <= value.observed_time_ms && value.observed_time_ms < report.deadline_ms
@@ -58,6 +58,8 @@ export function redactCronEvent(event, worker) {
     import_error: /ImportError|ModuleNotFoundError/,
   };
   return { timestamp: Number.isFinite(event.timestamp) ? event.timestamp : null,
+    scheduled_time_ms: Number.isFinite(runtime.event?.scheduledTime) ? runtime.event.scheduledTime : null,
+    cron_matches: runtime.event?.cron === CRON,
     event_type: ["scheduled", "fetch", "rpc"].includes(runtime.eventType) ? runtime.eventType : "unknown",
     outcome: ["ok", "exception", "exceededCpu", "exceededMemory", "canceled"].includes(runtime.outcome) ? runtime.outcome : "unknown",
     error_present: Boolean(metadata.error),

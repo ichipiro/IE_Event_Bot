@@ -143,10 +143,12 @@ test("forged HTTP receipt, version, time and run mismatch are rejected", () => {
 
 test("diagnostics retain only known classifications and refuse foreign logs", () => {
   const event = { timestamp: START, $metadata: { service: "owned", error: "AttributeError: dict has no attribute scheduledTime PRIVATE" },
-    $workers: { eventType: "scheduled", outcome: "exception" }, source: "arbitrary log" };
+    $workers: { eventType: "scheduled", outcome: "exception", event: { scheduledTime: START + 16_000, cron: "* * * * *" } }, source: "arbitrary log" };
   const result = redactCronEvent(event, "owned");
   assert.equal(result.event_type, "scheduled");
   assert.equal(result.outcome, "exception");
+  assert.equal(result.scheduled_time_ms, START + 16_000);
+  assert.equal(result.cron_matches, true);
   assert.ok(result.categories.includes("controller_dict"));
   assert.ok(!JSON.stringify(result).includes("PRIVATE"));
   assert.ok(!JSON.stringify(result).includes("arbitrary"));

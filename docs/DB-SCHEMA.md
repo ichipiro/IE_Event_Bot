@@ -2,6 +2,8 @@
 
 ## 概要
 
+E2Eの通常KV検証では `e2e:discord_state:<run_id>:<scope_id>:discord:snapshot` と同prefixの `sync:discord_notion_queue` だけを使用する。scopeは準備時に生成する32桁hex、run IDと所有event ID一覧・対象fingerprintはDOの `e2e:manifest:discord_state` に保持する。DOはdirtyな所有権の差し替えとclean後の同run再利用を拒否する。回収後はrun IDとfingerprint、結果だけを残す。通常のKVキーと既存Discord差分checkpointは変更しない。
+
 このシステムは、単一のリレーショナルデータベースを持たない。イベントの業務データは Notion、同期状態は Workers KV、競合しやすい小さな状態は Durable Object に保存する。
 
 `workers/wrangler.jsonc` に Cloudflare D1 の `d1_databases` はない。`new_sqlite_classes` は `SyncCoordinator` Durable Object のマイグレーションであり、D1 スキーマではない。
@@ -57,17 +59,21 @@ Durable Object がない場合、`gcal_msg:<channel_id>:<message_number>` を KV
 
 KV の JSON は安定した文字列表現で保存し、同じ内容の不要な再書き込みを避ける。KV は最終的整合性であり、厳密な一意制約や複数キーのトランザクションを提供する前提ではない。
 
+`sync:discord_notion_queue` の各要素は `id` と `op`（`upsert` / `delete` / `notify`）を持つ。新規イベントの通知が未完了なら `notification: {channel_id, message_id?}` を付加する。`message_id` は投稿結果を取得した後だけ記録し、リアクションの再試行に使う。同期未完了は `upsert`、同期成功後の通知未完了は `notify` として保存する。完了後はqueueから取り除く。通知なしの従来の `upsert` / `delete` 要素も読み込めるが、旧queueに失われた通知の要否は復元できない。旧実装は `notify` を理解しないため、保留通知がある状態での旧版への切戻しは再同期・通知消失の可能性がある。
+
 旧E2E実装の `e2e:google_calendar_crud`、`e2e:discord_crud`、`e2e:notion_crud` がKVに残っている場合、新しいE2E probeは外部操作前に停止する。値を応答へ出さず、既存資源のcleanup状態を人が確認して旧キーを処理するまで自動移行しない。
 
 ## Durable Object
 
 `SYNC_COORDINATOR` の名前付きインスタンス `global` を使用する。
 
+通常Webhookの通知キューは同じbindingの別インスタンス `gcal-webhook` に置く。キー `gcal_webhook_queue` は通知識別子のSHA-256をキーとした最大128件のJSONで、channel、message number、resource、stateを保持する。Webhook tokenは保持しない。Alarm予約後に通知を保存し、両方の完了を確認してから受信HTTPへ成功を返す。共有Webhook E2Eは `e2e:gcal-webhook:<run_id>` を使い、run・stepも保持する。所有run以外の通知がある場合は回収を拒否し、所有通知とAlarmの回収を完了条件に含める。
+
 | ストレージキー | 値 | 用途 |
 | --- | --- | --- |
 | `lock` | 所有者と期限の JSON | 同期の排他 |
 | `sync:last_epoch` | 最終時刻の JSON | クールダウン |
-| `gcal_msg:<channel_id>:<message_number>` | 期限と任意のE2E所有run IDのJSON | Google Webhook 重複抑止 |
+| `gcal_msg:<channel_id>:<message_number>` | 期限、処理中のclaim所有者、任意のE2E所有run IDのJSON | 処理中leaseと成功済み通知を区別する。成功後はclaimを除去し、従来の期限形式と互換を保つ |
 | `e2e:manifest:google` | E2E cleanup manifest の JSON | Google fixture の所有権と復旧 |
 | `e2e:manifest:discord` | E2E cleanup manifest の JSON | Discord fixture の所有権と復旧 |
 | `e2e:manifest:notion` | E2E cleanup manifest の JSON | Notion fixture の所有権と復旧 |
@@ -93,6 +99,10 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 - 削除は、Google の `cancelled`、Discord の消失、Notion のアーカイブとして各サービス固有の表現へ変換する。
 - キューに残った項目は未処理または再試行対象であり、完了データとして扱わない。
 
+## 通常Google同期E2Eの状態
+
+通常Google同期E2Eの `google_sync` はDOの `e2e:manifest:google_sync` にrun・scope・対象fingerprint、2件の固定Google ID・作成着手・発見済みの下流ID、生成fixture、段階、cursor期待値、KV hashを保持する。KVは `e2e:google_sync:<run_id>:<scope_id>:` 配下の `sync:updated_min`、`map:gcal_notion`、`map:gcal_discord`、`sync:google_apply_queue`、`sync:last_epoch`、`result:sync_all` の6キーだけを許可する。通常StateStoreの形式を保持し、通常キーへの書込みと認証cacheを隔離する。DOはrun・対象・固定IDの差替え、着手済みflagの巻戻し、検証前のadvance、clean後の同run再実行を拒否する。clean後はfixture・実ID・cursor・状態hashを削除し、対象fingerprintと結果を保持する。`e2e:google-sync-control` は既存クラスの別名で、binding・migrationの追加はない。
+
 ## スキーマ変更の手順
 
 1. 読み取り元と書き込み先の全モジュールを確認する。
@@ -100,3 +110,23 @@ Durable Object は高頻度かつ整合性が必要な状態に限定し、イ�
 3. `workers/wrangler.jsonc` のバインディングまたはマイグレーション要否を確認する。
 4. `README.md`、この文書、必要なら詳細 KV 文書を更新する。
 5. 静的検査に加え、許可された検証環境で作成・更新・削除・再試行を確認する。
+
+`discord_kv` manifestは外部Discord event・Notion pageのIDとrun・scope・対象fingerprintを保持する。ID確定後の差し替えとscope変更はDOで拒否する。通常StateStoreは `e2e:discord_kv:<run_id>:<scope_id>:` の固定2キーへ書き込み、DOへsnapshot / queueを複製しない。外部回収後のKV削除が失敗した場合もdirtyと所有情報を保持する。
+
+`discord_batch` manifestは固定2組のrun marker・外部ID・初期内容fingerprint・回収完了フラグを所有する。確定済みID・scopeの変更と回収完了の巻戻しをDOで拒否する。snapshot / queueは `e2e:discord_batch:<run_id>:<scope_id>:` の固定2キーだけに保存し、DOには複製しない。外部資源ごとに回収完了を記録し、全外部資源とKVの回収後にIDを除いた集約fingerprintへ置き換える。
+
+`discord_batch_google` は別のDO manifestと `e2e:discord_batch_google:<run_id>:<scope_id>:` の固定2KVキーを使う。対象fingerprintにCalendarを加え、各fixtureへrun由来の `google_event_id`、Google作成着手、Google回収完了を保存する。通常の `discord_batch` とは所有manifest・KV prefixを共有しない。tokenやsnapshot / queueをDO所有manifestへ保存しない。
+
+
+`discord_batch_notification` は `e2e:manifest:discord_batch_notification` と `e2e:discord_batch_notification:<run_id>:<scope_id>:` の固定2KVキーを使う。対象fingerprintへchannelとroleを追加する。各fixtureは `create_attempted.message`、`message_content_sha256`、取得後の `message_id`、`reaction_deferred`、`reaction_done`、`message_cleanup_done` を保持する。DOは取得済みID・本文hash・通知先の差し替えと完了フラグの巻戻しを拒否し、未回収messageがあるclean化を拒否する。KV adapterは所有event ID・通知先hash・DO記録済みmessage IDだけを受け入れる。snapshot / queueをDOへ複製せず、clean後はmessage IDもfixture fingerprintへまとめる。
+
+
+`sync_lock` はDOの `e2e:manifest:sync_lock` にrun・scope・接続対象fingerprint・段階・6 roundの結果hashを保持する。KVは `e2e:sync_lock:<run_id>:<scope_id>:<round>:` 配下の `result:sync_discord_notion`、`result:sync_all`、`sync:last_epoch` だけを許可する。DOは所有情報と既存hashの差し替え、段階の巻戻し、clean後の同run再利用を拒否する。回収時は6×3キーを列挙なしで削除し、clean後はhash一覧とscope実値を取り除く。`e2e:sync-lock-control` という別名の既存 `SyncCoordinator` オブジェクトはE2E制御ロックだけを保持し、終了時に所有ownerを指定して解放する。binding・migrationの追加はない。
+
+
+`sync_faults` はDOの `e2e:manifest:sync_faults` にrun・scope・対象fingerprint・段階・8ケースの証拠hashを保持する。KVは `e2e:sync_faults:<run_id>:<scope_id>:<case>:` 配下で `discord:snapshot`、`sync:discord_notion_queue`、`result:sync_discord_notion`、`result:sync_all`、`sync:last_epoch`、`evidence` の6キーだけを許可する。証拠には固定の適用回数・注入回数・残件回復結果・状態hashを保存する。DOは所有者・既存hashの変更とclean後の同run再利用を拒否する。1ケースの着手を `fault_testing`、確定を `fault_partial`（途中）または `fault_prepared`（全8件完了）に記録し、hashは固定順に1件ずつだけ追加できる。途中失敗した `fault_testing` からの再実行は拒否する。cleanupは8×6候補を列挙せず削除し、clean後はscope実値とhash一覧を除く。制御DO `e2e:sync-fault-control` は既存クラスの別名オブジェクトであり、binding・migrationを増やさない。
+
+
+通常Discord snapshotの値は従来どおりevent IDからJSON文字列への辞書である。残件のある指紋JSONだけに `_pending_sync: {op, id, notification?}` を追加し、queueと同じ未処理操作を保持する。`notification` は通知先と投稿済みmessage IDを含む。削除待ちでは対象IDの記録を保持し、成功後に除く。DOへ通常queue本体を移さず、KVとDOの役割と既存bindingは維持する。E2Eの各KV adapterとdelta checkpointは、指紋内の残件についても許可ID・操作・通知先を検査する。
+
+Google E2Eの新規manifestは `retry_enabled=true` を保持し、途中での変更を拒否する。検証済みdeletedの後にretry_pending・retriedを通した場合だけpassedを許可する。旧manifestは4段階の回収条件を維持する。追加のbinding・KVキーはない。

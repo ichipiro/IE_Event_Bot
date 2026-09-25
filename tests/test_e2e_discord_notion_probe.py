@@ -78,11 +78,13 @@ def install_api_stub(
     discord_delete_statuses: list[int] | None = None,
     notion_archive_statuses: list[int] | None = None,
     hide_canceled_events: bool = False,
+    multiple: bool = False,
 ):
     discord_events: dict[str, dict] = {}
     notion_pages: dict[str, dict] = {}
     calls: list[tuple[str, str]] = []
     control = {
+        "event_count": 0, "page_count": 0,
         "lose_discord_create_response": lose_discord_create_response,
         "lose_notion_create_response": lose_notion_create_response,
         "hide_notion_query_results": hide_notion_query_results,
@@ -104,14 +106,16 @@ def install_api_stub(
 
             collection = f"/guilds/{GUILD_ID}/scheduled-events"
             if path == collection and method == "POST":
+                control["event_count"] += 1
+                event_id = f"discord-event-{control['event_count']}" if multiple else DISCORD_EVENT_ID
                 event = {
                     **json.loads(json.dumps(payload)),
-                    "id": DISCORD_EVENT_ID,
+                    "id": event_id,
                     "guild_id": GUILD_ID,
                     "creator_id": "creator-id",
                     "status": 1,
                 }
-                discord_events[DISCORD_EVENT_ID] = event
+                discord_events[event_id] = event
                 if control["lose_discord_create_response"]:
                     control["lose_discord_create_response"] = False
                     raise RuntimeError("response lost after create")
@@ -176,26 +180,28 @@ def install_api_stub(
                     status=200,
                 )
             if method == "POST" and path == "/pages":
+                control["page_count"] += 1
+                page_id = f"33333333-3333-4333-8333-{control['page_count']:012d}" if multiple else PAGE_ID
                 page = {
                     "object": "page",
-                    "id": PAGE_ID,
+                    "id": page_id,
                     "parent": {"type": "database_id", "database_id": EVENT_DATABASE_ID},
                     "archived": False,
                     "properties": json.loads(json.dumps(payload.get("properties") or {})),
                 }
-                notion_pages[PAGE_ID] = page
+                notion_pages[page_id] = page
                 if control["lose_notion_create_response"]:
                     control["lose_notion_create_response"] = False
                     raise RuntimeError("response lost after create")
                 return Response(json.dumps(page), status=200)
-            if path == f"/pages/{PAGE_ID}" and method == "GET":
-                page = notion_pages.get(PAGE_ID)
+            if path.startswith("/pages/") and method == "GET":
+                page = notion_pages.get(path.rsplit("/", 1)[-1])
                 return Response(
                     "" if page is None else json.dumps(page),
                     status=404 if page is None else 200,
                 )
-            if path == f"/pages/{PAGE_ID}" and method == "PATCH":
-                page = notion_pages.get(PAGE_ID)
+            if path.startswith("/pages/") and method == "PATCH":
+                page = notion_pages.get(path.rsplit("/", 1)[-1])
                 if page is None:
                     return Response("", status=404)
                 if payload.get("archived") is True:

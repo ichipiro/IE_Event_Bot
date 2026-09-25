@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from workers import fetch as _runtime_fetch
 
+from discord_retry_state import merge_retry_ops, snapshot_with_pending, split_snapshot
 from google_auth import get_google_access_token
 
 _DISCORD_GET_ATTEMPTS = 4
@@ -323,7 +324,7 @@ async def _discord_add_reaction(env, channel_id: str, message_id: str, emoji: st
     return result is not None or int(status or 0) == 204
 
 
-async def _notion_query_by_message_id(env, db_id: str, message_id: str):
+async def _notion_query_by_message_id(env, db_id: str, message_id: str, *, strict: bool = False):
     """
     Notion DB からメッセージID一致のページを1件取得する。
     一致がなければ None。
@@ -350,8 +351,12 @@ async def _notion_query_by_message_id(env, db_id: str, message_id: str):
     )
     # 成功時は200 OK
     if int(response.status) != 200:
+        if strict:
+            raise RuntimeError("notion_query_failed")
         return None
     data = json.loads(await response.text() or "{}")
+    if strict and (not isinstance(data, dict) or not isinstance(data.get("results"), list)):
+        raise RuntimeError("notion_query_invalid")
     results = data.get("results") or []
     return results[0] if results else None
 
@@ -550,11 +555,21 @@ def _build_event_created_message(env, event: dict) -> str | None:
     return "\n".join(lines)
 
 
-async def _notify_discord_event_created(env, event: dict) -> bool:
+async def _notify_discord_event_created(
+    env, event: dict, *, delivery: dict | None = None,
+    send_message=None, add_reaction=None,
+) -> bool:
     """新規作成された Discord イベントを通知チャンネルへ投稿する。"""
     channel_id = _env_text(env, "EVENT_CREATE_CHANNEL_ID", "")
     if not channel_id:
         return False
+    if delivery is not None and delivery.get("channel_id") != channel_id:
+        # 設定変更後に保留中の通知を別チャンネルへ転送しない。
+        return False
+    message_id = str((delivery or {}).get("message_id") or "")
+    react = add_reaction or _discord_add_reaction
+    if message_id:
+        return await react(env, channel_id, message_id, "✅")
     role_id = _env_text(env, "EVENT_CREATE_ROLE_ID", "")
     message = _build_event_created_message(env, event)
     if not message:
@@ -566,7 +581,8 @@ async def _notify_discord_event_created(env, event: dict) -> bool:
             "roles": [role_id],
             "replied_user": False,
         }
-    message_id = await _discord_send_message(
+    send = send_message or _discord_send_message
+    message_id = await send(
         env,
         channel_id,
         message,
@@ -574,8 +590,11 @@ async def _notify_discord_event_created(env, event: dict) -> bool:
     )
     if not message_id:
         return False
+    if delivery is not None:
+        # 投稿成功・リアクション失敗を次回の再投稿にしない。
+        delivery["message_id"] = message_id
     # 参加表明用の✅リアクションを付与する
-    return await _discord_add_reaction(env, channel_id, message_id, "✅")
+    return await react(env, channel_id, message_id, "✅")
 
 
 def _google_sync_enabled(env) -> bool:
@@ -688,6 +707,10 @@ async def _sync_discord_event_upsert(
     google_token: str | None,
     *,
     expected_internal_page_id: str | None = None,
+    require_new_internal_page: bool = False,
+    new_google_event_id: str | None = None,
+    before_google_create=None,
+    before_internal_create=None,
 ) -> bool:
     """
     Discordの単一イベントを Notion/Google に同期する。
@@ -697,6 +720,10 @@ async def _sync_discord_event_upsert(
     3) Google 同期（有効時）: 既存IDがあれば更新、なければ作成
     4) Notion 内部/外部ページへ反映
     """
+    if new_google_event_id is not None and (
+        not require_new_internal_page or not _google_sync_enabled(env) or not google_token
+    ):
+        return False
     # 時刻/基本情報の正規化
     event_id = str((event or {}).get("id") or "")
     if not event_id:
@@ -718,7 +745,14 @@ async def _sync_discord_event_upsert(
     external_db = _env_text(env, "NOTION_EVENT_ID", "")
     prop_google_id = _prop(env, "NOTION_PROP_GOOGLE_EVENT_ID", "GoogleイベントID")
 
-    internal_page = await _notion_query_by_message_id(env, internal_db, event_id) if internal_db else None
+    if require_new_internal_page:
+        if not internal_db or external_db:
+            return False
+        internal_page = await _notion_query_by_message_id(env, internal_db, event_id, strict=True)
+        if internal_page is not None:
+            return False
+    else:
+        internal_page = await _notion_query_by_message_id(env, internal_db, event_id) if internal_db else None
     external_page = await _notion_query_by_message_id(env, external_db, event_id) if external_db else None
     # 所有済みpage限定の更新では、検索失敗を新規作成へ切り替えない。
     if expected_internal_page_id is not None and (
@@ -742,9 +776,13 @@ async def _sync_discord_event_upsert(
             if not google_ok:
                 return False
         else:
+            if new_google_event_id is not None:
+                google_payload["id"] = new_google_event_id
+            if before_google_create is not None:
+                await before_google_create()
             created_google = await _google_create_event(env, google_token, google_payload)
             new_google_id = str((created_google or {}).get("id") or "")
-            if not new_google_id:
+            if not new_google_id or (new_google_event_id is not None and new_google_id != new_google_event_id):
                 return False
             google_event_id = new_google_id
 
@@ -766,6 +804,8 @@ async def _sync_discord_event_upsert(
             if not ok:
                 return False
         else:
+            if before_internal_create is not None:
+                await before_internal_create()
             created_id = await _notion_create_event(
                 env,
                 internal_db,
@@ -848,7 +888,10 @@ async def _sync_discord_event_delete(
     return True
 
 
-async def run_discord_notion_poll_sync(env, state):
+async def run_discord_notion_poll_sync(
+    env, state, *, event_selector=None, upsert_runner=None, delete_runner=None,
+    notify_runner=None,
+):
     """
     定期ポーリングのメイン処理。
     手順:
@@ -872,11 +915,18 @@ async def run_discord_notion_poll_sync(env, state):
             "errors": [error],
         }
 
-    return await _apply_discord_event_diff(env, state, events)
+    # E2Eでは一覧取得後・状態読込み前に所有範囲を検証する。
+    if event_selector is not None:
+        events = await event_selector(events)
+    return await _apply_discord_event_diff(
+        env, state, events, upsert_runner=upsert_runner, delete_runner=delete_runner,
+        notify_runner=notify_runner,
+    )
 
 
 async def _apply_discord_event_diff(
     env, state, events: list[dict], *, upsert_runner=None, delete_runner=None,
+    notify_runner=None,
 ):
     """取得済みイベントの差分判定・適用とsnapshot / queue更新を行う。"""
     current_snapshot = {} # フィンガープリント
@@ -893,6 +943,8 @@ async def _apply_discord_event_diff(
     previous_snapshot = await state.get_discord_snapshot() if state.enabled() else {}
     if not isinstance(previous_snapshot, dict):
         previous_snapshot = {}
+
+    previous_snapshot, snapshot_ops = split_snapshot(previous_snapshot)
 
     had_error = False
     errors = []
@@ -930,16 +982,22 @@ async def _apply_discord_event_diff(
         if isinstance(raw_queue, list):
             queued_ops = raw_queue
 
+    queued_ops = merge_retry_ops(snapshot_ops, queued_ops)
+
     # 変更対象IDを重複なくまとめる
     merged_ids = []
     seen_ids = set()
+    queued_by_id = {}
     # まず残りキューから探す
     for op in queued_ops:
+        if not isinstance(op, dict):
+            continue
         event_id = str((op or {}).get("id") or "").strip()
         if not event_id or event_id in seen_ids:
             continue
         seen_ids.add(event_id)
         merged_ids.append(event_id)
+        queued_by_id[event_id] = op
     # 登録された全イベントIDから探す
     for event_id in created_ids + updated_ids + deleted_ids:
         if event_id in seen_ids:
@@ -948,10 +1006,38 @@ async def _apply_discord_event_diff(
         merged_ids.append(event_id)
 
     merged_ops = []
+    changed_ids = set(created_ids + updated_ids)
+    channel_id = _env_text(env, "EVENT_CREATE_CHANNEL_ID", "")
     # スナップショットを見て各イベントを作成/更新するか削除するか決める
     for event_id in merged_ids:
         op_type = "upsert" if event_id in current_snapshot else "delete"
-        merged_ops.append({"op": op_type, "id": event_id})
+        queued = queued_by_id.get(event_id, {})
+        if (op_type == "delete" and queued.get("op") == "notify"
+                and not _should_treat_missing_event_as_delete(previous_snapshot.get(event_id))):
+            # 完了イベントは一覧から消えても同期先を削除せず、保留通知だけを破棄する。
+            continue
+        op = {"op": op_type, "id": event_id}
+        if op_type == "upsert":
+            notification = queued.get("notification")
+            if notification is None and event_id in created_ids and channel_id:
+                notification = {"channel_id": channel_id}
+            if notification is not None:
+                if (not isinstance(notification, dict)
+                        or not isinstance(notification.get("channel_id"), str)
+                        or not notification["channel_id"].strip()
+                        or ("message_id" in notification and (
+                            not isinstance(notification["message_id"], str)
+                            or not notification["message_id"].strip()))):
+                    raise RuntimeError("discord_notification_state_invalid")
+                op["notification"] = dict(notification)
+            if queued.get("op") == "notify":
+                if notification is None:
+                    raise RuntimeError("discord_notification_state_invalid")
+                # 通知だけの再試行では成功済みの外部同期を繰り返さない。
+                # その間にイベントが変わった場合は更新を先に反映する。
+                if event_id not in changed_ids:
+                    op["op"] = "notify"
+        merged_ops.append(op)
 
     # 変更対象イベントを今回処理する分と残りに分ける
     target_ops = merged_ops[:max_changes]
@@ -967,22 +1053,24 @@ async def _apply_discord_event_diff(
             continue
         processed_count += 1
         # 作成/更新
-        if op_type == "upsert":
+        if op_type in ("upsert", "notify"):
             event = current_events.get(event_id)
             if not event:
                 retry_ops.append({"op": "delete", "id": event_id})
                 continue
             apply = upsert_runner or _sync_discord_event_upsert
-            ok = await apply(env, event, google_token)
+            ok = op_type == "notify" or await apply(env, event, google_token)
             if not ok:
                 had_error = True
                 errors.append(f"upsert_failed:{event_id}")
-                retry_ops.append({"op": "upsert", "id": event_id})
-            elif event_id in created_ids:
-                notified = await _notify_discord_event_created(env, event)
-                if not notified and _env_text(env, "EVENT_CREATE_CHANNEL_ID", ""):
+                retry_ops.append(op)
+            elif "notification" in op:
+                notify = notify_runner or _notify_discord_event_created
+                notified = await notify(env, event, delivery=op["notification"])
+                if not notified:
                     had_error = True
                     errors.append(f"create_notify_failed:{event_id}")
+                    retry_ops.append({**op, "op": "notify"})
         # 削除
         else:
             delete = delete_runner or _sync_discord_event_delete
@@ -995,9 +1083,11 @@ async def _apply_discord_event_diff(
     pending_changes = len(retry_ops) + len(remaining_ops)
 
     if state.enabled():
-        # 次回差分計算の基準を更新する。
-        await state.set_discord_snapshot(current_snapshot)
+        # queue保存に失敗したときは旧snapshotから差分を再検出できるようにする。
         await state.put_json_if_changed(queue_key, retry_ops + remaining_ops)
+        await state.set_discord_snapshot(
+            snapshot_with_pending(current_snapshot, previous_snapshot, retry_ops + remaining_ops)
+        )
 
     return {
         "ok": not had_error,

@@ -71,12 +71,26 @@ StateStore
 6. 成功時にカーソルと最終同期時刻を更新する。
 7. 実行結果を `result:*` へ保存し、最後にロックを解放する。
 
+### Discord単独同期
+
+`/sync/discord-notion` とDiscord単独Cronは、全体同期と同じ `SYNC_COORDINATOR` のglobalロックを取得し、差分適用と結果保存を終えてから解放する。手動HTTPは競合時に `409 sync_in_progress`、ロック取得エラー時に `503 sync_lock_unavailable` を返す。Cronも同期を開始せずエラー結果を返し、実行中の最終結果を上書きしない。明示的なロック無効化とDO binding欠落時の既存動作は維持する。
+
+通常の差分処理は、失敗・上限超過の操作を `sync:discord_notion_queue` に保存してから `discord:snapshot` を進める。queue保存が失敗した場合は旧snapshotから差分を再検出でき、snapshot保存が失敗した場合は保存済みqueueから再試行できる。外部反映後の保存失敗では成功済み操作が再実行され得る。
+
+作成通知が有効な新規イベントは、通知先をqueueの `notification` に保持する。上限超過や同期失敗で繰り越しても、同期成功後に通知する。通知だけが失敗した場合は `op=notify` として保存し、イベントに新しい変更がなければGoogle・Notionを再適用しない。投稿済みのmessage IDがあれば、そのメッセージへの✅リアクションだけを再試行する。通知操作も通常の処理件数上限に含める。イベントが一覧から消えた場合は既存の削除処理へ切り替え、保留通知を送らない。通知待ちの完了イベントが一覧から消えた場合は、同期先を削除せず保留通知だけを取り除く。
+
+通知先チャンネルの変更・無効化時は、保留通知を別チャンネルへ転送せず失敗として保持する。元の設定を復元すれば再試行できる。投稿結果を取得できない場合やKVの保存失敗・古い値の参照では重複投稿があり得るため、一度だけの配信は保証しない。
+
+これは複数キーの原子的更新や厳密な一度限りの適用を保証しない。[Workers KVの結果整合性](https://developers.cloudflare.com/kv/concepts/how-kv-works/)による古い値の参照、既存のロックTTLを超える処理の競合は残る。
+
 ### Google Webhook
 
 1. `/gcal/webhook` で通知を受け、`X-Goog-Channel-Token` を検証する。
-2. `X-Goog-Channel-ID` と `X-Goog-Message-Number` を使って重複を判定する。
-3. 未処理なら全体同期を実行する。
-4. 正常時は本文なしの `204` を返す。
+2. `SYNC_COORDINATOR` の `gcal-webhook` インスタンスへ通知とAlarm予約を保存してから `204` を返す。保存失敗・キュー満杯は `503` とする。token値は保存しない。
+3. Alarmが通常Webhook handlerを呼ぶ。`global` の通知単位の短期leaseで処理中を区別し、同期成功後だけ処理済みにする。
+4. 同期中・クールダウン・失敗時は通知を保持してAlarmを再予約する。成功した通知だけ永続キューから除去する。
+
+通知キューは最大128件、失敗時の通常再試行は60秒後。送信元のHTTP接続終了に依存せず継続する。[CloudflareのAlarm仕様](https://developers.cloudflare.com/durable-objects/api/alarms/)は少なくとも一度の実行であり、外部API反映とDO保存の間の応答喪失を含め、厳密に一度だけの外部書込みは保証しない。DOなしの旧構成は従来の同期HTTP処理とKV重複記録を維持し、通知の永続キューと強整合leaseは利用できない。
 
 ### Cron
 
@@ -100,7 +114,48 @@ StateStore
 - 管理診断は `/admin/migration-status`、外部疎通を含む診断は `include_checks=1` で行う。
 - 外部 API の実行結果は、ローカルの Lint や型検査では保証できない。
 
+### ロック解放失敗の記録と復旧
+
+手動・Cron・Webhookの通常同期でロック解放に失敗すると、JSONログを1件出力する。
+Cloudflareの対象Workerのログで `sync_lock_release_failed` を検索する。
+`workers/wrangler.jsonc` は `observability.enabled: true` を設定済み。
+
+```json
+{"event":"sync_lock_release_failed","level":"error","stage":"rpc_call","error_type":"JsException"}
+```
+
+- `stage`: `get_stub`（接続取得）、`rpc_call`（解放RPC）、`decode_rpc`（応答解析）、`release_response`（成功応答でない）のいずれか。
+- `error_type`: 許可した例外名のみ。未分類は `other`、例外を伴わない失敗応答は `none`。
+- 例外本文、owner、トークン、応答本文は出力しない。`level` はJSON内の分類フィールドであり、ログ検索はイベント名を使う。
+
+同期本体の成功結果・失敗例外は維持するため、HTTP成功時にもこのログが出る場合がある。
+このログは解放の完了を確認できなかったことを示し、ロック残留そのものを確定しない。
+通常同期のglobalロックとGoogle同期E2Eの制御ロックは、失敗後に別接続で状態を確認する。
+自分のロックがなければ復旧成功とし、残っている場合だけ同じownerを指定して解放を再送する。
+確認と再送の間に所有者が交代しても、DO側のowner一致条件により別の処理のロックを消さない。
+
+- 初回の解放RPC、およびE2Eの初回状態確認は各2秒でタイムアウトする。
+- 復旧は0.1秒・0.2秒・0.4秒待機後の最大3回の状態確認と、最大2回の解放再送。各RPCも2秒でタイムアウトする。
+- 各確認で接続を取り直す。最後の確認は読取り専用とし、解放の応答喪失も判定する。解放RPCが成功を返しただけでは復旧成功としない。
+- 過負荷、または `retryable: false` が例外で明示された場合は再試行を打ち切る。
+- 復旧成功は `sync_lock_release_recovered`、復旧失敗は `sync_lock_release_recovery_failed` を記録する。`scope`、確認回数 `attempts`、解放再送回数 `release_attempts`、最終段階・例外種別を含む。
+
+通常同期は復旧に失敗しても本体の結果・例外を維持し、残留ロックは既存のTTLで失効する。
+E2Eは復旧成功なら元の段階の結果を返してclean管理記録の保存へ進む。
+復旧失敗なら従来どおり `google_sync_release_failed` と診断を返し、cleanとは記録しない。
+外部へのアラート通知は追加していない。
+実環境でのログ収集は、変更をデプロイした後に確認する。
+
+`deploy-and-watch-shared-smoke` は `e2e_lock_release_probe.py` でrun専用DOを使い、
+通常解放・E2E制御解放それぞれの「解放前の失敗」「解放後の応答喪失」「再試行上限」「所有者交代」を検証する。
+通常コードの呼出先を専用DOへ限定し、実際のRPC前後で固定例外を注入する。実際の回線障害を起こす検証ではない。
+別接続から所有者・解放結果を読み戻し、RPC回数と接続取得回数を照合する。
+各ケースの管理記録、run開始以降の固定分類ログ、probe用ロックの回収をworkflowで確認する。
+既存の通常watch・実Webhook→共有状態同期も続けて実行する。
+
 ## E2E 専用 Worker
+
+通常StateStoreの検証用 `discord_state` は、`E2E_STATE_SCOPE` 設定時だけ専用の保存・検証・回収routeを公開する。KV bindingをrun ID・一意なscope・snapshot / queueの固定キーへ制限し、読書きのたびにDO manifestの所有権を確認する。snapshot / queueは通常どおり別々のKV書込みであり、DOには所有メタデータだけを保存する。外部イベントの同期は行わず、通常経路と接続する前段の基盤として扱う。
 
 `workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
 
@@ -110,7 +165,7 @@ Google→Discord scenario は、専用 Calendar の event を読み戻して既�
 
 Discord→Notion scenario は、専用 Guild に一意な Scheduled Event を作成して読み戻し、既存の `_sync_discord_event_upsert` へ1件だけ渡し、専用 Notion 内部 DB の page を確認後に両方を cleanup する。Google 同期、外部 Notion DB、通常の Discord snapshot / queue、作成通知は使用しない。Discord event ID、Notion page ID、対象 fingerprint は `discord_notion` の Durable Object manifest で管理する。
 
-Discord差分 scenario は、通常の一覧取得後にrun所有event 1件だけを選び、通常同期と共通の `_apply_discord_event_diff` で作成・無変更・更新・キャンセル・削除を判定する。snapshot / queueは `discord_delta` manifest内へ1組のcheckpointとして保存し、差分処理のたびに読み直す。専用DO actionは所有run・対象fingerprint・event IDを検証し、直前revisionが一致する更新だけを受け付ける。通知先と共有state bindingを隠したenv viewを使う。外部のDiscord eventとNotion pageは同manifestで所有し、既存のDiscord→Notion fixture / cleanup処理を再利用する。dirty管理記録の更新ではcheckpointを保持し、cleanup成功時のclean置換で消去する。HTTPをまたぐ続行は準備完了と説明更新の反映・読戻し完了の2境界から行う。`/prepare` がrevision 1の `delta_prepared`、`/advance` がrevision 3の `delta_updated` を保存し、`/resume` が残りを実行する。各続行は所有資源を読み戻してDOで段階・revision一致時だけ `delta_resuming` を取得する。更新完了の保存でも取得したrevisionを照合し、前段階の遅延要求で次段階のclaimを解除しない。更新完了後の `advance` 再送では説明更新を繰り返さない。 手動workflowで更新後と完了後の再送を明示実行し、MCP応答の固定statusとdirty状態を判定する。監査とmanifestにも固定の `execution_status` だけを保持する。続行中断時はcleanup対象とし、成功後の再送は外部操作を行わない。キャンセル後の一覧に残るeventは更新、消えたeventは削除として扱う現行動作を保つ。明示削除後は個別GETの404と一覧消失を確認してから所有pageだけをarchiveし、cleanup前に結果を読み戻す。共有snapshot / queue、全Guildへの適用、実Cronは含まない。2026-09-11の[実サービス検証](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)では、prepare / resumeと自己cleanupまで成功した。追加の更新完了境界も[実行34588410907](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34588410907)で3リクエスト実行・自己cleanupまで成功した。明示再送は[実行34589842665](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34589842665)でupdated・already_completed応答とcleanupまで確認した。応答喪失・同時実行競合・オブジェクト再作成は実環境未検証で、実Worker再起動も未確認。専用入口は `/admin/e2e/discord-delta-sync` と同path配下の `/prepare`、`/advance`、`/resume`、`/cleanup` である。
+Discord差分 scenario は、通常の一覧取得後にrun所有event 1件だけを選び、通常同期と共通の `_apply_discord_event_diff` で作成・無変更・更新・キャンセル・削除を判定する。snapshot / queueは `discord_delta` manifest内へ1組のcheckpointとして保存し、差分処理のたびに読み直す。専用DO actionは所有run・対象fingerprint・event IDを検証し、直前revisionが一致する更新だけを受け付ける。通知先と共有state bindingを隠したenv viewを使う。外部のDiscord eventとNotion pageは同manifestで所有し、既存のDiscord→Notion fixture / cleanup処理を再利用する。dirty管理記録の更新ではcheckpointを保持し、cleanup成功時のclean置換で消去する。HTTPをまたぐ続行は準備完了と説明更新の反映・読戻し完了の2境界から行う。`/prepare` がrevision 1の `delta_prepared`、`/advance` がrevision 3の `delta_updated` を保存し、`/resume` が残りを実行する。各続行は所有資源を読み戻してDOで段階・revision一致時だけ `delta_resuming` を取得する。更新完了の保存でも取得したrevisionを照合し、前段階の遅延要求で次段階のclaimを解除しない。更新完了後の `advance` 再送では説明更新を繰り返さない。 手動workflowは更新完了後に専用Workerを再deployし、異なるversion IDのSHA-256を確認して後続要求のheaderへ付ける。同runの更新完了checkpointと他資源のclean状態が再deployの条件になる。tagだけでなくversion IDも外部操作前に照合する。DO bindingは変えず、DOプロセスの強制再起動は検証対象としない。手動workflowは最初のadvanceのHTTP 200受信後、MCP側で本文を未読のまま破棄する。結果不明の状態から別のstatus取得で更新完了checkpointを照合して再deployし、advanceを再送する。本文破棄は障害注入として監査へ記録し、回線断やWorker停止とは区別する。手動workflowでは同versionのresumeを2要求並行送信し、1件の通常完了と1件の入口同期ロック拒否だけを成功とする。両要求の終了を待ってから回収する。入口ロックによる拒否とDO claimのローカル競合検証を区別する。手動workflowで更新後と完了後の再送を明示実行し、MCP応答の固定statusとdirty状態を判定する。監査とmanifestにも固定の `execution_status` だけを保持する。続行中断時はcleanup対象とし、成功後の再送は外部操作を行わない。キャンセル後の一覧に残るeventは更新、消えたeventは削除として扱う現行動作を保つ。明示削除後は個別GETの404と一覧消失を確認してから所有pageだけをarchiveし、cleanup前に結果を読み戻す。共有snapshot / queue、全Guildへの適用、実Cronは含まない。2026-09-11の[実サービス検証](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34581609741)では、prepare / resumeと自己cleanupまで成功した。追加の更新完了境界も[実行34588410907](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34588410907)で3リクエスト実行・自己cleanupまで成功した。明示再送は[実行34589842665](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34589842665)でupdated・already_completed応答とcleanupまで確認した。更新完了後の再deployは[実行34593390627](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34593390627)で異なるversion IDへの続行とcleanupまで確認した。同時resumeは[実行34594293913](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34594293913)で通常完了1件・入口ロック拒否1件とcleanupまで確認した。MCP側の本文破棄は[実行34597932061](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/34597932061)で破棄記録・再deploy後のupdated応答・cleanupまで確認した。実際の回線断、DO claimそのものの競合、DOプロセスの強制再起動は実環境未検証。専用入口は `/admin/e2e/discord-delta-sync` と同path配下の `/prepare`、`/advance`、`/resume`、`/cleanup` である。
 
 Discord→Google scenario は、専用 Guild に一意な Scheduled Event を作成して読み戻し、既存の `_sync_discord_event_upsert` へ1件だけ渡し、専用 Calendar に作成された event の内容と private extended property を確認後に両方を cleanup する。通常設定の `DISCORD_TO_GOOGLE_SYNC_ENABLED=false` は維持し、この適用呼び出しだけを一時的な env view で有効化すると同時に内部・外部 Notion DB を隠す。通常の Discord snapshot / queue、作成通知、Notion は使用しない。Google 認証 token の取得・更新に伴う認証 cache は更新され得る。両 event ID と対象 fingerprint は `discord_google` の Durable Object manifest で管理する。
 
@@ -138,3 +193,29 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 - HTTP と Cron の実装: `workers/src/entry.py`
 - 機能一覧: `README.md`
 - 追跡対象外のローカル補助: `docs/REFERENCES.md` の分類を参照
+
+通常KVと外部fixtureの接続は専用 `discord_kv` シナリオで段階的に検証する。所有Discord event 1件を通常差分処理へ渡し、snapshot / queueはrun・scope別KVへ、外部資源のIDと所有メタデータはDOへ保存する。別HTTPで読戻し、外部資源・KVの回収後だけcleanとする。固定2件の `discord_batch` は上限1件で適用し、KVの残件を別HTTPで確認・消化する。通常ポーリング入口の一覧取得後、DOで所有する2件のID・run marker・初期内容を検証して差分処理へ渡す。Google同期・通知・通常Guild全件の適用は未接続。詳細は [TESTING.md](TESTING.md) を参照。
+
+通常ポーリングからGoogleも作成する `discord_batch_google` は、同じ2件の所有・KV残件処理を再利用する。各fixtureのGoogle固定IDとCalendar fingerprintをDOへ保存し、GoogleとNotionの作成直前に着手を記録する。Google作成が完了してからNotionへ対応IDを書き込み、別HTTPで両サービスを照合する。通常のGoogle同期設定は変えず、専用env viewで有効化する。
+
+
+`discord_batch_notification` は通常ポーリングの作成通知を所有2件へ接続する。通知runnerと送信・リアクション関数の差し替え口を使い、E2Eの投稿前後にDO所有記録と読戻しを行う。通常の呼出しではこれらを指定せず既存処理を使う。1件目は投稿後のリアクションをAPI呼出し前に1回だけ失敗させ、次のHTTPで同じmessageに再試行してから2件目へ進む。snapshot / queueはrun・scope別KV、message ID・投稿着手・回収完了はDOへ置く。専用route・MCP・手動workflowを接続済みで、検証手順と実サービス未検証の境界は [TESTING.md](TESTING.md) に記録する。
+
+
+### 通常同期ロックの専用E2E
+
+`e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。
+
+
+### 状態障害と期限切れの検査
+
+通常の単独同期・全体同期は、同期の段階間でDOのownerと期限を再確認し、失効・確認不能なら409 `sync_lock_lost` として後続の結果保存を止める。確認とKV書込みは原子的ではなく、同期本体内の状態保存や既に開始した外部処理の排他を保証しない。
+
+`e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
+
+`e2e_google_sync_probe.py` は通常 `_run_sync_dispatch` → `run_google_delta_fetch` → `apply_google_events` を接続する。取得後に所有2件へ限定し、通常StateStoreをrun別の6つのKVキーへ向ける。初回上限1件、残件消化・更新・削除は上限2件で、各段階の別HTTP読戻しを必須とする。共有状態の形式と共通同期ロックを使うが、通常Google認証cache・Notion外部DB・Discord通常ポーリングへは接続しない。
+
+
+通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。
+
+Google→Discordの作成・更新で同期が有効なのにIDを得られない場合は、失敗した予定を通常queueへ保存する。通常dispatchは500となりcursor・最終成功時刻を進めない。専用Google E2EはNotion更新後のDiscord失敗をcallbackで固定注入し、次のHTTPでは保存queueだけを同じIDへ適用して回復を確認する。

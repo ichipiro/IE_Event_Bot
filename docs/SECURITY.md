@@ -85,11 +85,13 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - Discord Scheduled Event の cleanup は Guild、event ID、run ID 入りの名前と説明 marker がすべて一致した場合だけ削除する。
 - deploy は Worker origin fingerprint を含む MCP 設定がすべて正常な場合だけ Wrangler を起動する。Wranglerへrun IDをversion tagとして固定指定し、同じtagを専用Workerのversion metadataから読み戻せるまで外部書き込みscenarioを開始しない。規定回数内に反映を確認できなければ、旧revisionでscenarioを実行せず失敗させる。
 - preflight は旧 KV manifest だけでなく、service / scenario の現行 Durable Object manifest が1件でも dirty なら失敗する。
-- `trigger_sync` は任意 URL を受け取らず、通常の `/sync/all` ではなく、所有資源限定の Google→Notion / Discord と Discord→Notion / Google route だけを固定列挙から呼ぶ。
+- `trigger_sync` は任意 URL を受け取らず、所有資源限定の Google→Notion / Discord と Discord→Notion / Google routeを固定列挙から呼ぶ。通常 `/sync/all` は下記の通常HTTP全体同期モードだけで、準備済み所有runに限定して呼ぶ。
 - `trigger_job` の `qa_check`、`reminder`、`cleanup` は通常の `/jobs/*` ではなく、所有資源限定の `/admin/e2e/qa-notification`、`/admin/e2e/reminder`、`/admin/e2e/notion-cleanup` を呼ぶ。run-all は通常 route のまま既定拒否を維持する。
-- 通常の同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation、初回実配信、変更起因実配信は、それぞれ専用フラグと route で分離する。
+- 下記の通常HTTP全体同期を除く通常同期、共有状態と全件適用を伴う通常Webhook同期、通常ジョブ route は下流資源と共有状態の cleanup 所有権が未実装であるため、E2E Worker では専用フラグを既定無効にし、preflight でも無効状態を確認する。所有資源限定の Webhook simulation、初回実配信、変更起因実配信は、それぞれ専用フラグと route で分離する。
 
 ## E2E GitHub Actions 境界
+
+`google_sync` は通常Google取得・適用を専用ルートから呼び、全Calendarの取得結果のうちrun由来の固定ID・markerが一致する2件だけを適用する。Notion外部DBと通常通知先を隠し、認証tokenはrequest内で使用する。DOへ外部作成着手を先に保存し、回収は同run・対象fingerprint・外部資源の所有確認を必須とする。Calendar削除後の最小tombstoneは固定IDと削除着手記録が一致する場合だけ扱う。MCPとartifactは既存の固定形式によるマスクを通す。通常HTTP同期と実Cronの有効化は行わない。
 
 - E2E workflow は手動起動だけを許可し、既定の `preflight` は read-only とする。
 - Secret を使う job は required reviewer 付きの `e2e` Environment を参照し、`GITHUB_TOKEN` は `contents: read` に限定する。
@@ -125,3 +127,10 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - API トークンの権限と有効期限
 - GitHub の Secret、Actions 権限、branch protection、ruleset
 - 実際の疎通と監査ログ
+
+
+通常同期ロックのE2Eは専用の認証付き `sync-lock` routeだけから実行する。同期本体を検査用runnerへ差し替えて外部サービスへの書込みを防ぎ、結果KVをDOで所有するrun・scope・固定キーへ限定する。globalロックを競合側やcleanupが強制解放することはない。所有情報・結果hashの改変、未回収資源、制御ロック解放の未確認があれば成功扱いしない。実Cronを有効化せず、固定例外は検査用本体のみに注入する。
+
+### 通常HTTP全体同期の所有境界
+
+`E2E_ALL_HTTP_ENABLED` の専用モードに限り、認証・run・version・DO所有manifestを確認して `/sync/all` を開く。準備は `/admin/e2e/google-sync/http`、進行は通常HTTP入口、読戻しと回収は既存Google同期routeを使う。通常名の共有KVへ書く前にdigestをDOへ保存し、初期の既存値、所有外の入力、回収時の未知の値を拒否する。通常同期runnerの差し替えは行わない。専用環境の空状態を前提に2件を往復し、作成資源と所有KVだけを回収する。通常のglobal DO最終成功時刻は実行履歴として残す。従来の隔離全体同期と、この共有状態を使うモードの証拠を区別する。

@@ -60,6 +60,15 @@
 		"E2E_DISCORD_GOOGLE_SYNC_ENABLED": "true",
 		"E2E_DISCORD_NOTION_SYNC_ENABLED": "true",
 		"E2E_DISCORD_DELTA_ENABLED": "true",
+		"E2E_DISCORD_KV_ENABLED": "true",
+		"E2E_DISCORD_BATCH_ENABLED": "true",
+		"E2E_DISCORD_BATCH_GOOGLE_ENABLED": "true",
+		"E2E_DISCORD_BATCH_NOTIFICATION_ENABLED": "true",
+		"E2E_SYNC_LOCK_ENABLED": "true",
+		"E2E_SYNC_FAULTS_ENABLED": "true",
+		"E2E_GOOGLE_SYNC_ENABLED": "true",
+		"E2E_ALL_HTTP_ENABLED": "true",
+		"E2E_WATCH_SHARED_ENABLED": "true",
 		"E2E_QA_NOTIFICATION_ENABLED": "true",
 		"E2E_REMINDER_ENABLED": "true",
 		"E2E_NOTION_CLEANUP_ENABLED": "true",
@@ -67,6 +76,7 @@
 		"E2E_GOOGLE_WEBHOOK_DELIVERY_ENABLED": "true",
 		"E2E_GOOGLE_WEBHOOK_CHANGE_ENABLED": "true",
 		"E2E_ORCHESTRATED_WRITES_ENABLED": "false",
+		"E2E_STATE_SCOPE": "ie-event-bot-e2e-discord-state-v1",
 		"SYNC_INTERVAL_SECONDS": "0",
 		"KV_SYNC_COOLDOWN_ENABLED": "false",
 		"KV_GCAL_DEDUPE_ENABLED": "true",
@@ -100,7 +110,7 @@
 		{
 			"binding": "STATE_KV",
 			// 個人 Cloudflare account に作成した E2E 専用 namespace。
-			"id": "e2df7a0838234dc6a9121f1999690c20",
+			"id": "119c6ebb96b0468cb7c25d96980b416e",
 			"remote": false
 		}
 	]

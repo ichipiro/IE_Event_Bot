@@ -20,6 +20,49 @@ import {
 
 
 const RUN_ID = "E2E-20260901T000000Z-1234abcd";
+
+test("通常Q&Aの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "first", "update", "fail", "list_fail_first", "list_fail", "notify", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `qa_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/qa-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
+test("通常リマインドの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "fail", "notify", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `reminder_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/reminder-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
+test("通常Notion cleanupの固定phaseへrunとrevisionを渡す", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
+  } }, async (client) => {
+    for (const phase of ["prepare", "fail", "list_fail", "execute", "duplicate", "verify"]) {
+      const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `cleanup_normal_${phase}` } });
+      assert.equal(parseToolResult(result).ok, true);
+      assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup-normal/${phase}`);
+      assert.equal(calls.at(-1).options.headers["X-E2E-Version-Tag"], RUN_ID);
+    }
+  });
+});
 const ENV = Object.freeze({
   E2E_WORKER_URL: "https://ie-event-bot-e2e.personal.workers.dev",
   E2E_WORKER_URL_SHA256: createHash("sha256")
@@ -49,6 +92,75 @@ const PLAYWRIGHT_ARGS = [
   "--timeout-navigation",
   "60000",
 ];
+
+for (const phase of ["prepare_full", "prepare_notion_query", "prepare_notion_create", "prepare_notion_writeback", "prepare_boundary", "prepare_matrix", "prepare_all", "advance", "resume", "cleanup", "inspect"]) {
+  test(`Google同期${phase}のHTTP待機時間はWorkerの上限を上回る`, async (t) => {
+    const budgets = new WeakMap();
+    t.mock.method(AbortSignal, "timeout", (milliseconds) => {
+      const signal = new AbortController().signal;
+      budgets.set(signal, milliseconds);
+      return signal;
+    });
+    let observedBudget;
+    await withClient({ env: ENV, auditImpl: async () => {},
+      fetchImpl: async (url, options) => {
+        observedBudget = budgets.get(options.signal);
+        return jsonResponse({ ok: true, dirty: phase !== "cleanup" && phase !== "inspect", run_id: RUN_ID,
+          status: phase === "inspect" ? "calendar_deleted" : "pending", stage: "google_pending_verified" });
+      },
+    }, async (client) => {
+      await client.callTool({ name: phase === "cleanup" ? "cleanup_run" : "trigger_sync",
+        arguments: phase === "cleanup" ? { run_id: RUN_ID, service: "google_sync", confirmation: `cleanup:google_sync:${RUN_ID}` }
+          : { run_id: RUN_ID, scenario: "google_sync", sync_phase: phase } });
+    });
+    assert.equal(observedBudget, phase === "inspect" ? 60_000 : 120_000);
+  });
+}
+
+test("Google matrixは専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_matrix",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_matrix",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/matrix"]);
+  assert.equal(audit[1].sync_phase, "prepare_matrix");
+  assert.equal(audit[1].execution_status, "prepared");
+});
+test("全体同期は専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_all",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_all",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/all"]);
+  assert.equal(audit[1].sync_phase, "prepare_all");
+  assert.equal(audit[1].execution_status, "prepared");
+});
 const PLAYWRIGHT_ALLOWED_TOOLS = [
   "browser_close",
   "browser_console_messages",
@@ -76,6 +188,116 @@ function jsonResponse(payload, status = 200) {
   });
 }
 
+for (const [scenario, verifiedStage, path] of [
+  ["discord_state", "state_verified", "/admin/e2e/discord-state"],
+  ["sync_lock", "lock_verified", "/admin/e2e/sync-lock"],
+  ["sync_faults", "fault_verified", "/admin/e2e/sync-faults"],
+  ["discord_kv", "kv_verified", "/admin/e2e/discord-kv"],
+]) {
+test(`${scenario}の保存と読戻しを別要求へ分け、同runだけを回収する`, async () => {
+  const calls = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, headers: options.headers });
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !String(url).endsWith("/cleanup"),
+        status: scenario === "sync_faults" ? "partial" : "prepared", stage: String(url).endsWith("/verify") ? verifiedStage : "state_prepared" });
+    },
+  }, async (client) => {
+    for (const syncPhase of (scenario === "sync_faults" ? ["prepare", "advance", "resume"] : ["prepare", "resume"])) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario, sync_phase: syncPhase,
+      } }));
+      assert.equal(result.ok, true, JSON.stringify(result));
+    }
+    const forbidden = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario, sync_phase: "advance", ...(scenario === "sync_faults" ? { version_sha256: "a".repeat(64) } : {}),
+    } }));
+    assert.equal(forbidden.error, "sync_phase_forbidden");
+    const cleanup = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: scenario, confirmation: `cleanup:${scenario}:${RUN_ID}`,
+    } }));
+    assert.equal(cleanup.ok, true);
+  });
+  assert.deepEqual(calls.map((call) => call.path), [
+    path, ...(scenario === "sync_faults" ? [`${path}/advance`] : []), `${path}/verify`, `${path}/cleanup`,
+  ]);
+  for (const call of calls.slice(0, -1)) {
+    assert.equal(call.headers["X-E2E-Run-ID"], RUN_ID);
+    assert.equal(call.headers["X-E2E-Version-Tag"], RUN_ID);
+  }
+  assert.equal(audit.filter((entry) => entry.phase === "finish").length, scenario === "sync_faults" ? 4 : 3);
+  if (scenario === "sync_faults") {
+    assert.ok(audit.some((entry) => entry.sync_phase === "advance" && entry.execution_status === "partial"));
+  }
+});
+
+for (const invalid of ["stage", "dirty", "run"]) {
+  test(`${scenario}の読戻し応答は${invalid}不一致を成功扱いしない`, async () => {
+    const payload = { ok: true, dirty: true, stage: verifiedStage, run_id: RUN_ID };
+    if (invalid === "stage") {
+      payload.stage = "state_prepared";
+    } else if (invalid === "dirty") {
+      payload.dirty = false;
+    } else {
+      payload.run_id = "E2E-20260901T000001Z-aaaaaaaa";
+    }
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse(payload) },
+      async (client) => {
+        const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+          run_id: RUN_ID, scenario, sync_phase: "resume",
+        } }));
+        assert.equal(result.ok, false);
+        assert.equal(result.error, invalid === "run" ? "worker_run_id_mismatch" : `${scenario}_not_ready`);
+      });
+  });
+}
+
+}
+
+
+test("2件シナリオの固定経路とdrained応答を監査する", async () => {
+  const calls = [], audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, headers: options.headers });
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !url.endsWith("/cleanup"),
+        status: url.endsWith("/advance") ? "drained" : "prepared", stage: "batch_pending_verified" });
+    },
+  }, async (client) => {
+    for (const phase of ["prepare", "resume", "advance"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      if (phase === "advance") assert.equal(result.execution_status, "drained");
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: "discord_batch", confirmation: `cleanup:discord_batch:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  assert.deepEqual(calls.map((c) => c.path), ["/admin/e2e/discord-batch", "/admin/e2e/discord-batch/verify",
+    "/admin/e2e/discord-batch/advance", "/admin/e2e/discord-batch/cleanup"]);
+  assert.ok(calls.slice(0, 3).every((c) => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+  assert.ok(audit.some((a) => a.sync_phase === "advance" && a.execution_status === "drained"));
+});
+
+
+for (const phase of ["prepare", "resume", "advance"]) {
+  test(`2件シナリオの${phase}は不正な完了応答を拒否する`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse({
+      ok: true, dirty: true, run_id: RUN_ID, status: "wrong", stage: "wrong",
+    }) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "discord_batch_not_ready");
+    });
+  });
+}
+
 
 function parseToolResult(result) {
   assert.equal(result.content.length, 1);
@@ -95,6 +317,99 @@ async function withClient(options, callback) {
     await client.close();
     await server.close();
   }
+}
+
+
+test("Google付き2件シナリオの固定経路とdrained応答を監査する", async () => {
+  const calls = [], audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, headers: options.headers });
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !url.endsWith("/cleanup"),
+        status: url.endsWith("/advance") ? "drained" : "prepared", stage: "batch_pending_verified" });
+    },
+  }, async (client) => {
+    for (const phase of ["prepare", "resume", "advance"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch_google", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      if (phase === "advance") { assert.equal(result.execution_status, "drained"); }
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: "discord_batch_google", confirmation: `cleanup:discord_batch_google:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  assert.deepEqual(calls.map((c) => c.path), ["/admin/e2e/discord-batch-google", "/admin/e2e/discord-batch-google/verify",
+    "/admin/e2e/discord-batch-google/advance", "/admin/e2e/discord-batch-google/cleanup"]);
+  assert.ok(calls.slice(0, 3).every((c) => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+  assert.ok(audit.some((a) => a.sync_phase === "advance" && a.execution_status === "drained"));
+});
+
+
+for (const phase of ["prepare", "resume", "advance"]) {
+  test(`Google付き2件シナリオの${phase}は不正な完了応答を拒否する`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse({
+      ok: true, dirty: true, run_id: RUN_ID, status: "wrong", stage: "wrong",
+    }) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch_google", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "discord_batch_google_not_ready");
+    });
+  });
+}
+
+
+
+
+test("通知シナリオはretry_drainedと中間読戻しを監査し所有対象を回収する", async () => {
+  const calls = [], audit = [];
+  let advances = 0;
+  const scenario = "discord_batch_notification";
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, headers: options.headers });
+      if (url.endsWith("/advance")) { advances += 1; }
+      return jsonResponse({ ok: true, run_id: RUN_ID, dirty: !url.endsWith("/cleanup"),
+        status: url.endsWith("/advance") ? (advances === 1 ? "retry_drained" : "drained") : "prepared",
+        stage: ["batch_pending_verified", "batch_retry_verified", "batch_verified"][advances] });
+    },
+  }, async (client) => {
+    for (const phase of ["prepare", "resume", "advance", "resume", "advance", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario, sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      if (phase === "advance") { assert.equal(result.execution_status, advances === 1 ? "retry_drained" : "drained"); }
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: scenario, confirmation: `cleanup:${scenario}:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  const root = "/admin/e2e/discord-batch-notification";
+  assert.deepEqual(calls.map((c) => c.path), [root, root + "/verify", root + "/advance",
+    root + "/verify", root + "/advance", root + "/verify", root + "/cleanup"]);
+  assert.ok(calls.slice(0, 6).every((c) => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+  assert.ok(audit.some((a) => a.sync_phase === "advance" && a.execution_status === "retry_drained"));
+});
+
+
+for (const phase of ["prepare", "resume", "advance"]) {
+  test(`通知シナリオの${phase}は不正な応答を成功にしない`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse({
+      ok: true, dirty: true, run_id: RUN_ID, status: "wrong", stage: "wrong",
+    }) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_batch_notification", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.error, "discord_batch_notification_not_ready");
+    });
+  });
 }
 
 
@@ -175,7 +490,7 @@ test("公開ツールを12件に固定して任意URLや資源IDを受け取ら�
     const allowedFields = new Set([
       "run_id",
       "service",
-      "scenario", "sync_phase",
+      "scenario", "sync_phase", "version_sha256", "previous_version_sha256", "response_mode",
       "job",
       "confirmation",
     ]);
@@ -466,13 +781,14 @@ test("Discord差分は副作用前のversion不一致だけを待機して再送
     fetchImpl: async (url, options) => {
       calls += 1;
       assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+      assert.equal(options.headers["X-E2E-Version-ID-SHA256"], "c".repeat(64));
       return calls === 1
         ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
         : jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
     },
   }, async (client) => {
     const result = parseToolResult(await client.callTool({ name: "trigger_sync",
-      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare" },
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare", version_sha256: "c".repeat(64) },
     }));
     assert.equal(result.ok, true);
     assert.equal(calls, 2);
@@ -507,9 +823,13 @@ test("再送の固定応答だけを監査ファイルとmanifestへ残す", asy
   // 実際のJSONL書込み・読戻しでも任意文字列を取り込まない。
   for (const execution_status of replies) {
     await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "discord_delta",
-      phase: "finish", ok: true, status: 200, execution_status });
+      phase: "finish", ok: true, status: 200, execution_status,
+      version_sha256: execution_status === "updated" ? "c".repeat(64) : "private_version",
+      previous_version_sha256: "private_previous_version" });
   }
   const saved = await readAuditEntries(runId);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.version_sha256), ["c".repeat(64), null, null]);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.previous_version_sha256), [null, null, null]);
   assert.deepEqual(saved.slice(-3).map((entry) => entry.execution_status),
     ["updated", "already_completed", null]);
 });
@@ -995,7 +1315,7 @@ test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す"
         ok: true,
         worker_version: {
           present: true,
-          id_sha256: "a".repeat(64),
+          id_sha256: "c".repeat(64),
           tag: RUN_ID,
           timestamp: "2026-09-01T00:00:01.000Z",
         },
@@ -1293,4 +1613,565 @@ test("固定版Playwright MCPがallowlist対象ツールを公開する", async 
   } finally {
     await client.close();
   }
+});
+
+function redeployStatus() {
+  return { ok: true, mode: "e2e", e2e_manifest_enabled: true,
+    orchestrated_writes_enabled: false,
+    worker_version: { present: true, tag: RUN_ID, id_sha256: "c".repeat(64) },
+    scenarios: { discord_delta: { present: true, dirty: true, run_id: RUN_ID, stage: "delta_updated" } } };
+}
+
+for (const invalid of ["stage", "run", "version", "missing_metadata", "writes_unknown", "other_dirty"]) {
+  test(`再deployは${invalid}のcheckpointを拒否する`, async () => {
+    const status = redeployStatus();
+    if (invalid === "stage") {
+      status.scenarios.discord_delta.stage = "delta_resuming";
+    } else if (invalid === "run") {
+      status.scenarios.discord_delta.run_id = "E2E-20260901T000000Z-abcdef01";
+    } else if (invalid === "version") {
+      status.worker_version.id_sha256 = "d".repeat(64);
+    } else if (invalid === "missing_metadata") {
+      status.worker_version.present = false;
+    } else if (invalid === "writes_unknown") {
+      delete status.orchestrated_writes_enabled;
+    } else {
+      status.services = { notion: { present: true, dirty: true } };
+    }
+    let deploys = 0;
+    await withClient({ env: ENV, auditImpl: async () => {},
+      fetchImpl: async () => jsonResponse(status),
+      deployImpl: async () => { deploys += 1; return { ok: true }; },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        previous_version_sha256: "c".repeat(64),
+      } }));
+      assert.equal(result.error, "redeploy_checkpoint_mismatch");
+      assert.equal(deploys, 0);
+    });
+  });
+}
+
+test("再deployは同tagの旧versionを待機し新versionの系譜を監査へ残す", async () => {
+  const audit = [];
+  let reads = 0;
+  const waits = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "e".repeat(40), dirty: false }),
+    deployImpl: async () => ({ ok: true, status: 0 }),
+    delayImpl: async (ms) => waits.push(ms),
+    fetchImpl: async () => {
+      const status = redeployStatus();
+      if (++reads >= 3) {
+        status.worker_version.id_sha256 = "d".repeat(64);
+      }
+      return jsonResponse(status);
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+      run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+      previous_version_sha256: "c".repeat(64),
+    } }));
+    assert.equal(result.ok, true);
+    assert.equal(result.verification_attempts, 2);
+    assert.equal(result.version_sha256, "d".repeat(64));
+    assert.equal(result.previous_version_sha256, "c".repeat(64));
+    assert.equal(waits.length, 1);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID } }));
+    const deploy = evidence.manifest.operations.find((op) => op.tool === "deploy_e2e");
+    assert.equal(deploy.version_sha256, "d".repeat(64));
+    assert.equal(deploy.previous_version_sha256, "c".repeat(64));
+  });
+});
+
+test("同時resumeのロック拒否を再送せず成功要求と別々に監査する", { timeout: 2000 }, async () => {
+  const blocked = Promise.withResolvers();
+  const audit = [];
+  let requests = 0;
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "e".repeat(40), dirty: false }),
+    delayImpl: async () => { assert.fail("ロック拒否は再試行しない"); },
+    fetchImpl: async (url, options) => {
+      if (options.method === "GET") {
+        return jsonResponse({ ok: true });
+      }
+      assert.equal(options.headers["X-E2E-Version-ID-SHA256"], "c".repeat(64));
+      if (++requests === 1) {
+        await blocked.promise;
+        return jsonResponse({ ok: true, run_id: RUN_ID, dirty: false });
+      }
+      blocked.resolve();
+      return jsonResponse({ ok: false, error: "e2e_lock_unavailable", lock_owner: "private_owner" }, 409);
+    },
+  }, async (client) => {
+    const results = await Promise.all([0, 1].map(() => client.callTool({ name: "trigger_sync",
+      arguments: { run_id: RUN_ID, scenario: "discord_delta", sync_phase: "resume", version_sha256: "c".repeat(64) },
+    })));
+    assert.deepEqual(results.map((result) => parseToolResult(result).status).sort(), [200, 409]);
+    assert.equal(requests, 2);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID } }));
+    assert.deepEqual(evidence.manifest.operations.map((op) => op.ok).sort(), [false, true]);
+    assert.equal(evidence.manifest.operations.find((op) => !op.ok).error, "e2e_lock_unavailable");
+    assert.equal(JSON.stringify(evidence).includes("private_owner"), false);
+    assert.deepEqual(audit.slice(0, 2).map((entry) => entry.phase), ["start", "start"]);
+  });
+});
+
+test("更新応答は本文を読まず破棄し監査へ固定flagを残す", async () => {
+  const audit = [];
+  let cancellations = 0;
+  let posts = 0;
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    readAuditImpl: async () => audit,
+    repositoryMetadataImpl: async () => ({ git_sha: "e".repeat(40), dirty: false }),
+    fetchImpl: async (url, options) => {
+      if (options.method === "GET") {
+        return jsonResponse({ ok: true });
+      }
+      posts += 1;
+      return { status: 200, body: { cancel: async () => { cancellations += 1; } },
+        text: async () => { assert.fail("破棄対象の本文を読んではならない"); } };
+    },
+  }, async (client) => {
+    const result = await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "advance", version_sha256: "c".repeat(64),
+      response_mode: "discard_after_headers",
+    } });
+    const payload = parseToolResult(result);
+    assert.equal(result.isError, true);
+    assert.equal(payload.error, "worker_response_discarded");
+    assert.equal(payload.response_discarded, true);
+    assert.equal(payload.dirty, null);
+    assert.equal(payload.execution_status, null);
+    assert.deepEqual(payload.stages, {});
+    assert.equal(posts, 1);
+    assert.equal(cancellations, 1);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: RUN_ID } }));
+    assert.equal(evidence.manifest.operations[0].response_discarded, true);
+    assert.equal(evidence.manifest.operations[0].ok, false);
+  });
+  for (const response_discarded of [true, "private_text", false]) {
+    await appendAuditEntry({ run_id: RUN_ID, tool: "trigger_sync", target: "discord_delta",
+      phase: "finish", ok: false, status: 200, response_discarded });
+  }
+  const saved = await readAuditEntries(RUN_ID);
+  assert.deepEqual(saved.slice(-3).map((entry) => entry.response_discarded), [true, false, false]);
+});
+
+for (const failure of ["missing_body", "cancel_failed", "http_error", "network"]) {
+  test(`応答破棄の${failure}を注入成功と偽らない`, async () => {
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => {
+      if (failure === "network") {
+        throw new Error("network");
+      }
+      if (failure === "http_error") {
+        return jsonResponse({ ok: false, error: "delta_resume_resource_mismatch" }, 409);
+      }
+      return { status: 200,
+        body: failure === "missing_body" ? null : { cancel: async () => { throw new Error("cancel"); } },
+        text: async () => { assert.fail("本文は読まない"); } };
+    } }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_delta", sync_phase: "advance", version_sha256: "c".repeat(64),
+        response_mode: "discard_after_headers",
+      } }));
+      assert.equal(result.ok, false);
+      assert.equal(result.response_discarded, false);
+      assert.notEqual(result.error, "worker_response_discarded");
+      if (failure === "http_error") {
+        assert.equal(result.error, "delta_resume_resource_mismatch");
+      }
+    });
+  });
+}
+
+test("応答破棄はversion指定付きのDiscord差分advanceだけに許可する", async () => {
+  await withClient({ env: ENV, auditImpl: async () => { assert.fail("禁止入力は監査前に拒否する"); },
+    fetchImpl: async () => { assert.fail("禁止入力で接続しない"); },
+  }, async (client) => {
+    for (const args of [{ scenario: "google_notion", sync_phase: "advance", version_sha256: "c".repeat(64) },
+      { scenario: "discord_delta", sync_phase: "prepare", version_sha256: "c".repeat(64) },
+      { scenario: "discord_delta", sync_phase: "resume", version_sha256: "c".repeat(64) },
+      { scenario: "discord_delta", sync_phase: "advance" }]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, ...args, response_mode: "discard_after_headers",
+      } }));
+      assert.equal(result.error, "response_mode_forbidden");
+    }
+  });
+});
+
+test("旧versionの拒否後も応答破棄指定を維持する", async () => {
+  let requests = 0;
+  let cancellations = 0;
+  await withClient({ env: ENV, auditImpl: async () => {}, delayImpl: async () => {},
+    fetchImpl: async () => ++requests === 1
+      ? jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409)
+      : { status: 200, body: { cancel: async () => { cancellations += 1; } },
+        text: async () => { assert.fail("本文は読まない"); } },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "advance", version_sha256: "c".repeat(64),
+      response_mode: "discard_after_headers",
+    } }));
+    assert.equal(result.response_discarded, true);
+    assert.equal(requests, 2);
+    assert.equal(cancellations, 1);
+  });
+});
+
+test("通常Google同期の各phaseとcleanupは固定ルートへ送る", async () => {
+  const calls = [];
+  await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async (url, options) => {
+    calls.push({ path: new URL(url).pathname, headers: options.headers });
+    return jsonResponse({ ok: true, dirty: !String(url).endsWith("cleanup"), run_id: RUN_ID,
+      status: "pending", stage: "google_pending_verified" });
+  } }, async (client) => {
+    for (const phase of ["prepare", "advance", "resume"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true, JSON.stringify(result));
+    }
+    const result = parseToolResult(await client.callTool({ name: "cleanup_run", arguments: {
+      run_id: RUN_ID, service: "google_sync", confirmation: `cleanup:google_sync:${RUN_ID}`,
+    } }));
+    assert.equal(result.ok, true);
+  });
+  assert.deepEqual(calls.map(c => c.path), ["", "/advance", "/verify", "/cleanup"].map(suffix => `/admin/e2e/google-sync${suffix}`));
+  assert.ok(calls.slice(0, 3).every(c => c.headers["X-E2E-Version-Tag"] === RUN_ID));
+});
+
+for (const invalid of ["stage", "dirty", "run"]) {
+  test(`通常Google同期MCPは${invalid}不一致を拒否する`, async () => {
+    const payload = { ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "google_pending_verified" };
+    if (invalid === "stage") { payload.stage = "ready"; }
+    if (invalid === "dirty") { payload.dirty = false; }
+    if (invalid === "run") { payload.run_id = RUN_ID.replace("1234abcd", "11111111"); }
+    await withClient({ env: ENV, auditImpl: async () => {}, fetchImpl: async () => jsonResponse(payload) }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: { run_id: RUN_ID, scenario: "google_sync", sync_phase: "resume" } }));
+      assert.equal(result.ok, false);
+    });
+  });
+}
+
+for (const status of ["pending", "deleted", "retry_pending", "retried"]) {
+  test(`通常Google同期の${status}を監査へ保持する`, async () => {
+    const audit = [];
+    await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+      fetchImpl: async () => jsonResponse({ ok: true, dirty: true, run_id: RUN_ID,
+        status, stage: `google_${status}_verified` }),
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "resume",
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.execution_status, status);
+    });
+    assert.equal(audit.find(entry => entry.phase === "finish").execution_status, status);
+  });
+}
+
+for (const [index, phase, name, code, expectedCode] of [
+  [0, "fetch", "TypeError", "UND_ERR_SOCKET", "UND_ERR_SOCKET"],
+  [1, "body", "TypeError", "ECONNRESET", "ECONNRESET"],
+  [2, "fetch", "TimeoutError", undefined, "other"],
+  [3, "fetch", "private-class", "private-code", "other"],
+]) {
+  test(`通信例外は${phase}/${expectedCode}の固定値だけを監査と成果物へ保存する: ${index}`, async () => {
+    const runId = `E2E-20260924T000000Z-abcde03${index}`;
+    const diagnostic = { phase, name: name === "private-class" ? "other" : name, code: expectedCode };
+    const failure = Object.assign(new Error("private-token private-url private-address"), {
+      name, cause: { code, message: "private-cause", address: "private-address" },
+    });
+    await withClient({ env: ENV,
+      repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+      fetchImpl: async url => {
+        if (new URL(url).pathname.endsWith("/status")) { return jsonResponse({ ok: true }); }
+        if (phase === "fetch") { throw failure; }
+        return { status: 200, text: async () => { throw failure; } };
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: runId, scenario: "google_sync", sync_phase: "resume",
+      } }));
+      assert.equal(result.status, phase === "fetch" ? 0 : 200);
+      assert.equal(result.error, phase === "fetch" ? "worker_request_failed" : "worker_response_read_failed");
+      assert.deepEqual(result.transport_diagnostic, diagnostic);
+      const saved = await readAuditEntries(runId);
+      assert.deepEqual(saved.at(-1).transport_diagnostic, diagnostic);
+      const evidence = parseToolResult(await client.callTool({ name: "collect_evidence", arguments: { run_id: runId } }));
+      assert.deepEqual(evidence.manifest.operations.at(-1).transport_diagnostic, diagnostic);
+      assert.equal(JSON.stringify([result, saved, evidence]).includes("private"), false);
+    });
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync", phase: "finish",
+      error: "worker_request_failed", transport_diagnostic: { phase: "private-phase", name, code } });
+    assert.equal(Object.hasOwn((await readAuditEntries(runId)).at(-1), "transport_diagnostic"), false);
+  });
+}
+
+test("Googleロック解放診断は応答からJSONLとmanifestまで固定値だけを保持する", async () => {
+  const runId = "E2E-20260924T000000Z-abcde024";
+  const diagnostic = { step: "status_rpc", exception: "type_error",
+    release_ok: true, status_ok: null, owner_matches: null, cause: "disconnected",
+    fresh_status_ok: true, fresh_owner_matches: false };
+  await withClient({ env: ENV,
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+    fetchImpl: async (url) => new URL(url).pathname.endsWith("/status")
+      ? jsonResponse({ ok: true })
+      : jsonResponse({ ok: false, dirty: true, error: "google_sync_release_failed",
+        release_diagnostic: { ...diagnostic, owner: "private-owner", message: "private-token" } }, 409),
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: runId, scenario: "google_sync", sync_phase: "advance",
+    } }));
+    assert.equal(result.status, 409);
+    assert.deepEqual(result.release_diagnostic, diagnostic);
+    const saved = await readAuditEntries(runId);
+    assert.deepEqual(saved.at(-1).release_diagnostic, diagnostic);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence",
+      arguments: { run_id: runId },
+    }));
+    assert.deepEqual(evidence.manifest.operations.at(-1).release_diagnostic, diagnostic);
+    assert.equal(JSON.stringify([result, saved, evidence]).includes("private"), false);
+  });
+  // 監査の直接入力にも同じ制限を適用する。
+  for (const step of ["owner_check", "private-step"]) {
+    await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync",
+      phase: "finish", ok: false, status: 409, error: "google_sync_release_failed",
+      release_diagnostic: { step, exception: "private-class", release_ok: "private-token",
+        status_ok: 1, owner_matches: "private-owner", message: "private-message",
+        cause: "private-cause", fresh_status_ok: "private-value", fresh_owner_matches: 1 } });
+  }
+  const saved = await readAuditEntries(runId);
+  assert.deepEqual(saved.at(-2).release_diagnostic, { step: "owner_check", exception: "other",
+    release_ok: null, status_ok: null, owner_matches: null, cause: "unknown",
+    fresh_status_ok: null, fresh_owner_matches: null });
+  assert.equal(Object.hasOwn(saved.at(-1), "release_diagnostic"), false);
+  assert.equal(JSON.stringify(saved).includes("private"), false);
+});
+
+test("全件prepareはGoogle専用routeと監査へ接続する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+    fetchImpl: async (url) => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async (client) => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_full",
+    } }));
+    assert.equal(result.ok, true);
+    for (const scenario of ["discord_delta", "sync_faults", "google_notion"]) {
+      const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario, sync_phase: "prepare_full",
+      } }));
+      assert.equal(refused.error, "sync_phase_forbidden");
+    }
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/full"]);
+  assert.equal(audit.length, 2);
+  assert.ok(audit.every(entry => entry.sync_phase === "prepare_full"));
+});
+
+for (const classification of ["calendar_empty", "calendar_active", "calendar_deleted", "calendar_mixed"]) {
+  test(`Calendar診断MCPは固定分類${classification}だけを監査する`, async () => {
+    const audit = [];
+    await withClient({ env: ENV, auditImpl: async (entry) => audit.push(entry),
+      fetchImpl: async (url) => {
+        assert.equal(new URL(url).pathname, "/admin/e2e/google-sync/inspect");
+        return jsonResponse({ ok: true, dirty: false, run_id: RUN_ID, status: classification, events: [{ summary: "private" }] });
+      },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "inspect",
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.execution_status, classification);
+      assert.equal(result.dirty, false);
+      assert.ok(!JSON.stringify(result).includes("private"));
+    });
+    assert.ok(audit.every(entry => entry.sync_phase === "inspect"));
+    assert.equal(audit[1].execution_status, classification);
+    assert.ok(!JSON.stringify(audit).includes("private"));
+  });
+}
+
+test("通常HTTP全体同期の固定入口と監査phase", async () => {
+  const paths = [], audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry), fetchImpl: async (url, options) => {
+    assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+    assert.equal(options.headers["X-E2E-Run-ID"], RUN_ID);
+    const path = new URL(url).pathname;
+    paths.push(path);
+    return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID,
+      status: path === "/sync/all" ? "drained" : "prepared", stage: "ready" });
+  } }, async client => {
+    for (const phase of ["prepare_http", "http_advance"]) {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: phase,
+      } }));
+      assert.equal(result.ok, true);
+      const rejected = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "discord_delta", sync_phase: phase,
+      } }));
+      assert.equal(rejected.error, "sync_phase_forbidden");
+    }
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/http", "/sync/all"]);
+  assert.deepEqual(audit.filter(e => e.phase === "finish").map(e => e.sync_phase), ["prepare_http", "http_advance"]);
+});
+
+for (const stage of ["working", "ready", "cleanup"]) {
+  test(`google回収の${stage}だけを所有する場合も旧revisionを待機する`, async () => {
+    let reads = 0;
+    const waits = [];
+    await withClient({ env: ENV, auditImpl: async () => {},
+      deployImpl: async () => ({ ok: true, status: 0 }),
+      delayImpl: async ms => waits.push(ms),
+      fetchImpl: async () => {
+        const status = redeployStatus();
+        status.scenarios = { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage } };
+        if (++reads >= 3) { status.worker_version.id_sha256 = "d".repeat(64); }
+        return jsonResponse(status);
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        previous_version_sha256: "c".repeat(64),
+      } }));
+      assert.equal(result.ok, true);
+      assert.equal(result.version_sha256, "d".repeat(64));
+      assert.equal(waits.length, 1);
+    });
+  });
+}
+
+for (const mode of ["transient", "persistent", "transport", "other", "wrong_status"]) {
+  test(`Google同期は書込み前のversion拒否だけ上限付き再送: ${mode}`, async () => {
+    let requests = 0;
+    const waits = [];
+    await withClient({ env: ENV, auditImpl: async () => {},
+      delayImpl: async (ms) => waits.push(ms),
+      fetchImpl: async (url, options) => {
+        requests += 1;
+        assert.equal(options.headers["X-E2E-Version-Tag"], RUN_ID);
+        if (mode === "transport") { throw new Error("private transport failure"); }
+        if (mode === "other") { return jsonResponse({ ok: false, error: "google_sync_failed" }, 409); }
+        if (mode === "wrong_status") { return jsonResponse({ ok: false, error: "worker_version_mismatch" }, 500); }
+        if (mode === "persistent" || requests === 1) {
+          return jsonResponse({ ok: false, error: "worker_version_mismatch" }, 409);
+        }
+        return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true, status: "prepared" });
+      },
+    }, async (client) => {
+      const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+        run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_webhook",
+      } }));
+      assert.equal(result.ok, mode === "transient");
+      assert.equal(requests, mode === "persistent" ? 20 : mode === "transient" ? 2 : 1);
+      assert.equal(waits.length, requests - 1);
+      assert.ok(waits.every(ms => ms === 3000));
+    });
+  });
+}
+
+test("Google boundaryは専用routeだけへ送りpreparedを監査する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "prepared", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_boundary",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_boundary",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/boundary"]);
+  assert.equal(audit[1].sync_phase, "prepare_boundary");
+  assert.equal(audit[1].execution_status, "prepared");
+});
+
+test("Notion照会復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_query",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_query",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-query"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_query");
+  assert.equal(audit[1].execution_status, "pending");
+});
+
+test("Notion作成復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_create",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_create",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-create"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_create");
+  assert.equal(audit[1].execution_status, "pending");
+});
+
+test("Notion書戻し復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_writeback",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_writeback",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-writeback"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_writeback");
+  assert.equal(audit[1].execution_status, "pending");
 });

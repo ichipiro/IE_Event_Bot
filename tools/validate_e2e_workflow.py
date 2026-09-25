@@ -85,6 +85,31 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "cancel-in-progress: false" in text, "concurrency_cancel_changed")
     _expect(errors, "environment: e2e" in text, "e2e_environment_missing")
     _expect(errors, "default: preflight" in text, "write_mode_became_default")
+    _expect(errors, text.count("deploy-and-discord-state-smoke") == 3, "discord_state_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-discord-kv-smoke") == 3, "discord_kv_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-discord-batch-smoke") == 3, "discord_batch_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-discord-batch-google-smoke") == 3, "discord_batch_google_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-sync-lock-smoke") == 3, "sync_lock_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-calendar-check") == 2, "google_calendar_check_contract_changed")
+    _expect(errors, text.count("deploy-and-watch-shared-smoke") == 5, "watch_shared_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-jobs-list-retry-smoke") == 3, "jobs_list_retry_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-jobs-kv-retry-smoke") == 3, "jobs_kv_retry_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-jobs-retry-smoke") == 3, "jobs_retry_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-qa-normal-smoke") == 3, "qa_normal_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-reminder-normal-smoke") == 3, "reminder_normal_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-notion-cleanup-normal-smoke") == 3, "cleanup_normal_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-all-http-smoke") == 3, "all_http_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-all-sync-smoke") == 3, "all_sync_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-notion-query-retry-smoke") == 3, "notion_query_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-notion-create-retry-smoke") == 3, "notion_create_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-notion-writeback-retry-smoke") == 3, "notion_writeback_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-boundary-smoke") == 3, "google_boundary_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-matrix-smoke") == 3, "google_matrix_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-full-smoke") == 3, "google_full_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-sync-smoke") == 3, "google_sync_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-google-sync-recovery") == 3, "google_sync_recovery_contract_changed")
+    _expect(errors, text.count("deploy-and-sync-faults-smoke") == 3, "sync_faults_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-discord-batch-notification-smoke") == 3, "discord_batch_notification_mode_contract_changed")
     _expect(
         errors,
         text.count("deploy-and-discord-google-smoke") == 3,
@@ -142,18 +167,18 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
-        text.count("timeout-minutes:") == 2,
+        text.count("timeout-minutes:") == 4,
         "job_timeout_count_changed",
     )
     _expect(errors, "always()" in text, "always_cleanup_missing")
     _expect(
         errors,
-        text.count("retention-days: 14") == 2,
+        text.count("retention-days: 14") == 5,
         "artifact_retention_changed",
     )
     _expect(
         errors,
-        text.count("persist-credentials: false") == 2,
+        text.count("persist-credentials: false") == 3,
         "checkout_credentials_changed",
     )
     for secret in FORBIDDEN_RUNTIME_SECRETS:
@@ -168,14 +193,61 @@ def _check_workflow(text: str) -> list[str]:
 
     deploy_block = _step_block(text, "Deploy and run selected write smoke")
     cleanup_block = _step_block(text, "Always cleanup resources created by this run")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-state-smoke'" in cleanup_block, "cleanup_discord_state_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-kv-smoke'" in cleanup_block, "cleanup_discord_kv_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-batch-smoke'" in cleanup_block, "cleanup_discord_batch_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-batch-google-smoke'" in cleanup_block, "cleanup_discord_batch_google_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-sync-lock-smoke'" in cleanup_block, "cleanup_sync_lock_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-sync-faults-smoke'" in cleanup_block, "cleanup_sync_faults_mode_guard_missing")
+    _expect(errors, "inputs.mode == 'deploy-and-discord-batch-notification-smoke'" in cleanup_block, "cleanup_discord_batch_notification_mode_guard_missing")
     evidence_block = _step_block(text, "Collect redacted evidence")
+    diagnostic_block = _step_block(text, "Read-only Google lock diagnostics")
+    recovery_logs = _step_block(text, "Collect lock recovery logs")
+    _expect(errors, "inputs.mode == 'deploy-and-watch-shared-smoke'" in recovery_logs
+            and "steps.run_id.outcome == 'success'" in recovery_logs
+            and "E2E_DIAGNOSTIC_RUN_ID: ${{ steps.run_id.outputs.run_id }}" in recovery_logs
+            and "run: node tools/diagnose_google_lock.mjs" in recovery_logs,
+            "release_recovery_log_guard_missing")
+    cron_deploy = _step_block(text, "Deploy isolated Worker and wait for real Cron")
+    cron_cleanup = _step_block(text, "Always remove Cron Worker and owned KV")
+    _expect(errors, "name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' || inputs.mode == 'deploy-and-real-cron-contention' || inputs.mode == 'read-only-real-cron-diagnostics' }}" in text,
+            "cron_mode_guard_missing")
+    _expect(errors, "name: Approved E2E\n    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' && inputs.mode != 'deploy-and-real-cron-contention' && inputs.mode != 'read-only-real-cron-diagnostics' }}" in text,
+            "cron_normal_job_not_excluded")
+    cron_job = text.split("  cron-e2e:\n", 1)[-1].split("\n  e2e:\n", 1)[0]
+    _expect(errors, "environment: e2e" in cron_job and "needs: local-validation" in cron_job,
+            "cron_approval_gate_missing")
+    _expect(errors, "node tools/run_cron_e2e.mjs run --run-id" in cron_deploy,
+            "cron_runner_missing")
+    _expect(errors, "always() && steps.cron_run.outcome == 'success'" in cron_cleanup
+            and "node tools/run_cron_e2e.mjs cleanup --run-id" in cron_cleanup,
+            "cron_cleanup_missing")
+    for block in (cron_deploy, cron_cleanup):
+        _expect(errors, "inputs.mode == 'deploy-and-real-cron-smoke'" in block,
+                "cron_diagnostic_write_guard_missing")
+    for block in (cron_deploy, cron_cleanup):
+        _expect(errors, "inputs.mode == 'deploy-and-real-cron-contention'" in block
+                and "E2E_CRON_CONTENTION:" in block and "INTERNAL_API_TOKEN:" in block,
+                "cron_contention_guard_missing")
+    cron_diagnostic = _step_block(text, "Read-only real Cron diagnostics")
+    _expect(errors, "inputs.mode == 'read-only-real-cron-diagnostics'" in cron_diagnostic
+            and "node tools/run_cron_e2e.mjs diagnose" in cron_diagnostic, "cron_diagnostic_missing")
+    diagnostic_mode = "read-only-google-lock-diagnostics"
+    _expect(errors, f"inputs.mode == '{diagnostic_mode}'" in diagnostic_block, "diagnostic_mode_guard_missing")
+    _expect(errors, "run: node tools/diagnose_google_lock.mjs" in diagnostic_block, "diagnostic_command_changed")
+    _expect(errors, f"inputs.mode != '{diagnostic_mode}'" in _step_block(text, "Create run ID"), "diagnostic_run_id_not_skipped")
+    for name, block in (("deploy", deploy_block), ("cleanup", cleanup_block)):
+        _expect(errors, diagnostic_mode not in block, f"diagnostic_in_write_step:{name}")
     _expect(errors, bool(deploy_block), "deploy_step_missing")
     _expect(errors, bool(cleanup_block), "cleanup_step_missing")
     _expect(errors, bool(evidence_block), "evidence_step_missing")
     for name in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"):
         assignments = re.findall(rf"^\s+{re.escape(name)}:", text, re.MULTILINE)
-        _expect(errors, len(assignments) == 1, f"cloudflare_secret_scope_changed:{name}")
-        _expect(errors, name in deploy_block, f"cloudflare_secret_not_deploy_only:{name}")
+        _expect(errors, len(assignments) == 6, f"cloudflare_secret_scope_changed:{name}")
+        _expect(errors, name in recovery_logs, f"cloudflare_secret_not_in_recovery_logs:{name}")
+        _expect(errors, name in cron_deploy and name in cron_cleanup, f"cron_secret_missing:{name}")
+        _expect(errors, name in deploy_block, f"cloudflare_secret_not_in_deploy:{name}")
+        _expect(errors, name in diagnostic_block, f"cloudflare_secret_not_in_diagnostic:{name}")
         _expect(errors, name not in cleanup_block, f"cloudflare_secret_in_cleanup:{name}")
         _expect(errors, name not in evidence_block, f"cloudflare_secret_in_evidence:{name}")
     _expect(

@@ -727,6 +727,9 @@ async def cleanup_notion_cleanup_probe(
 
     expected_run_id = str(expected_run_id or "").strip()
     manifest = await state.get_e2e_manifest(NOTION_CLEANUP_MANIFEST_SERVICE)
+    if isinstance(manifest, dict) and manifest.get("normal"):
+        from e2e_notion_cleanup_normal import cleanup
+        return await cleanup(env, state, expected_run_id)
     if not isinstance(manifest, dict) or manifest.get("dirty") is not True:
         last_run_id = str((manifest or {}).get("last_run_id") or "")
         if expected_run_id and last_run_id and last_run_id != expected_run_id:

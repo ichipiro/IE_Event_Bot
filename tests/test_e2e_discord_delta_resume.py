@@ -1,6 +1,9 @@
 """HTTP間の準備・続行と、続行中断後の重複防止をローカルで確認する。"""
 
+import asyncio
+import json
 from copy import deepcopy
+from hashlib import sha256
 
 import pytest
 
@@ -181,6 +184,48 @@ def test_delta_version_gate_rejects_stale_worker_before_io(monkeypatch, phase):
     assert calls == []
 
 
+@pytest.mark.parametrize("phase", ["prepare", "advance", "resume"])
+@pytest.mark.parametrize("expected", ["old-version", "invalid", "missing-tag"])
+def test_same_tag_version_id_mismatch_rejected_before_io(monkeypatch, phase, expected):
+    _, _, calls, _ = install_api_stub(monkeypatch)
+    worker = e2e_entry.Default()
+    worker.env = make_env()
+    worker.env.INTERNAL_API_TOKEN = "test-token"
+    worker.env.E2E_DISCORD_DELTA_ENABLED = "true"
+    worker.env.CF_VERSION_METADATA = {"id": "new-version", "tag": RUN_ID}
+    digest = sha256(b"old-version").hexdigest() if expected == "old-version" else "invalid"
+    headers = {**ROUTE_HEADERS, "X-E2E-Version-ID-SHA256": digest}
+    if expected != "missing-tag":
+        headers["X-E2E-Version-Tag"] = RUN_ID
+    response = run(worker.fetch(Request(
+        f"https://bot.test/admin/e2e/discord-delta-sync/{phase}", method="POST", headers=headers,
+    )))
+    assert response.status == 409
+    assert response_json(response)["error"] == "worker_version_mismatch"
+    assert calls == []
+
+
+def test_version_id_gate_allows_continuation_after_metadata_change(monkeypatch):
+    events, pages, _, _ = install_api_stub(monkeypatch)
+    env = make_env()
+    env.INTERNAL_API_TOKEN = "test-token"
+    env.E2E_DISCORD_DELTA_ENABLED = "true"
+    env.SYNC_DO_LOCK_ENABLED = "true"
+    for phase, version in [("prepare", "first"), ("advance", "first"),
+                           ("advance", "second"), ("resume", "second"), ("resume", "second")]:
+        worker = e2e_entry.Default()
+        worker.env = env
+        env.CF_VERSION_METADATA = {"id": version, "tag": RUN_ID}
+        headers = {**ROUTE_HEADERS, "X-E2E-Version-Tag": RUN_ID,
+                   "X-E2E-Version-ID-SHA256": sha256(version.encode()).hexdigest()}
+        response = run(worker.fetch(Request(
+            f"https://bot.test/admin/e2e/discord-delta-sync/{phase}", method="POST", headers=headers,
+        )))
+        assert response.status == 200
+    assert events == {}
+    assert pages[PAGE_ID]["archived"] is True
+
+
 @pytest.mark.parametrize("hide_canceled", [False, True])
 def test_update_checkpoint_survives_lost_response_and_recreated_objects(monkeypatch, hide_canceled):
     events, pages, calls, _ = install_api_stub(monkeypatch, hide_canceled_events=hide_canceled)
@@ -347,3 +392,68 @@ def test_failed_advance_cleans_up_without_claiming_success(monkeypatch, failure)
     assert "delta_claim_revision" not in manifest
     assert events == {}
     assert pages[PAGE_ID]["archived"] is True
+
+
+@pytest.mark.parametrize("http_entry", [True, False])
+def test_overlapping_resumes_allow_only_one_writer(monkeypatch, http_entry):
+    """HTTP入口ロックと、入口を介さないDO claimを別々に競合させる。"""
+    events, pages, calls, _ = install_api_stub(monkeypatch)
+    env = make_env()
+    assert request(env, "prepare").status == 200
+    assert request(env, "advance").status == 200
+    original_changes = probe._verify_delta_changes
+
+    async def scenario():
+        claimed = asyncio.Event()
+        release = asyncio.Event()
+
+        async def held_changes(*args, **kwargs):
+            claimed.set()
+            await release.wait()
+            return await original_changes(*args, **kwargs)
+
+        monkeypatch.setattr(probe, "_verify_delta_changes", held_changes)
+        store = StateStore(env)
+        manifest = await store.get_e2e_manifest("discord_delta")
+        original_read = store.get_e2e_manifest
+        if not http_entry:
+            # 両要求が同じ準備済みrevisionを読み取った状況からDO claimを競合させる。
+            async def stale_read(service):
+                return deepcopy(manifest)
+            monkeypatch.setattr(store, "get_e2e_manifest", stale_read)
+
+        async def invoke():
+            if not http_entry:
+                return await probe.resume_discord_delta_probe(env, store, RUN_ID)
+            worker = e2e_entry.Default()
+            worker.env = env
+            response = await worker.fetch(Request(
+                "https://bot.test/admin/e2e/discord-delta-sync/resume",
+                method="POST", headers=ROUTE_HEADERS,
+            ))
+            return {**json.loads(await response.text()), "http_status": response.status}
+
+        winner = asyncio.create_task(invoke())
+        try:
+            await asyncio.wait_for(claimed.wait(), timeout=2)
+            before = list(calls)
+            rejected = await asyncio.wait_for(invoke(), timeout=2)
+            assert rejected["ok"] is False
+            if http_entry:
+                assert rejected["http_status"] == 409
+                assert rejected["error"] == "e2e_lock_unavailable"
+                assert calls == before
+            else:
+                assert rejected["error"] == "delta_resume_conflict"
+                assert all(method == "GET" or path.endswith("/query") for method, path in calls[len(before):])
+                monkeypatch.setattr(store, "get_e2e_manifest", original_read)
+        finally:
+            release.set()
+        return await asyncio.wait_for(winner, timeout=2)
+
+    assert run(scenario())["ok"] is True
+    assert events == {}
+    assert pages[PAGE_ID]["archived"] is True
+    assert sum(method == "DELETE" and "/scheduled-events/" in path for method, path in calls) == 1
+    assert sum(method == "PATCH" and "/scheduled-events/" in path for method, path in calls) == 2
+    assert sum(method == "POST" and path.endswith("/pages") for method, path in calls) == 1

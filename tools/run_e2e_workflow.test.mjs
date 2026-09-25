@@ -1857,3 +1857,46 @@ for (const failure of [null, "job", "verify", "evidence"]) {
     })), RUN_ID).sort(), Object.keys(prefixes).sort());
   });
 }
+
+for (const failure of [null, "stage", "input", "queue", "cursor", "count", "slot", "cleanup"]) {
+  test(`Google17件・上限5件workflow: ${failure ?? "success"}`, async () => {
+    const steps = [...Array(18).fill("prepared"), ...Array(4).fill("pending"), ...Array(5).fill("drained")];
+    let index = 0;
+    let cleanups = 0;
+    const stages = () => ({
+      google_sync_shared_empty: 200,
+      [`google_boundary_step_${index}`]: failure === "stage" ? undefined : 200,
+      google_boundary_input_17: failure === "input" ? undefined : 200,
+      google_boundary_initial_cursor_preserved: 200,
+      [`google_boundary_queue_${Math.max(0, 17 - Math.max(0, index - 18) * 5)}`]: failure === "queue" ? undefined : 200,
+      [`google_boundary_cursor_queue_${index}`]: failure === "cursor" ? undefined : 200,
+      [`google_boundary_apply_${index}_${index === 22 ? 2 : 5}`]: failure === "count" ? undefined : 200,
+      ...Object.fromEntries(Array.from({ length: 17 }, (_, slot) => [`google_boundary_slot_${slot}`, failure === "slot" && slot === 16 ? undefined : 200])),
+    });
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: stages() } } }),
+      cleanup_run: async () => {
+        cleanups += 1;
+        return cleanups < 4 ? { ok: false, dirty: true, error: "google_sync_cleanup_pending" } : { ok: true, dirty: false };
+      },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {
+        google_sync_shared_cleanup: 200,
+        ...Object.fromEntries(Array.from({ length: 17 }, (_, slot) => [`google_boundary_cleanup_${slot}`, failure === "cleanup" && slot === 16 ? undefined : 200])),
+      } } }),
+    }, "google_sync");
+    const options = { boundary: true, fullApply: true, cleanup: { sleepImpl: async () => {} } };
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_boundary", "resume", ...Array(26).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(cleanups, 4);
+  });
+}

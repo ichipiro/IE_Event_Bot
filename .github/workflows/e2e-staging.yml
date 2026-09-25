@@ -30,6 +30,7 @@ on:
           - deploy-and-watch-shared-smoke
           - deploy-and-all-http-smoke
           - deploy-and-all-sync-smoke
+          - deploy-and-google-boundary-smoke
           - deploy-and-google-matrix-smoke
           - deploy-and-google-sync-smoke
           - deploy-and-google-sync-recovery
@@ -252,6 +253,7 @@ jobs:
           inputs.mode == 'deploy-and-watch-shared-smoke' ||
           inputs.mode == 'deploy-and-all-http-smoke' ||
           inputs.mode == 'deploy-and-all-sync-smoke' ||
+          inputs.mode == 'deploy-and-google-boundary-smoke' ||
           inputs.mode == 'deploy-and-google-matrix-smoke' ||
           inputs.mode == 'deploy-and-google-sync-smoke' ||
           inputs.mode == 'deploy-and-google-sync-recovery' ||
@@ -299,6 +301,7 @@ jobs:
           inputs.mode == 'deploy-and-watch-shared-smoke' ||
           inputs.mode == 'deploy-and-all-http-smoke' ||
           inputs.mode == 'deploy-and-all-sync-smoke' ||
+          inputs.mode == 'deploy-and-google-boundary-smoke' ||
           inputs.mode == 'deploy-and-google-matrix-smoke' ||
           inputs.mode == 'deploy-and-google-sync-smoke' ||
           inputs.mode == 'deploy-and-google-sync-recovery' ||

@@ -497,7 +497,12 @@ async def _cleanup(env, store, owner, token):
         await cleanup_watches(env, store, owner, token)
     if owner.get("full_apply") or owner.get("http_sync"):
         await _check_shared_cleanup(env, owner, keys=state_keys(owner) if owner.get("http_sync") else KEYS)
-    for slot in owner["fixtures"]:
+    cleaned = 0
+    for index, slot in enumerate(owner["fixtures"]):
+        if owner.get("boundary") and slot.get("cleaned"):
+            continue
+        if owner.get("boundary") and cleaned >= 5:
+            raise GoogleStateError("google_sync_cleanup_pending")
         if slot["apply_attempted"]:
             await _discover(env, store, owner, slot)
         if slot["apply_attempted"] and slot.get("discord_event_id"):
@@ -563,6 +568,14 @@ async def _cleanup(env, store, owner, token):
                 if status not in (200, 204, 404, 410):
                     raise GoogleStateError("google_sync_cleanup_failed")
                 owner["stages"]["google_sync_source_delete"] = status
+        if owner.get("boundary"):
+            # 各資源の消失を読戻してから完了を保存し、次HTTPでは未回収分だけ扱う。
+            from e2e_google_boundary_probe import verify_removed
+            await verify_removed(env, owner, slot, token)
+            slot["cleaned"] = True
+            owner["stages"][f"google_boundary_cleanup_{index}"] = 200
+            await _save(store, owner)
+            cleaned += 1
     prefix = GoogleKV(store, owner).prefix
     for key in state_keys(owner):
         if owner.get("full_apply") or owner.get("http_sync"):
@@ -647,6 +660,9 @@ async def _phase(env, store, run_id, phase, invoke):
     owner = await store.get_e2e_manifest(SERVICE)
     if phase in ("prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or (owner and owner.get("dirty") and owner.get("all_sync")):
         from e2e_all_sync_probe import run_phase
+        return await run_phase(env, store, run_id, phase, invoke, owner)
+    if phase == "prepare_boundary" or (owner and owner.get("dirty") and owner.get("boundary")):
+        from e2e_google_boundary_probe import run_phase
         return await run_phase(env, store, run_id, phase, invoke, owner)
     if phase == "prepare_matrix" or (owner and owner.get("dirty") and owner.get("matrix")):
         from e2e_google_matrix_probe import run_phase
@@ -915,6 +931,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
         "prepare",
         "prepare_full",
         "prepare_matrix",
+        "prepare_boundary",
         "prepare_all",
         "prepare_http",
         "prepare_webhook",
@@ -955,7 +972,7 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             return {"ok": False, "dirty": False, "run_id": run_id,
                     "error": str(exc) if isinstance(exc, GoogleStateError) else "google_sync_calendar_inspect_failed"}
     existing = await store.get_e2e_manifest(SERVICE)
-    full_mode = phase in ("prepare_full", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
+    full_mode = phase in ("prepare_full", "prepare_boundary", "prepare_matrix", "prepare_all", "prepare_http", "prepare_webhook", "webhook_trigger", "webhook_advance", "http_advance") or bool(existing and existing.get("dirty") and (existing.get("full_apply") or existing.get("all_sync")))
     if full_mode:
         # 共有状態を通常routeやCronから同時に変更できる構成では開始・続行しない。
         disabled = (

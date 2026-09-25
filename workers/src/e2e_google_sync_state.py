@@ -21,7 +21,7 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "matrix", "all_sync", "http_sync", "webhook_sync")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "boundary", "matrix", "all_sync", "http_sync", "webhook_sync")
 ALL_KEYS = KEYS + ("discord:snapshot", "sync:discord_notion_queue")
 WATCH_KEYS = ("gcal_watch_state", "result:gcal_watch_ensure")
 
@@ -62,6 +62,9 @@ def final_step(owner):
 
 
 def valid_google_transition(previous, value):
+    if value.get("boundary") or previous.get("boundary"):
+        from e2e_google_boundary_state import valid_transition
+        return valid_transition(previous, value)
     if value.get("matrix") or previous.get("matrix"):
         from e2e_google_matrix_state import valid_transition
         return valid_transition(previous, value)

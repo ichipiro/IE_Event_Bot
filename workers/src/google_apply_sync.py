@@ -202,8 +202,9 @@ async def _notion_query_by_google_event_id(env, db_id: str, google_event_id: str
             "rich_text": {"equals": str(google_event_id)},
         }
     }
-    # Notion API リクエスト
-    response = await fetch(
+    # E2Eではこの照会だけを差し替え、通常のHTTP失敗処理へ応答を渡す。
+    query_fetch = getattr(env, "_google_notion_query_fetch", None) or fetch
+    response = await query_fetch(
         f"https://api.notion.com/v1/databases/{db_id}/query",
         {
             "method": "POST",

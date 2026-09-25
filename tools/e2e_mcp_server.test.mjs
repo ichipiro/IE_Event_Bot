@@ -93,7 +93,7 @@ const PLAYWRIGHT_ARGS = [
   "60000",
 ];
 
-for (const phase of ["prepare_full", "prepare_boundary", "prepare_matrix", "prepare_all", "advance", "resume", "cleanup", "inspect"]) {
+for (const phase of ["prepare_full", "prepare_notion_query", "prepare_boundary", "prepare_matrix", "prepare_all", "advance", "resume", "cleanup", "inspect"]) {
   test(`Google同期${phase}のHTTP待機時間はWorkerの上限を上回る`, async (t) => {
     const budgets = new WeakMap();
     t.mock.method(AbortSignal, "timeout", (milliseconds) => {
@@ -2105,4 +2105,27 @@ test("Google boundaryは専用routeだけへ送りpreparedを監査する", asyn
   assert.deepEqual(paths, ["/admin/e2e/google-sync/boundary"]);
   assert.equal(audit[1].sync_phase, "prepare_boundary");
   assert.equal(audit[1].execution_status, "prepared");
+});
+
+test("Notion照会復旧は専用routeとgoogle_syncだけを許可する", async () => {
+  const paths = [];
+  const audit = [];
+  await withClient({ env: ENV, auditImpl: async entry => audit.push(entry),
+    fetchImpl: async url => {
+      paths.push(new URL(url).pathname);
+      return jsonResponse({ ok: true, dirty: true, run_id: RUN_ID, status: "pending", stage: "ready" });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "google_sync", sync_phase: "prepare_notion_query",
+    } }));
+    assert.equal(result.ok, true);
+    const refused = parseToolResult(await client.callTool({ name: "trigger_sync", arguments: {
+      run_id: RUN_ID, scenario: "discord_delta", sync_phase: "prepare_notion_query",
+    } }));
+    assert.equal(refused.error, "sync_phase_forbidden");
+  });
+  assert.deepEqual(paths, ["/admin/e2e/google-sync/notion-query"]);
+  assert.equal(audit[1].sync_phase, "prepare_notion_query");
+  assert.equal(audit[1].execution_status, "pending");
 });

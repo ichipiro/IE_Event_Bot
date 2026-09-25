@@ -100,6 +100,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-notion-cleanup-normal-smoke") == 3, "cleanup_normal_mode_contract_changed")
     _expect(errors, text.count("deploy-and-all-http-smoke") == 3, "all_http_mode_contract_changed")
     _expect(errors, text.count("deploy-and-all-sync-smoke") == 3, "all_sync_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-notion-query-retry-smoke") == 3, "notion_query_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-boundary-smoke") == 3, "google_boundary_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-matrix-smoke") == 3, "google_matrix_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-full-smoke") == 3, "google_full_mode_contract_changed")

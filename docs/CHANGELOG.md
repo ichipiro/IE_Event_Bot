@@ -1,14 +1,30 @@
 # 文書変更履歴
 
+## 2026-09-25: 対象内E2Eの完了判定
+
+旧watch通知・17件境界・Notion API拒否後の復旧を含む24実行の証跡を再照合し、計画・棚卸し・課題の完了状態を統一した。任意件数・自然発生障害は保証外事項として保持する。
+
+
 ## 2026-09-25
 
 - NotionへのDiscord ID書戻し拒否後の復旧E2Eを追加し、[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)の成功、部分反映IDの再利用、queue復旧・重複なし・全資源回収の独立照合を[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)へ保存した。
 
 - Notionページ作成拒否後の復旧E2Eを追加し、[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)の成功、queue維持・再試行・重複なし・全資源回収の独立照合を[検証記録](E2E-NOTION-CREATE-RETRY.md)へ保存した。
 
+- Google同期の17件・上限5件E2E成功36140594316、初回の応答契約不一致・回収、全27段階・全件回収の独立照合を[検証記録](E2E-GOOGLE-BOUNDARY.md)へ追加。有限の件数境界を完了とし、残るAPI失敗分岐は維持した。
+
+- ロック解放失敗の実ログ調査、固定分類・別stub読取り診断、診断版E2E36119459889の成功と回収を記録。元の失敗原因は未確定として区別した。
+
+- 通常watch・共有Webhookの再確認36117345631の失敗と回収36117671982の成功を記録。watch維持は成功、実通知同期は未到達、ロック解放RPCの詳細原因は未確定。全manifest `dirty=false` を確認した。
+
 - 通常Notion cleanupの全件取得・共有KV・別HTTPでの実行間隔抑止・所有資源回収を実サービスで確認（[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)）。計画を完了へ更新し、実Cronと失敗後再試行は別の未検証範囲として残した。
 
+- 所有ページ限定のNotion cleanup E2Eの成功と回収を記録（[実行36035326262](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36035326262)）。通常DB全件取得・共有KV・実Cronは未検証として区別した。
 - 通常リマインドの全件取得・対象選別・共有cache・重複抑止・回収を実サービスで確認（[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)）。一覧取得失敗の成功誤判定とGETの429待機を修正した。
+
+## 2026-09-24: 全体同期E2Eの成功を計画・課題へ反映
+
+- E2E-PLANの通常共有状態・通常入口による全体同期を完了にし、ISSUESへ実行36010723441の成功・回収証跡と残る未検証範囲を反映した。
 
 ## 2026-09-24: 通常HTTP・共有KVの全体同期E2E
 
@@ -257,3 +273,7 @@
 
 - 通常ジョブのKV6キーだけを同じ値で最大3回保存し、上限到達時の失敗応答とCron後続処理を整えた。
 - 固定失敗・回復・重複抑止・共有KV読戻し・全資源回収を専用E2Eで確認した。[検証記録](E2E-JOBS-KV-RETRY.md)。
+
+## 2026-09-25: E2E棚卸しと旧通知の検証
+
+E2E計画の完了記録を実行証跡へ合わせ、Google同期の残試験と本番作業の開始条件を明記した。旧token・旧channel・重複通知を通常handlerとE2Eガードで区別する検証を追加した。[棚卸し記録](E2E-AUDIT-20260925.md)。

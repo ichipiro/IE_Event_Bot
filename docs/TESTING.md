@@ -553,6 +553,12 @@ prepare 1回・advance 7回・verify 1回で、固定KV障害7ケースとTTLケ
 
 2026-09-25の[実行記録](E2E-WATCH-SHARED-20260925.md)に修正前の失敗と修正後の結果を記録する。修正後の実行36025938367では、実通知3回のAlarm・共有状態同期・往復、固定失敗後の同番号再試行、全所有資源と通知キュー・Alarmの回収が成功した。最終状態読取りの通信失敗でworkflow自体は失敗したため、読取りだけの限定再試行を追加した再実行36027225893はworkflow全体が成功した。監査104行・52操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit816件成功を照合済み。
 
+現行commit `b253403` の[再確認36117345631](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117345631)はwatch維持成功後、準備処理の制御ロック解放RPCで失敗した（`google_sync_release_failed`、`js_exception`）。実変更通知3回には未到達。[回収36117671982](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117671982)でwatch・所有予定・共有KV・通知キュー／Alarmを回収し、`failed_clean`・全manifest `dirty=false` を独立照合した。両workflowのJUnit967件は成功。詳細原因は未確定であり、以前の成功記録と区別する。詳細は[再確認記録](E2E-WATCH-SHARED-20260925.md#現行commitでの再確認)を参照。
+
+原因診断を追加した[実行36119459889](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36119459889)（commit `79ec7f2`）は全4段階・実通知3回と回収に成功した。監査106行・53操作、run/version/commit一致、JUnit975件、`passed`・全manifest `dirty=false` を独立照合した。ロック解放失敗は再発せず、元の原因特定・修正の証拠とは扱わない。詳細は[原因調査記録](E2E-WATCH-SHARED-20260925.md#ロック解放失敗の原因調査)を参照。
+
+2回目の[実行36120901864](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36120901864)（commit `611a74a`）も同範囲で成功した。監査128行・64操作、JUnit975件、run/version/commit一致、`passed`・全manifest `dirty=false`。診断付き再実行2回で元の失敗は再現せず、根本原因は未特定。
+
 ## 通常Q&Aジョブの共有状態E2E
 
 `deploy-and-qa-normal-smoke` は既存の専用Worker・Q&A DB・Discordチャンネルを使う。
@@ -576,6 +582,14 @@ MCPの `trigger_job(job="qa_normal_<phase>")` は認証・run/version照合・gl
 
 2026-09-25（JST）の[実行36030243998](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36030243998)で成功した。対象commit `ee87f2591c9848f4ef5ac529539b3b3f661121c3`、run `E2E-20260924T165255Z-4ee17edc`、Worker version tagとdeploy／最終version fingerprint、clean checkoutを照合した。全5段階と各verify、通常ハンドラ3回、Notion3ページのarchive・Discord2通知の削除・共有KV2キーの回収が成功した。監査26行・13操作はすべて成功し、`outcome=passed`・全manifest `dirty=false`、JUnit825件成功を独立確認した。ローカルMCP・workflowテスト297件、Ruff・Pyright・設定検査・E2E dry-runも成功した。マスク済み成果物と独立照合結果は `test-results/qa-normal-36030243998/` に保存した。
 
+
+## 所有ページ限定のNotion cleanupの実サービス検証
+
+2026-09-25（JST）の[実行36035326262](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36035326262)で `deploy-and-notion-cleanup-smoke` が成功した。commit `68d419892c9cbd56312e9105580376963912e12d`、run `E2E-20260924T175111Z-c4f2ecd9`、Worker version tag・deployと最終version fingerprint、clean checkoutを照合した。
+
+期限切れと将来日時の所有Notionページを1件ずつ作成し、通常ジョブと共通の `_run_auto_clean_pages` で期限切れだけをarchiveした。将来日時ページの保持、同じ時刻の再実行に対するinterval guard、最後の両ページのarchive状態を読戻しで確認した。14検証項目はすべて200、監査8行・4操作はすべて成功し、今回scenarioの `outcome=passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合した。他scenarioの過去runを今回の検証成功には含めない。
+
+証跡は `test-results/notion-cleanup-36035326262/evidence/`、独立照合結果は同runディレクトリの `verification.json` に保存した。通常内部DBの全件取得、共有KVの `cleanup:last_epoch`、通常HTTP入口、実Cronは対象外である。
 
 ## 通常リマインドの全件取得と共有KV
 
@@ -630,6 +644,18 @@ POST・不正待機値・上限超過は再試行しない。継続する429も�
 [実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
 
 詳細と再試行上限超過・実障害・実Cronなどの境界は[専用検証記録](E2E-JOBS-KV-RETRY.md)を参照。
+
+## 2026-09-25: 旧watch通知の検証境界
+
+停止前に固定通知番号をrun所有の観測記録へ登録し、停止済みchannelの通知を内部生成する。通常handlerの旧token拒否401、現行token付き旧channelの同期204、同番号再送の重複抑止204、E2E入口の所有権ガード404を個別に検査する。通常の同期runnerを呼び、共有KV・最終成功時刻・成功結果を照合する。所有した重複状態は既存cleanupで回収する。Googleが停止後に実際に遅延配信した証拠とはしない。実環境結果は[棚卸し記録](E2E-AUDIT-20260925.md)で追跡する。
+
+Google同期MCPは、Workerの書込み前ガードが明示的に返した409 `worker_version_mismatch` だけを最大20回・3秒間隔で再送する。応答不明の通信失敗、その他の409、500はこの再送の対象外。初回のprepare前拒否は新規所有資源がないことを最終artifactで確認し、シナリオ成功や `failed_clean` と区別する。
+
+旧通知の通常同期はstep 2のHTTPで検証する。step 1の実行中／API拒否後の再試行2ケースとは別のHTTPに分け、各段階の90秒上限を維持する。workflowは旧通知の4項目をstep 2以降の必須証跡として照合する。
+
+## Google同期17件・上限5件の境界
+
+`deploy-and-google-boundary-smoke` は専用環境のGoogle予定17件を共有queueへ準備し、通常dispatch・通常適用で5・5・5・2件ずつ処理する。実APIによる全件読戻しと分割回収を含む全27段階は[実行36140594316](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36140594316)で成功した。監査120行・60操作、全件回収、`passed`・全manifest `dirty=false`、JUnit1,056件を独立照合済み。試験準備のqueue保存、cursor更新、初回失敗の境界は[検証記録](E2E-GOOGLE-BOUNDARY.md)を参照。
 
 ## NotionへのDiscord ID書戻し拒否後の復旧
 

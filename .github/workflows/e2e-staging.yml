@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - preflight
+          - deploy-and-real-cron-smoke
           - read-only-google-lock-diagnostics
           - deploy-and-crud-smoke
           - deploy-and-discord-google-smoke
@@ -91,6 +92,8 @@ jobs:
           pytest -q --junitxml=test-results/pytest.xml
       - name: MCP and workflow contract tests
         run: npm run test:mcp
+      - name: Real Cron contract tests
+        run: node --test tools/run_cron_e2e.test.mjs
       - name: E2E configuration checks
         run: |
           python tools/validate_e2e_mcp_config.py
@@ -114,8 +117,56 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  cron-e2e:
+    name: Approved real Cron E2E
+    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' }}
+    needs: local-validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install Node.js dependencies
+        run: npm ci
+      - name: Create Cron run ID
+        id: cron_run
+        run: |
+          run_id="$(node tools/run_e2e_workflow.mjs run-id)"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+      - name: Deploy isolated Worker and wait for real Cron
+        timeout-minutes: 24
+        env:
+          E2E_RUN_ID: ${{ steps.cron_run.outputs.run_id }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/run_cron_e2e.mjs run --run-id "$E2E_RUN_ID"
+      - name: Always remove Cron Worker and owned KV
+        if: ${{ always() && steps.cron_run.outcome == 'success' }}
+        env:
+          E2E_RUN_ID: ${{ steps.cron_run.outputs.run_id }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/run_cron_e2e.mjs cleanup --run-id "$E2E_RUN_ID"
+      - name: Upload redacted Cron evidence
+        if: ${{ always() && steps.cron_run.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cron-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/cron-e2e/${{ steps.cron_run.outputs.run_id }}.json
+          if-no-files-found: error
+          retention-days: 14
+
   e2e:
     name: Approved E2E
+    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' }}
     needs: local-validation
     runs-on: ubuntu-latest
     timeout-minutes: 30

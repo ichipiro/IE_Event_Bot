@@ -160,18 +160,18 @@ def _check_workflow(text: str) -> list[str]:
     )
     _expect(
         errors,
-        text.count("timeout-minutes:") == 2,
+        text.count("timeout-minutes:") == 4,
         "job_timeout_count_changed",
     )
     _expect(errors, "always()" in text, "always_cleanup_missing")
     _expect(
         errors,
-        text.count("retention-days: 14") == 3,
+        text.count("retention-days: 14") == 4,
         "artifact_retention_changed",
     )
     _expect(
         errors,
-        text.count("persist-credentials: false") == 2,
+        text.count("persist-credentials: false") == 3,
         "checkout_credentials_changed",
     )
     for secret in FORBIDDEN_RUNTIME_SECRETS:
@@ -195,6 +195,20 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "inputs.mode == 'deploy-and-discord-batch-notification-smoke'" in cleanup_block, "cleanup_discord_batch_notification_mode_guard_missing")
     evidence_block = _step_block(text, "Collect redacted evidence")
     diagnostic_block = _step_block(text, "Read-only Google lock diagnostics")
+    cron_deploy = _step_block(text, "Deploy isolated Worker and wait for real Cron")
+    cron_cleanup = _step_block(text, "Always remove Cron Worker and owned KV")
+    _expect(errors, "name: Approved real Cron E2E\n    if: ${{ inputs.mode == 'deploy-and-real-cron-smoke' }}" in text,
+            "cron_mode_guard_missing")
+    _expect(errors, "name: Approved E2E\n    if: ${{ inputs.mode != 'deploy-and-real-cron-smoke' }}" in text,
+            "cron_normal_job_not_excluded")
+    cron_job = text.split("  cron-e2e:\n", 1)[-1].split("\n  e2e:\n", 1)[0]
+    _expect(errors, "environment: e2e" in cron_job and "needs: local-validation" in cron_job,
+            "cron_approval_gate_missing")
+    _expect(errors, "node tools/run_cron_e2e.mjs run --run-id" in cron_deploy,
+            "cron_runner_missing")
+    _expect(errors, "always() && steps.cron_run.outcome == 'success'" in cron_cleanup
+            and "node tools/run_cron_e2e.mjs cleanup --run-id" in cron_cleanup,
+            "cron_cleanup_missing")
     diagnostic_mode = "read-only-google-lock-diagnostics"
     _expect(errors, f"inputs.mode == '{diagnostic_mode}'" in diagnostic_block, "diagnostic_mode_guard_missing")
     _expect(errors, "run: node tools/diagnose_google_lock.mjs" in diagnostic_block, "diagnostic_command_changed")
@@ -206,7 +220,8 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, bool(evidence_block), "evidence_step_missing")
     for name in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"):
         assignments = re.findall(rf"^\s+{re.escape(name)}:", text, re.MULTILINE)
-        _expect(errors, len(assignments) == 2, f"cloudflare_secret_scope_changed:{name}")
+        _expect(errors, len(assignments) == 4, f"cloudflare_secret_scope_changed:{name}")
+        _expect(errors, name in cron_deploy and name in cron_cleanup, f"cron_secret_missing:{name}")
         _expect(errors, name in deploy_block, f"cloudflare_secret_not_in_deploy:{name}")
         _expect(errors, name in diagnostic_block, f"cloudflare_secret_not_in_diagnostic:{name}")
         _expect(errors, name not in cleanup_block, f"cloudflare_secret_in_cleanup:{name}")

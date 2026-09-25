@@ -1,0 +1,27 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "ie-event-bot-cron-e2e-template",
+  "main": "src/e2e_cron_entry.py",
+  "compatibility_date": "2026-03-07",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "version_metadata": {"binding": "CF_VERSION_METADATA"},
+  "observability": {"enabled": true, "head_sampling_rate": 1},
+  "triggers": {"crons": []},
+  "kv_namespaces": [
+    {"binding": "STATE_KV", "id": "119c6ebb96b0468cb7c25d96980b416e", "remote": false}
+  ],
+  "vars": {
+    "E2E_CRON_RUN_ID": "",
+    "E2E_CRON_START_MS": "0",
+    "E2E_CRON_DEADLINE_MS": "0",
+    "E2E_CRON_COMMIT": "",
+    "CRON_ENABLE_SYNC": "false",
+    "CRON_ENABLE_DISCORD_NOTION_SYNC": "false",
+    "CRON_ENABLE_GCAL_WATCH_ENSURE": "false",
+    "CRON_ENABLE_QA": "false",
+    "CRON_ENABLE_REMINDER": "false",
+    "CRON_ENABLE_AUTO_CLEAN": "false"
+  }
+}

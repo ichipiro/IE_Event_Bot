@@ -22,7 +22,7 @@
 `tests/test_e2e_google_boundary.py` は通常dispatch、通常適用、DOの所有権判定を使い、外部APIだけを代替する。
 17件の残件推移、既存対応IDの保持、削除履歴100件、途中回収、所有記録の改変拒否、queue改変時の停止、適用失敗時のcursor保持と回収を検証する。
 Node試験は専用route、HTTP待機時間、27段階の証跡必須判定、回収の繰返しを確認する。
-実サービス結果はworkflow・artifactの独立照合後に追記する。
+実サービス結果は下記のworkflow・artifactで独立照合済み。
 
 関連: [試験計画](E2E-PLAN.md)、[残試験の棚卸し](E2E-AUDIT-20260925.md#残試験の具体化)。
 
@@ -32,3 +32,18 @@ Node試験は専用route、HTTP待機時間、27段階の証跡必須判定、�
 step 0のWorker検証は成功したが、verify応答のstage名を `verified` としたため、MCPが要求する `google_prepared_verified` と不一致になり停止した。予定作成前の停止であり、件数境界の成功ではない。
 最終artifactから `failed_clean`・全manifest `dirty=false`・共有KV回収・watch不在を独立確認した。Node/Python試験の代替応答だけではこの接続不一致を検出できていなかった。
 Workerの実応答名を確認する再現テスト3件が修正前に失敗し、既存MCP契約に合わせて修正した。
+
+### 再試験成功
+
+[実行36140594316](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36140594316)が成功した。
+
+- run: `E2E-20260925T132549Z-cd85dcf1`
+- commit: `f35329288d23829147ab668029e662238fdb1a42`。実行checkoutはclean。
+- Worker version SHA-256: `40bcf57f4c8ab1c0c2a6233e371f3e9ebcc3eb2517092d1e34225a8aa793816b`。deploy監査・最終読戻しと一致し、version tagはrun IDと一致。
+- 全27段階・54回の操作／verifyが成功。共有queueの17→12→7→2→0、処理件数5・5・5・2、cursor、既存対応IDの維持、全17件の本文・日時・NotionのDiscord ID書戻しを確認。
+- Google予定17件・Notionページ17件・Discord予定17件を削除／archiveしてGETで確認。共有KV6キーの不在を確認。今回scenarioの `outcome=passed`、全service／scenario manifestの `dirty=false`、watch不在。
+- 回収4HTTPのうち最初の3回は想定した `409 google_sync_cleanup_pending`。4回目に完了し、workflowの後処理による5回目の再回収も成功した。この3件以外の失敗operationはない。
+- 監査120行・60操作、検証stage100件、run/version/commit、JUnit1,056件成功を独立照合した。Node342件、Ruff・Pyright・E2E契約検査・dry-runも成功。
+
+取得証跡は `test-results/google-boundary-36140594316/`、独立照合結果は同ディレクトリの `verification.json` に保存した。
+17件・上限5件の有限ケースが完了した。残るNotion照会・作成・Discord ID書戻しのAPI拒否試験、任意件数・自然発生障害、本番反映は本実行の完了に含めない。

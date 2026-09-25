@@ -38,10 +38,10 @@ function fixture({ timeout = false, foreign = false, failDelete = false, badVers
       if (options.method === "PUT") {
         schedules = JSON.parse(options.body);
         if (schedules.length && !timeout) {
-          for (const at of [START + 60_000, START + 120_000]) {
+          for (const at of [START + 76_000, START + 136_000]) {
             keys.set(`${scope(run).prefix}${at}`, record(run, at));
           }
-          clock += 120_100;
+          clock += 136_100;
         }
       }
       result = { schedules };
@@ -147,7 +147,7 @@ test("diagnostics retain only known classifications and refuse foreign logs", ()
   const result = redactCronEvent(event, "owned");
   assert.equal(result.event_type, "scheduled");
   assert.equal(result.outcome, "exception");
-  assert.equal(result.scheduled_time_ms, START + 16_000);
+  assert.equal(result.scheduled_time_raw, START + 16_000);
   assert.equal(result.cron_matches, true);
   assert.ok(result.categories.includes("controller_dict"));
   assert.ok(!JSON.stringify(result).includes("PRIVATE"));

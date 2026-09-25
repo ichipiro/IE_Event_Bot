@@ -58,7 +58,8 @@ export function redactCronEvent(event, worker) {
     import_error: /ImportError|ModuleNotFoundError/,
   };
   return { timestamp: Number.isFinite(event.timestamp) ? event.timestamp : null,
-    scheduled_time_ms: Number.isFinite(runtime.event?.scheduledTime) ? runtime.event.scheduledTime : null,
+    // Telemetryの値はcontrollerのミリ秒表現と同一とは限らないため単位を仮定しない。
+    scheduled_time_raw: Number.isFinite(runtime.event?.scheduledTime) ? runtime.event.scheduledTime : null,
     cron_matches: runtime.event?.cron === CRON,
     event_type: ["scheduled", "fetch", "rpc"].includes(runtime.eventType) ? runtime.eventType : "unknown",
     outcome: ["ok", "exception", "exceededCpu", "exceededMemory", "canceled"].includes(runtime.outcome) ? runtime.outcome : "unknown",

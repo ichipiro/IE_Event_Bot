@@ -89,14 +89,17 @@ const CLEANUP_ROUTES = Object.freeze({
   webhook_change: "/admin/e2e/google-webhook-change/cleanup",
 });
 const JOB_ROUTES = Object.freeze({
+  cleanup_normal_fail: "/admin/e2e/notion-cleanup-normal/fail",
   cleanup_normal_prepare: "/admin/e2e/notion-cleanup-normal/prepare",
   cleanup_normal_execute: "/admin/e2e/notion-cleanup-normal/execute",
   cleanup_normal_duplicate: "/admin/e2e/notion-cleanup-normal/duplicate",
   cleanup_normal_verify: "/admin/e2e/notion-cleanup-normal/verify",
+  reminder_normal_fail: "/admin/e2e/reminder-normal/fail",
   reminder_normal_prepare: "/admin/e2e/reminder-normal/prepare",
   reminder_normal_notify: "/admin/e2e/reminder-normal/notify",
   reminder_normal_duplicate: "/admin/e2e/reminder-normal/duplicate",
   reminder_normal_verify: "/admin/e2e/reminder-normal/verify",
+  qa_normal_fail: "/admin/e2e/qa-normal/fail",
   qa_normal_prepare: "/admin/e2e/qa-normal/prepare",
   qa_normal_first: "/admin/e2e/qa-normal/first",
   qa_normal_update: "/admin/e2e/qa-normal/update",
@@ -178,7 +181,7 @@ const cleanupTargetField = z.enum([
   "webhook_delivery",
   "webhook_change",
 ]);
-const jobField = z.enum(["cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify", "qa_check", "reminder", "cleanup", "run_all"]);
+const jobField = z.enum(["cleanup_normal_fail", "cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_fail", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_normal_fail", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify", "qa_check", "reminder", "cleanup", "run_all"]);
 
 
 function safeErrorCode(value, fallback = "worker_operation_failed") {

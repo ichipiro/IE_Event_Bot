@@ -27,7 +27,7 @@ test("通常Q&Aの固定phaseへrunとrevisionを渡す", async () => {
     calls.push({ url, options });
     return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
   } }, async (client) => {
-    for (const phase of ["prepare", "first", "update", "notify", "duplicate", "verify"]) {
+    for (const phase of ["prepare", "first", "update", "fail", "notify", "duplicate", "verify"]) {
       const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `qa_normal_${phase}` } });
       assert.equal(parseToolResult(result).ok, true);
       assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/qa-normal/${phase}`);
@@ -41,7 +41,7 @@ test("通常リマインドの固定phaseへrunとrevisionを渡す", async () =
     calls.push({ url, options });
     return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
   } }, async (client) => {
-    for (const phase of ["prepare", "notify", "duplicate", "verify"]) {
+    for (const phase of ["prepare", "fail", "notify", "duplicate", "verify"]) {
       const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `reminder_normal_${phase}` } });
       assert.equal(parseToolResult(result).ok, true);
       assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/reminder-normal/${phase}`);
@@ -55,7 +55,7 @@ test("通常Notion cleanupの固定phaseへrunとrevisionを渡す", async () =>
     calls.push({ url, options });
     return jsonResponse({ ok: true, run_id: RUN_ID, dirty: true });
   } }, async (client) => {
-    for (const phase of ["prepare", "execute", "duplicate", "verify"]) {
+    for (const phase of ["prepare", "fail", "execute", "duplicate", "verify"]) {
       const result = await client.callTool({ name: "trigger_job", arguments: { run_id: RUN_ID, job: `cleanup_normal_${phase}` } });
       assert.equal(parseToolResult(result).ok, true);
       assert.equal(calls.at(-1).url, `${ENV.E2E_WORKER_URL}/admin/e2e/notion-cleanup-normal/${phase}`);

@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from e2e_job_retry import check_failure, install_failure, previous_phase
 import e2e_reminder_probe as reminder
 
 
@@ -84,7 +85,7 @@ class _OwnedKV:
         await self.get(key)
         data = json.loads(value)
         if key == "reminder_cache":
-            _require(isinstance(data, dict) and set(data) == set(self.owner["eligible"])
+            _require(isinstance(data, dict) and set(data) <= set(self.owner["eligible"]) and (self.owner.get("retry") or len(data) == 2)
                      and all(reminder._parse_rfc3339(v) is not None for v in data.values()),
                      "reminder_normal_cache_invalid")
             self.owner["cache"] = data
@@ -120,21 +121,26 @@ async def _verify(env, store, owner):
         await _OwnedKV(store, owner).get(key)
     events = await _inputs(env, owner)
     completed = owner["completed"]
-    if completed in ("notify", "duplicate"):
+    if completed in ("fail", "notify", "duplicate"):
         cache = await store.get_json("reminder_cache", {})
-        _require(cache == owner.get("cache") and set(cache) == set(owner["eligible"]),
+        expected_ids = set(owner["eligible"])
+        if completed == "fail":
+            expected_ids -= set(owner["failure_detail"]["failed_event_ids"])
+        _require(cache == owner.get("cache") and set(cache) == expected_ids,
                  "reminder_normal_cache_not_ready")
         result = await store.get_last_result("job_reminder")
         detail = (result or {}).get("payload", {})
-        _require(detail.get("ok") is True and detail.get("mode") == "native"
-                 and detail.get("failed_count") == 0, "reminder_normal_result_failed")
-        _require(len(owner["writes"].get("reminder_cache", [])) == 1,
+        _require(detail.get("ok") is (completed != "fail") and detail.get("mode") == "native"
+                 and detail.get("failed_count") == (1 if completed == "fail" else 0), "reminder_normal_result_failed")
+        _require(len(owner["writes"].get("reminder_cache", [])) == (2 if owner.get("retry") and completed != "fail" else 1),
                  "reminder_normal_cache_rewritten")
+    if completed == "fail":
+        _require(detail == owner["failure_detail"], "reminder_normal_failure_result_mismatch")
     messages = await _messages(env, owner)
-    expected_count = 0 if completed == "prepare" else 2
+    expected_count = 0 if completed == "prepare" else 1 if completed == "fail" else 2
     _require(len(messages) == expected_count, "reminder_normal_message_count_failed")
     if expected_count:
-        expected = {_content(env, e) for e in events if e["id"] in owner["eligible"]}
+        expected = {_content(env, e) for e in events if e["id"] in expected_ids}
         _require({m.get("content") for m in messages} == expected
                  and all(str(m.get("channel_id")) == env.REMINDER_CHANNEL_ID
                          and m.get("mention_everyone") is False
@@ -142,7 +148,8 @@ async def _verify(env, store, owner):
                  "reminder_normal_message_content_failed")
         ids = sorted(m["id"] for m in messages)
         if owner.get("messages"):
-            _require(ids == owner["messages"], "reminder_normal_duplicate_messages")
+            _require(set(owner["messages"]).issubset(ids) if completed == "notify" and owner.get("retry")
+                     else ids == owner["messages"], "reminder_normal_duplicate_messages")
         owner["messages"] = ids
     owner["stages"][f"reminder_normal_verify_{completed}"] = 200
     await _save(store, owner)
@@ -204,8 +211,17 @@ async def _job(env, store, owner, phase, request):
     owner["stage"] = "working"
     await _save(store, owner)
     job_request = SimpleNamespace(url="https://e2e.invalid/jobs/reminder", method="POST", headers=request.headers)
-    response = await Application(_JobEnv(env, _OwnedKV(store, owner))).fetch(job_request)
+    job_env = _JobEnv(env, _OwnedKV(store, owner))
+    calls = install_failure(job_env, owner, "reminder_normal") if phase == "fail" else []
+    await _save(store, owner)
+    response = await Application(job_env).fetch(job_request)
     detail = json.loads(await response.text())
+    if phase == "fail":
+        check_failure(owner, "reminder_normal", response.status, detail, calls)
+        failed = detail.get("failed_event_ids", [])
+        _require(len(failed) == 1 and failed[0] in owner["eligible"], "reminder_normal_failed_id_invalid")
+        _require(detail.get("listed_count") == 4, "reminder_normal_list_count_failed")
+        return
     error = str(detail.get("error") or "reminder_normal_job_failed")
     _require(response.status == 200 and detail.get("ok") is True
              and detail.get("failed_count") == 0, error)
@@ -251,7 +267,8 @@ async def cleanup(env, store, run_id):
     clean = {
         "version": 1, "kind": "day_before_reminder", "normal": True, "dirty": False,
         "last_run_id": run_id, "outcome": "passed" if owner["completed"] == "duplicate"
-        and owner["stages"].get("reminder_normal_verify_duplicate") == 200 else "failed_clean",
+        and owner["stages"].get("reminder_normal_verify_duplicate") == 200
+        and (not owner.get("retry") or owner["stages"].get("reminder_normal_verify_fail") == 200) else "failed_clean",
         "stages": owner["stages"], "resource_fingerprints": _targets(env),
     }
     await _save(store, clean)
@@ -269,7 +286,7 @@ async def run(env, store, run_id, phase, request):
         if phase == "verify":
             await _verify(env, store, owner)
         else:
-            _require(phase in PHASES and owner.get("completed") == PHASES[PHASES.index(phase) - 1]
+            _require(phase in (*PHASES, "fail") and owner.get("completed") == previous_phase(owner, PHASES, phase, "notify")
                      and owner.get("stage") != "working", "reminder_normal_phase_mismatch")
             _require(owner["stages"].get(f"reminder_normal_verify_{owner['completed']}") == 200,
                      "reminder_normal_previous_unverified")

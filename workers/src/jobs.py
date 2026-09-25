@@ -1,8 +1,9 @@
 import asyncio
 import json
 import math
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from workers import fetch as _runtime_fetch
 
@@ -326,10 +327,17 @@ async def _run_qa_notification_pages(
             f"質問: {question}\n"
             f"回答: {answer}"
         )
-        sent = await _discord_send_message(env, channel_id, msg)
+        sender = getattr(env, "_job_send_message", None)
+        sender = cast(Callable[..., Awaitable[bool]], sender) if callable(sender) else _discord_send_message
+        sent = await sender(env, channel_id, msg)
         if not sent:
             had_error = True
             failed_page_ids.append(page_id)
+            # 送信失敗を既読にせず、次のジョブで同じ更新を再判定する。
+            if page_id in cache:
+                new_cache[page_id] = cache[page_id]
+            else:
+                new_cache.pop(page_id, None)
 
     if state.enabled():
         await state.put_json_if_changed("qa_cache", new_cache)
@@ -476,7 +484,8 @@ async def _run_reminder_events(
             f"{event_url}"
         )
         # Discord REST API メッセージ送信リクエスト
-        sender = send_message or _discord_send_message
+        injected_sender = getattr(env, "_job_send_message", None)
+        sender = send_message or (cast(Callable[..., Awaitable[bool]], injected_sender) if callable(injected_sender) else _discord_send_message)
         sent = await sender(
             env,
             channel_id,
@@ -631,7 +640,8 @@ async def _run_auto_clean_pages(
     archived = 0
     had_error = False
 
-    archiver = archive_page or _notion_archive_page
+    injected_archiver = getattr(env, "_job_archive_page", None)
+    archiver = archive_page or (cast(Callable[..., Awaitable[bool]], injected_archiver) if callable(injected_archiver) else _notion_archive_page)
     for page in pages:
         scanned += 1
         if not _archive_internal_due(_extract_date(page, date_prop), now_utc):
@@ -642,8 +652,8 @@ async def _run_auto_clean_pages(
         else:
             had_error = True
 
-    # 最終実行時刻を保存
-    if state.enabled():
+    # 失敗したページを次回のinterval guardで抑止しない。
+    if not had_error and state.enabled():
         await state.put_text("cleanup:last_epoch", str(now_utc.timestamp()))
 
     if return_detail:

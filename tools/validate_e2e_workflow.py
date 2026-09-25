@@ -92,6 +92,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, text.count("deploy-and-sync-lock-smoke") == 3, "sync_lock_mode_contract_changed")
     _expect(errors, text.count("deploy-and-google-calendar-check") == 2, "google_calendar_check_contract_changed")
     _expect(errors, text.count("deploy-and-watch-shared-smoke") == 3, "watch_shared_mode_contract_changed")
+    _expect(errors, text.count("deploy-and-jobs-retry-smoke") == 3, "jobs_retry_mode_contract_changed")
     _expect(errors, text.count("deploy-and-qa-normal-smoke") == 3, "qa_normal_mode_contract_changed")
     _expect(errors, text.count("deploy-and-reminder-normal-smoke") == 3, "reminder_normal_mode_contract_changed")
     _expect(errors, text.count("deploy-and-notion-cleanup-normal-smoke") == 3, "cleanup_normal_mode_contract_changed")

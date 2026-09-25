@@ -64,6 +64,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-discord-smoke",
   "deploy-and-google-notion-smoke",
   "deploy-and-qa-notification-smoke",
+  "deploy-and-jobs-retry-smoke",
   "deploy-and-qa-normal-smoke",
   "deploy-and-reminder-normal-smoke",
   "deploy-and-notion-cleanup-normal-smoke",
@@ -870,15 +871,25 @@ export async function runDeployAndDiscordDeltaSmoke(callTool, runId, options = {
 }
 
 
+export async function runDeployAndJobsRetrySmoke(callTool, runId, options = {}) {
+  await runDeployAndQaNormalSmoke(callTool, runId, { ...options, retry: true });
+  await runDeployAndReminderNormalSmoke(callTool, runId, { ...options, retry: true, deployed: true });
+  await runDeployAndNotionCleanupNormalSmoke(callTool, runId, { ...options, retry: true, deployed: true });
+  return { ok: true, scenarios: ["qa_notification", "reminder", "notion_cleanup"] };
+}
+
+
 export async function runDeployAndQaNormalSmoke(callTool, runId, options = {}) {
-  await requireTool(callTool, "deploy_e2e", {
-    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
-  });
+  if (!options.deployed) {
+    await requireTool(callTool, "deploy_e2e", {
+      run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+    });
+  }
   await runPreflight(callTool, runId, options.preflight);
   const pause = options.sleepImpl ?? sleep;
   let primaryError = null;
   try {
-    for (const phase of ["prepare", "first", "update", "notify", "duplicate"]) {
+    for (const phase of (options.retry ? ["prepare", "first", "update", "fail", "notify", "duplicate"] : ["prepare", "first", "update", "notify", "duplicate"])) {
       // Notionの実更新時刻が変わるのを待ち、cache markerは作り替えない。
       if (phase === "update") {
         await pause(65_000);
@@ -917,19 +928,25 @@ export async function runDeployAndQaNormalSmoke(callTool, runId, options = {}) {
   if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.qa_normal_cleanup !== 200) {
     throw new E2eWorkflowError("qa_normal_evidence_missing");
   }
+  if (options.retry && (assertion.manifest?.stages?.qa_normal_failed_http !== 500 ||
+      assertion.manifest?.stages?.qa_normal_verify_fail !== 200)) {
+    throw new E2eWorkflowError("job_retry_evidence_missing");
+  }
   return { ok: true, scenarios: ["qa_notification"] };
 }
 
 
 export async function runDeployAndReminderNormalSmoke(callTool, runId, options = {}) {
-  await requireTool(callTool, "deploy_e2e", {
-    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
-  });
+  if (!options.deployed) {
+    await requireTool(callTool, "deploy_e2e", {
+      run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+    });
+  }
   await runPreflight(callTool, runId, options.preflight);
   const pause = options.sleepImpl ?? sleep;
   let primaryError = null;
   try {
-    for (const phase of ["prepare", "notify", "duplicate"]) {
+    for (const phase of (options.retry ? ["prepare", "fail", "notify", "duplicate"] : ["prepare", "notify", "duplicate"])) {
       const operation = await requireTool(callTool, "trigger_job", {
         run_id: runId, job: `reminder_normal_${phase}`,
       });
@@ -964,19 +981,25 @@ export async function runDeployAndReminderNormalSmoke(callTool, runId, options =
   if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.reminder_normal_cleanup !== 200) {
     throw new E2eWorkflowError("reminder_normal_evidence_missing");
   }
+  if (options.retry && (assertion.manifest?.stages?.reminder_normal_failed_http !== 500 ||
+      assertion.manifest?.stages?.reminder_normal_verify_fail !== 200)) {
+    throw new E2eWorkflowError("job_retry_evidence_missing");
+  }
   return { ok: true, scenarios: ["reminder"] };
 }
 
 
 export async function runDeployAndNotionCleanupNormalSmoke(callTool, runId, options = {}) {
-  await requireTool(callTool, "deploy_e2e", {
-    run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
-  });
+  if (!options.deployed) {
+    await requireTool(callTool, "deploy_e2e", {
+      run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+    });
+  }
   await runPreflight(callTool, runId, options.preflight);
   const pause = options.sleepImpl ?? sleep;
   let primaryError = null;
   try {
-    for (const phase of ["prepare", "execute", "duplicate"]) {
+    for (const phase of (options.retry ? ["prepare", "fail", "execute", "duplicate"] : ["prepare", "execute", "duplicate"])) {
       const operation = await requireTool(callTool, "trigger_job", {
         run_id: runId, job: `cleanup_normal_${phase}`,
       });
@@ -1010,6 +1033,10 @@ export async function runDeployAndNotionCleanupNormalSmoke(callTool, runId, opti
   });
   if (assertion.manifest?.outcome !== "passed" || assertion.manifest?.stages?.cleanup_normal_cleanup !== 200) {
     throw new E2eWorkflowError("cleanup_normal_evidence_missing");
+  }
+  if (options.retry && (assertion.manifest?.stages?.cleanup_normal_failed_http !== 500 ||
+      assertion.manifest?.stages?.cleanup_normal_verify_fail !== 200)) {
+    throw new E2eWorkflowError("job_retry_evidence_missing");
   }
   return { ok: true, scenarios: ["notion_cleanup"] };
 }
@@ -1248,7 +1275,7 @@ export function touchedServicesFromAudit(entries, runId) {
             "google_notion",
           ].includes(entry.target)) ||
         (entry.tool === "trigger_job" &&
-          ["cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_check", "reminder", "cleanup", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
+          ["cleanup_normal_fail", "cleanup_normal_prepare", "cleanup_normal_execute", "cleanup_normal_duplicate", "cleanup_normal_verify", "reminder_normal_fail", "reminder_normal_prepare", "reminder_normal_notify", "reminder_normal_duplicate", "reminder_normal_verify", "qa_check", "reminder", "cleanup", "qa_normal_fail", "qa_normal_prepare", "qa_normal_first", "qa_normal_update", "qa_normal_notify", "qa_normal_duplicate", "qa_normal_verify"].includes(entry.target)) ||
         (entry.tool === "trigger_webhook" && entry.target === "webhook_dispatch") ||
         (entry.tool === "trigger_webhook_delivery" &&
           entry.target === "webhook_delivery") ||
@@ -1258,14 +1285,17 @@ export function touchedServicesFromAudit(entries, runId) {
     ) {
       const jobService = {
         qa_check: "qa_notification",
+        cleanup_normal_fail: "notion_cleanup",
         cleanup_normal_prepare: "notion_cleanup",
         cleanup_normal_execute: "notion_cleanup",
         cleanup_normal_duplicate: "notion_cleanup",
         cleanup_normal_verify: "notion_cleanup",
+        reminder_normal_fail: "reminder",
         reminder_normal_prepare: "reminder",
         reminder_normal_notify: "reminder",
         reminder_normal_duplicate: "reminder",
         reminder_normal_verify: "reminder",
+        qa_normal_fail: "qa_notification",
         qa_normal_prepare: "qa_notification",
         qa_normal_first: "qa_notification",
         qa_normal_update: "qa_notification",
@@ -1509,6 +1539,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-reminder-normal-smoke") {
       await runDeployAndReminderNormalSmoke(callTool, runId);
+      return;
+    }
+    if (command === "deploy-and-jobs-retry-smoke") {
+      await runDeployAndJobsRetrySmoke(callTool, runId);
       return;
     }
     if (command === "deploy-and-qa-normal-smoke") {

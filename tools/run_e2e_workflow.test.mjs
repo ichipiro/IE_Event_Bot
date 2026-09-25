@@ -33,6 +33,7 @@ import {
   runDeployAndNotionCleanupSmoke,
   runDeployAndQaNotificationSmoke,
   runDeployAndQaNormalSmoke,
+  runDeployAndJobsRetrySmoke,
   runDeployAndReminderNormalSmoke,
   runDeployAndNotionCleanupNormalSmoke,
   runDeployAndReminderSmoke,
@@ -1685,3 +1686,54 @@ test("deployはSDK既定60秒で打ち切らず、既存deployとrevision確認�
   assert.equal(e2eCallOptions("trigger_sync", { scenario: "google_sync" }).timeout, 180_000);
   assert.equal(e2eCallOptions("read_status", {}), undefined);
 });
+
+for (const failure of [null, "fail", "verify", "evidence"]) {
+  test(`通常3ジョブの失敗再試行は1deploy・独立検証・回収を要求: ${failure}`, async () => {
+    const phases = {};
+    const stages = {};
+    const prefixes = { qa_notification: "qa_normal", reminder: "reminder_normal", notion_cleanup: "cleanup_normal" };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_job: async ({ job }) => {
+        const prefix = Object.values(prefixes).find(p => job.startsWith(`${p}_`));
+        const phase = job.slice(prefix.length + 1);
+        stages[prefix] ??= {};
+        if (phase === "verify") {
+          if (failure === "verify" && phases[prefix] === "fail") {
+            return { ok: false, error: "failure_result_mismatch" };
+          }
+          stages[prefix][`${prefix}_verify_${phases[prefix]}`] = 200;
+        } else {
+          if (failure === "fail" && phase === "fail") {
+            return { ok: false, error: "failure_not_observed" };
+          }
+          phases[prefix] = phase;
+          stages[prefix][`${prefix}_${phase}`] = 200;
+          if (phase === "fail" && failure !== "evidence") {
+            stages[prefix][`${prefix}_failed_http`] = 500;
+          }
+        }
+        return { ok: true, stages: { ...stages[prefix] } };
+      },
+      assert_external_state: async ({ service }) => {
+        const prefix = prefixes[service];
+        return { ok: true, manifest: { outcome: "passed", stages: { ...stages[prefix], [`${prefix}_cleanup`]: 200 } } };
+      },
+    });
+    const task = runDeployAndJobsRetrySmoke(callTool, RUN_ID, { sleepImpl: async () => {} });
+    if (failure) {
+      await assert.rejects(task, /failure_|job_retry_evidence_missing/);
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 1);
+    } else {
+      assert.deepEqual((await task).scenarios, Object.keys(prefixes));
+      assert.equal(calls.filter(c => c.name === "cleanup_run").length, 3);
+      for (const prefix of Object.values(prefixes)) {
+        assert.equal(calls.filter(c => c.args.job === `${prefix}_fail`).length, 1);
+        assert.equal(stages[prefix][`${prefix}_verify_fail`], 200);
+      }
+    }
+    assert.equal(calls.filter(c => c.name === "deploy_e2e").length, 1);
+    assert.deepEqual(touchedServicesFromAudit(Object.values(prefixes).map(prefix => ({
+      run_id: RUN_ID, phase: "start", tool: "trigger_job", target: `${prefix}_fail`,
+    })), RUN_ID).sort(), Object.keys(prefixes).sort());
+  });
+}

@@ -31,3 +31,15 @@ Notion所有5ページをarchive、Discord通知2件を削除し、`qa_cache`・
 ローカルでは初回・2ページ目の失敗、Q&A採番／通知の両query、cleanup、不正応答・cursor循環・通信例外・token欠落、空一覧、再試行・重複抑止と途中回収を検証する。実サービスでは所有3件／2件の少数ページ送り後の固定503を使う。Notionの実障害、応答喪失、実Cron起動、任意件数、KV保存失敗、全リージョン一貫性の証明には含めない。
 
 関連: [書込み失敗の再試行](E2E-JOBS-RETRY.md)、[全体計画](E2E-PLAN.md)、[検証方法](TESTING.md)。
+
+## 2026-09-25 実行結果
+
+[実行36111245608](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36111245608)（commit `9f53e3b3b72c03bb4a731a915ce8621d6981f7a9`）で成功した。run IDは `E2E-20260925T080922Z-5b9b4a34`。
+
+- Q&A採番前・通知一覧取得中・cleanup一覧取得中の3箇所で、実Notionの1ページ目・継続cursor、2ページ目への固定503注入、通常HTTPの500を確認した。
+- 各失敗直後に別HTTPでページ・番号・cache・最終成功時刻・失敗結果を読み直した。Q&Aは初回抑止後、実更新した未回答2件だけを通知し、再実行で増えなかった。cleanupは期限切れ1件だけをarchiveし、将来日時1件を保持した。次HTTPのinterval guardも確認した。
+- Q&A全7段階・cleanup全4段階と各verifyが成功。所有Notion5ページ・Discord通知2件・共有KV4キーを回収し、両manifest `passed`・全manifest `dirty=false` を確認した。
+- 監査54行・27操作、33段階検証、workflow/artifactのcommit、clean checkout、run/version tag・version fingerprintを独立照合した。
+- CIのJUnitは937件成功（失敗・エラー・skipなし）。Node313件、Ruff、Pyright、設定・機密保護・workflow検査、Wrangler E2E dry-runも成功した。
+
+マスク済み成果物は `test-results/jobs-list-retry-36111245608/artifacts/`、独立照合スクリプトと結果は同親ディレクトリの `verify.py`・`verification.json` に保存した。デプロイ先はE2E専用Workerであり、本番Workerは未デプロイ。固定503注入の検証であり、Notion実障害の観測ではない。

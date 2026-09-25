@@ -87,7 +87,7 @@
 ## 8. 実Cron
 
 - [x] 隔離環境で期間と対象を限定し、Cloudflareの実Cron起動を確認する。[実行36099565944](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36099565944)で実Cron2回、run/version/commit一致、所有KVの読戻し、schedule・一時Worker・KVの回収、`passed`・`dirty=false` を確認した。全ジョブ無効の通常scheduled dispatchまでを対象とする。詳細は[検証記録](E2E-REAL-CRON.md)を参照。
-- [ ] 手動実行との競合を検証し、終了後にスケジュールと所有資源を回収する。
+- [x] 手動実行との競合を検証し、終了後にスケジュールと所有資源を回収する。[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)（commit `3bfc782`）で実Cron3回、両方向の409拒否、競合側の同期本体・結果保存0回、owner一致、解放後の手動同期と結果KV読戻しを確認した。schedule・一時Worker・所有KV4キーの回収、DOロック解放、`passed`・`dirty=false`、監査84行、JUnit899件成功を独立照合済み。同期本体は待機用runnerであり、外部API適用中の競合は対象外。 詳細は[検証記録](E2E-CRON-CONTENTION.md)を参照。
 
 ## 9. 実行・復旧・証跡
 

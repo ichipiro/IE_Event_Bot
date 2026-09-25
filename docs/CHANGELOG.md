@@ -240,3 +240,7 @@
 - 既存の README、仕様、KV、運用、Fork / Upstream 文書。
 - 作業開始前から存在した未コミット変更。
 - `docs/Event_Bot仕様書.md`、`docs/KV.md`、`docs/Operations.md`、`docs/do-kv-design.md` を追跡対象外のローカル補助とする方針。
+
+## 2026-09-25: 実Cronと手動同期の競合E2E
+
+- 実Cronと別HTTPの両方向のロック競合、解放後の再実行、結果KV読戻し、所有資源回収を検証した。[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)で成功し、[計画](E2E-PLAN.md)項目8と[検証記録](E2E-CRON-CONTENTION.md)を更新した。

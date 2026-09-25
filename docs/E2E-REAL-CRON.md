@@ -18,6 +18,8 @@ manifestの `outcome=passed`、`dirty=false`、異なる2件以上のreceipt、s
 
 この試験はCloudflareからPythonハンドラへの実起動を証明する。通常同期・通知・cleanupのCron実行、手動実行との競合、本番Worker、定刻配信の保証、KVの全拠点削除伝播は対象外。[E2E計画](E2E-PLAN.md)の実Cron項目のうち、手動実行との競合は別途検証する。
 
+手動同期との競合は、後続の[実Cron競合E2E](E2E-CRON-CONTENTION.md)で両方向の拒否・解放・回収を確認した。同期本体は待機用runnerであり、外部API適用中の競合は引き続き対象外である。
+
 ## ローカル確認
 
 ```bash

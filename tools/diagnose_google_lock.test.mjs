@@ -17,6 +17,8 @@ test("ログ本文・URL・任意文字列を出さず固定分類と数値だ�
   assert.deepEqual(result.categories, ["storage_timeout"]);
   assert.equal(result.wall_ms, 12000);
   assert.equal(result.execution, "unknown");
+  assert.equal(result.message_present, true);
+  assert.deepEqual(result.message_terms, ["timeout", "storage"]);
   assert.ok(!JSON.stringify(result).includes("secret-test-value"));
 });
 

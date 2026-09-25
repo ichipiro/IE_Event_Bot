@@ -30,6 +30,9 @@ const CLASSIFIERS = {
 };
 const number = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
 const pick = (value, allowed) => allowed.includes(value) ? value : "unknown";
+const MESSAGE_TERMS = ["promise", "rpc", "stub", "connection", "canceled", "cancelled", "deadlock",
+  "garbage", "collect", "response", "body", "timeout", "aborted", "limit", "memory", "deprecated",
+  "storage", "request", "discarded", "reset", "rejected", "resolved", "error"];
 
 export function redactApiError(data) {
   const errors = Array.isArray(data?.errors) ? data.errors.slice(0, 10) : [];
@@ -104,6 +107,8 @@ export function redactEvent(event) {
   }
   // 本文は分類器への入力にだけ使い、任意文字列を出力へコピーしない。
   const text = JSON.stringify(event);
+  const messages = [meta.message, meta.error, event.message, event.error, event.source?.message]
+    .filter((value) => typeof value === "string").join("\n");
   return {
     timestamp: number(event.timestamp), status: number(meta.statusCode),
     duration_ms: number(meta.duration), cpu_ms: number(worker.cpuTimeMs),
@@ -113,6 +118,8 @@ export function redactEvent(event) {
     execution: pick(worker.executionModel, ["durableObject", "stateless"]),
     outcome: pick(worker.outcome, ["ok", "exception", "exceededCpu", "exceededMemory", "canceled", "unknown"]),
     error_present: typeof meta.error === "string" && meta.error.length > 0,
+    message_present: messages.length > 0,
+    message_terms: MESSAGE_TERMS.filter((term) => new RegExp(`\\b${term}\\b`, "i").test(messages)),
     categories: Object.entries(CLASSIFIERS).filter(([, pattern]) => pattern.test(text)).map(([key]) => key),
   };
 }

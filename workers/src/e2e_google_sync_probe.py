@@ -44,6 +44,7 @@ from e2e_sync_lock_probe import RUN_PATTERN, _lock_state
 from google_auth import get_google_access_token
 from google_calendar_sync import run_google_delta_fetch
 from state import StateStore
+from sync_lock_release import _RPC_TIMEOUT_SECONDS, _recover_release, _release_retry_blocked
 
 
 _PHASE_TIMEOUT_SECONDS = 50

@@ -249,3 +249,46 @@ def test_recovery_never_calls_do_without_owner_or_when_blocked(owner, blocked):
 
     result = asyncio.run(recovery._recover_release(unexpected, rpc, owner, "global", blocked=blocked))
     assert result["ok"] is False and result["attempts"] == result["release_attempts"] == 0
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_e2e_cleanup_is_saved_only_after_confirmed_release(monkeypatch, persistent):
+    import e2e_google_sync_probe as probe
+    from tests.test_e2e_google_sync_probe import Scenario
+    from tests.test_e2e_sync_lock_probe import RUN
+
+    scenario = Scenario(monkeypatch)
+    original_rpc = scenario.store._sync_do_rpc
+    saved = []
+    releases = []
+    clean = {"run_id": RUN, "outcome": "passed"}
+
+    async def phase(*args):
+        return {"ok": True, "dirty": False, "_clean_manifest": clean}
+
+    async def save(service, manifest):
+        saved.append((service, manifest))
+
+    async def rpc(stub, action, payload=None):
+        if action == "release":
+            releases.append(payload)
+            if persistent or len(releases) == 1:
+                raise RuntimeError("private-failure")
+        return await original_rpc(stub, action, payload)
+
+    monkeypatch.setattr(probe, "_phase", phase)
+    monkeypatch.setattr(scenario.store, "_sync_do_rpc", rpc)
+    monkeypatch.setattr(scenario.store, "put_e2e_manifest", save)
+    result = asyncio.run(probe.run_google_sync_probe(
+        scenario.env, scenario.store, RUN, "cleanup", None,
+    ))
+    if persistent:
+        assert result["error"] == "google_sync_release_failed"
+        assert result["dirty"] is True and not saved
+        assert result["release_diagnostic"]["fresh_owner_matches"] is True
+        assert "private" not in json.dumps(result)
+        assert len(releases) == 3
+    else:
+        assert result == {"ok": True, "dirty": False, "run_id": RUN}
+        assert saved == [(probe.SERVICE, clean)]
+        assert len(releases) == 2

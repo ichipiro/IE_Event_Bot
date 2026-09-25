@@ -26,6 +26,13 @@ test("別Workerのログを拒否する", () => {
   assert.throws(() => redactEvent(raw), /diagnostic_scope_mismatch/);
 });
 
+test("接続上限とRPC切断を本文を残さず分類する", () => {
+  const raw = event();
+  raw.$metadata.error = "secret-test-value: RPC session disconnected: Response closed due to connection limit";
+  assert.deepEqual(redactEvent(raw).categories, ["disconnected", "connection_limit", "rpc_session"]);
+  assert.ok(!JSON.stringify(redactEvent(raw)).includes("secret-test-value"));
+});
+
 test("2つの固定時間帯とE2E Workerだけを保存なしで照会する", async () => {
   const calls = [];
   const report = await diagnose(credentials, async (url, options) => {
@@ -35,6 +42,10 @@ test("2つの固定時間帯とE2E Workerだけを保存なしで照会する", 
   });
   assert.equal(calls.length, 2);
   assert.equal(report.windows.length, 2);
+  assert.deepEqual(report.windows.map(({ label, from, to }) => [label, from, to]), [
+    ["watch_prepare", "2026-09-25T09:16:35Z", "2026-09-25T09:17:45Z"],
+    ["watch_recovery", "2026-09-25T09:22:00Z", "2026-09-25T09:23:30Z"],
+  ]);
   for (const { url, options, body } of calls) {
     assert.match(url, /^https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/[a-f0-9]{32}\/workers\/observability\/telemetry\/query$/);
     assert.equal(options.redirect, "error");

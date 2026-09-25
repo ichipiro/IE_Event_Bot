@@ -1,11 +1,11 @@
-// 2026-09-24の共有Webhook同期と回収の失敗だけを調べる。生ログ・URL・例外本文は保存しない。
+// 2026-09-25のwatch準備・回収だけを調べる。生ログ・URL・例外本文は保存しない。
 import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const SCRIPT = "ie-event-bot-e2e";
 const WINDOWS = [
-  ["shared_webhook", "2026-09-24T15:37:00Z", "2026-09-24T15:38:30Z"],
-  ["shared_cleanup", "2026-09-24T15:43:00Z", "2026-09-24T15:43:40Z"],
+  ["watch_prepare", "2026-09-25T09:16:35Z", "2026-09-25T09:17:45Z"],
+  ["watch_recovery", "2026-09-25T09:22:00Z", "2026-09-25T09:23:30Z"],
 ];
 const CLASSIFIERS = {
   release_failed: /google_sync_release_failed/i,
@@ -17,6 +17,8 @@ const CLASSIFIERS = {
   cpu_limit: /cpu.*(?:limit|exceeded)/i,
   memory_limit: /memory.*(?:limit|exceeded)/i,
   disconnected: /disconnected|broken pipe|network connection lost/i,
+  connection_limit: /connection limit|too many (?:open )?connections|response closed due to connection/i,
+  rpc_session: /rpc.*(?:session|disconnect)|session.*(?:rpc|disconnect)/i,
   internal_error: /internal error/i,
   data_clone: /DataCloneError|could not be cloned/i,
   awaitable_depth: /sync_state_rpc_awaitable_depth_exceeded/i,

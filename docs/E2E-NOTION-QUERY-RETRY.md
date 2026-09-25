@@ -36,4 +36,20 @@ Notion APIの[照会仕様](https://developers.notion.com/reference/post-databas
 修正版は今回の試験に限り、削除履歴のIDを含むイベント全体のSHA-256を一覧で保存する。
 最大256件まで許可し、ID別digestの二重保存を避ける。履歴の内容変更・所有外予定・257件以上は拒否し、既存履歴を削除しない。
 256件を保持した全段階・回収と32 KiB未満のmanifestをローカルで確認した。従来モードの100件制限は維持する。
-再試験の結果はworkflow・artifactと照合して追記する。
+
+### 再試験成功
+
+[実行36144536848](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36144536848)が成功した。
+
+- run: `E2E-20260925T140203Z-79ddd791`
+- commit: `fb97396d4fd34f4870b96980d7cab7e1cc53d3c1`。実行checkoutはclean。
+- Worker version SHA-256: `a48c3fa2d9df968ea7d1cf84bac04c2b52e6ad31465bc712890dcb99ad8c13ba`。deploy監査と最終読戻しが一致し、version tagもrun IDと一致。
+- 全4段階・操作とverifyの計8HTTPが成功。Notionの400・`validation_error`、通常dispatchの500、queue2件の内容と順序・対応表・cursor・最終成功時刻の維持を確認した。
+- 別HTTPで保存queue2件だけを消化し、queue0件、Notion・Discord各3件、既存ID維持とDiscord ID書戻しを確認した。全3件の再適用後も各3件・同一IDで重複はなかった。
+- Google予定3件・Discord予定3件を削除、Notionページ3件をarchiveし、それぞれGETで確認した。共有KV6キーは削除後の不在を確認した。
+- 今回scenarioは `outcome=passed`。全service／scenario manifestが `dirty=false`、watch不在、回収は本体と後処理の2回とも成功した。
+- 監査22行・11操作、検証stage44件、run/version/commit、JUnit1,073件・失敗0を独立照合した。Node354件、Cron契約13件、Ruff・Pyright・E2E契約検査・dry-runも成功。
+
+取得証跡は `test-results/notion-query-retry-36144536848/`、独立照合結果は同ディレクトリの `verification.json` に保存した。
+初回の停止・回収拒否の証跡は `test-results/notion-query-retry-36143962340/prewrite-verification.json` に分けて保存した。
+Notion照会のAPI拒否後の復旧は確認済み。Notion作成・Discord ID書戻しのAPI拒否、自然発生障害、本番反映は本実行に含めない。

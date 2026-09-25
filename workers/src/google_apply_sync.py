@@ -372,7 +372,8 @@ async def _notion_create_event(
         props[prop_location] = {"rich_text": [{"text": {"content": str(location)}}]}
 
     # Notion API リクエスト
-    response = await fetch(
+    create_fetch = getattr(env, "_google_notion_create_fetch", None) or fetch
+    response = await create_fetch(
         "https://api.notion.com/v1/pages",
         {
             "method": "POST",

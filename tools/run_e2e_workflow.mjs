@@ -55,6 +55,7 @@ export const COMMANDS = Object.freeze([
   "deploy-and-google-sync-smoke",
   "deploy-and-google-full-smoke",
   "deploy-and-notion-query-retry-smoke",
+  "deploy-and-notion-create-retry-smoke",
   "deploy-and-google-boundary-smoke",
   "deploy-and-google-matrix-smoke",
   "deploy-and-all-sync-smoke",
@@ -665,15 +666,17 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
     throw new E2eWorkflowError("google_sync_version_missing");
   }
   await runPreflight(callTool, runId, options.preflight);
+  const notionRetry = options.notionQuery || options.notionCreate;
+  const notionPrefix = options.notionCreate ? "notion_create" : "notion_query";
   let primaryError = null;
   try {
-    const steps = options.notionQuery ? ["pending", "retry_pending", "retried", "drained"] : options.boundary ? [...Array(18).fill("prepared"), ...Array(4).fill("pending"), ...Array(5).fill("drained")] : options.httpSync ? ["prepared", "drained", "updated", "drained"] : options.allSync ? ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"] : options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
+    const steps = notionRetry ? ["pending", "retry_pending", "retried", "drained"] : options.boundary ? [...Array(18).fill("prepared"), ...Array(4).fill("pending"), ...Array(5).fill("drained")] : options.httpSync ? ["prepared", "drained", "updated", "drained"] : options.allSync ? ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"] : options.matrix ? [...Array(5).fill("prepared"), "pending", "pending", "drained", "updated", "updated", "deleted", "deleted", "retry_pending", "retried", "retry_pending", "pending", "pending", "retried",
       "prepared", "prepared", "pending", "pending", "pending", "drained", "retry_pending", "retried", "retry_pending", "retried"]
       : options.fullApply ? ["pending", "drained", "updated", "deleted"]
       : ["pending", "drained", "updated", "deleted", "retry_pending", "retried"];
     for (const [index, step] of steps.entries()) {
       const written = await requireTool(callTool, "trigger_sync", {
-        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (options.notionQuery ? "prepare_notion_query" : options.boundary ? "prepare_boundary" : options.webhookSync ? "prepare_webhook" : options.httpSync ? "prepare_http" : options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : options.webhookSync ? "webhook_trigger" : options.httpSync ? "http_advance" : "advance",
+        run_id: runId, scenario: "google_sync", sync_phase: index === 0 ? (notionRetry ? (options.notionCreate ? "prepare_notion_create" : "prepare_notion_query") : options.boundary ? "prepare_boundary" : options.webhookSync ? "prepare_webhook" : options.httpSync ? "prepare_http" : options.allSync ? "prepare_all" : options.matrix ? "prepare_matrix" : options.fullApply ? "prepare_full" : "prepare") : options.webhookSync ? "webhook_trigger" : options.httpSync ? "http_advance" : "advance",
       });
       if (written.status !== 200 || !written.dirty || written.run_id !== runId || written.execution_status !== step) {
         throw new E2eWorkflowError("google_sync_phase_mismatch");
@@ -704,17 +707,17 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
       const status = await readStatusWithRetry(callTool, runId, options.verify);
       const manifest = status.scenarios?.google_sync;
       if (!manifest?.present || !manifest.dirty || manifest.run_id !== runId || manifest.stage !== "verified" ||
-          manifest.stages?.[options.notionQuery ? `notion_query_step_${index}` : options.boundary ? `google_boundary_step_${index}` : options.httpSync ? `all_http_step_${index}` : options.allSync ? `all_sync_step_${index}` : options.matrix ? `google_matrix_step_${index}` : `google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
+          manifest.stages?.[notionRetry ? `${notionPrefix}_step_${index}` : options.boundary ? `google_boundary_step_${index}` : options.httpSync ? `all_http_step_${index}` : options.allSync ? `all_sync_step_${index}` : options.matrix ? `google_matrix_step_${index}` : `google_sync_${step}`] !== 200 || status.worker_version?.tag !== runId ||
           (options.fullApply && !options.matrix && !options.boundary && (manifest.stages?.google_sync_full_input !== 200 ||
             manifest.stages?.google_sync_shared_empty !== 200)) ||
           (!options.httpSync && !options.allSync && !options.matrix && !options.boundary && index >= 4 && manifest.stages?.google_sync_discord_failure_injected !== 200) ||
           (!options.httpSync && !options.allSync && !options.matrix && !options.boundary && index >= 4 && (manifest.stages?.google_sync_discord_invalid_update !== 400 ||
             manifest.stages?.google_sync_discord_rejection_verified !== 200)) ||
-          (options.notionQuery && (manifest.stages?.[`notion_query_unique_${index}`] !== 200 ||
-            (index >= 1 && (manifest.stages?.notion_query_api_rejection !== 400 || manifest.stages?.notion_query_validation_error !== 200 ||
-              manifest.stages?.notion_query_failed_dispatch !== 500 || manifest.stages?.notion_query_cursor_preserved !== 200)) ||
-            (index >= 2 && manifest.stages?.notion_query_queue_only_retry !== 200) ||
-            (index === 3 && manifest.stages?.notion_query_reapply !== 200))) ||
+          (notionRetry && (manifest.stages?.[`${notionPrefix}_unique_${index}`] !== 200 ||
+            (index >= 1 && (manifest.stages?.[`${notionPrefix}_api_rejection`] !== 400 || manifest.stages?.[`${notionPrefix}_validation_error`] !== 200 ||
+              manifest.stages?.[`${notionPrefix}_failed_dispatch`] !== 500 || manifest.stages?.[`${notionPrefix}_cursor_preserved`] !== 200)) ||
+            (index >= 2 && manifest.stages?.[`${notionPrefix}_queue_only_retry`] !== 200) ||
+            (index === 3 && manifest.stages?.[`${notionPrefix}_reapply`] !== 200))) ||
           (options.boundary && (manifest.stages?.google_sync_shared_empty !== 200 ||
             (index >= 18 && (manifest.stages?.google_boundary_input_17 !== 200 ||
               manifest.stages?.google_boundary_initial_cursor_preserved !== 200 ||
@@ -754,7 +757,7 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
   if (clean.manifest?.outcome !== "passed" ||
       (options.webhookSync && (clean.manifest?.stages?.watch_shared_release_recovery_cleanup !== 200 || clean.manifest?.stages?.watch_shared_cleanup !== 200 || clean.manifest?.stages?.watch_shared_queue_cleanup !== 200)) ||
       ((options.fullApply || options.httpSync) && clean.manifest?.stages?.google_sync_shared_cleanup !== 200) ||
-      (options.notionQuery && [0, 1, 2].some(slot => clean.manifest?.stages?.[`notion_query_cleanup_${slot}`] !== 200)) ||
+      (notionRetry && [0, 1, 2].some(slot => clean.manifest?.stages?.[`${notionPrefix}_cleanup_${slot}`] !== 200)) ||
       (options.boundary && Array.from({ length: 17 }, (_, slot) => slot).some(slot => clean.manifest?.stages?.[`google_boundary_cleanup_${slot}`] !== 200)) ||
       (options.matrix && clean.manifest?.stages?.google_matrix_series_cleanup !== 200)) {
     throw new E2eWorkflowError("google_sync_outcome_failed");
@@ -1551,6 +1554,10 @@ async function runCommand(command, runId) {
     }
     if (command === "deploy-and-google-matrix-smoke") {
       await runDeployAndGoogleSyncSmoke(callTool, runId, { fullApply: true, matrix: true });
+      return;
+    }
+    if (command === "deploy-and-notion-create-retry-smoke") {
+      await runDeployAndGoogleSyncSmoke(callTool, runId, { fullApply: true, notionCreate: true });
       return;
     }
     if (command === "deploy-and-notion-query-retry-smoke") {

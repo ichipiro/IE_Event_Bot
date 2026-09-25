@@ -1938,3 +1938,41 @@ for (const failure of [null, "notion_query_step_3", "notion_query_unique_2", "no
     assert.equal(cleanups, 1);
   });
 }
+
+for (const failure of [null, "notion_create_step_3", "notion_create_unique_2", "notion_create_api_rejection", "notion_create_validation_error", "notion_create_failed_dispatch", "notion_create_cursor_preserved", "notion_create_queue_only_retry", "notion_create_reapply", "notion_create_cleanup_2"]) {
+  test(`Notion作成復旧workflow: ${failure ?? "success"}`, async () => {
+    const steps = ["pending", "retry_pending", "retried", "drained"];
+    let index = 0;
+    let cleanups = 0;
+    const stages = () => {
+      const result = { google_sync_shared_empty: 200, google_sync_full_input: 200,
+        [`notion_create_step_${index}`]: 200, [`notion_create_unique_${index}`]: 200,
+        notion_create_api_rejection: 400, notion_create_validation_error: 200,
+        notion_create_failed_dispatch: 500, notion_create_cursor_preserved: 200,
+        notion_create_queue_only_retry: 200, notion_create_reapply: 200,
+        google_sync_shared_cleanup: 200,
+        notion_create_cleanup_0: 200, notion_create_cleanup_1: 200, notion_create_cleanup_2: 200 };
+      if (failure) { delete result[failure]; }
+      return result;
+    };
+    const { calls, callTool } = stateWorkflowFixture({
+      trigger_sync: async args => {
+        if (args.sync_phase === "advance") { index += 1; }
+        return { ok: true, status: 200, dirty: true, run_id: RUN_ID, execution_status: steps[index] };
+      },
+      read_status: async () => ({ ok: true, worker_version: { tag: RUN_ID, id_sha256: "a".repeat(64) },
+        scenarios: { google_sync: { present: true, dirty: true, run_id: RUN_ID, stage: "verified", stages: stages() } } }),
+      cleanup_run: async () => { cleanups += 1; return { ok: true, dirty: false }; },
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: stages() } }),
+    }, "google_sync");
+    const options = { notionCreate: true, fullApply: true };
+    if (failure) {
+      await assert.rejects(runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options), /google_sync_/);
+    } else {
+      await runDeployAndGoogleSyncSmoke(callTool, RUN_ID, options);
+      assert.deepEqual(calls.filter(c => c.name === "trigger_sync").map(c => c.args.sync_phase),
+        ["prepare_notion_create", "resume", ...Array(3).fill(["advance", "resume"]).flat()]);
+    }
+    assert.equal(cleanups, 1);
+  });
+}

@@ -82,7 +82,7 @@
 - [x] Q&Aの全件取得・質問番号補完・共有cache・通知を検証する。[実行36030243998](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36030243998)で専用DBの3件、通常HTTPハンドラ、採番・初回抑止・未回答2件の通知・回答済み抑止・重複抑止、全5段階と別HTTP読戻し、所有資源・共有KVの回収が成功した。監査26行・13操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit825件成功を照合済み。実Cron・通知失敗再試行は対象外。
 - [x] リマインドの全件取得・対象選別・共有cache・通知を検証する。[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)（commit `cc97b8b`）で、専用Guildの予定4件を通常HTTPハンドラから全件取得し、対象2件の通知・範囲外2件の抑止・共有cache・別HTTPでの重複抑止を確認した。全3段階と各verify、所有予定・通知・共有KVの回収が成功した。監査18行・9操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合済み。実Cronと通知失敗後の再送は対象外。
 - [x] Notion cleanupの全件取得・期限判定・共有最終時刻・実行間隔を検証する。[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。 詳細は[検証記録](E2E-NOTION-CLEANUP-NORMAL.md)を参照。
-- [ ] 各ジョブの再試行、重複抑止、所有資源回収を検証する。
+- [x] 各ジョブの再試行、重複抑止、所有資源回収を検証する。[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 詳細は[検証記録](E2E-JOBS-RETRY.md)を参照。
 
 ## 8. 実Cron
 

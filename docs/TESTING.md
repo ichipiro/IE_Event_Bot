@@ -616,3 +616,9 @@ POST・不正待機値・上限超過は再試行しない。継続する429も�
 [実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)（commit `3bfc782`）で実Cron3回、両方向の409拒否、競合側の同期本体・結果保存0回、owner一致、解放後の手動同期と結果KV読戻しを確認した。schedule・一時Worker・所有KV4キーの回収、DOロック解放、`passed`・`dirty=false`、監査84行、JUnit899件成功を独立照合済み。同期本体は待機用runnerであり、外部API適用中の競合は対象外。
 
 経路・所有範囲・検証境界は[実Cron競合E2E](E2E-CRON-CONTENTION.md)を参照。証跡と独立照合結果は `test-results/cron-contention-36104059809/` に保存した。
+
+## 通常ジョブの失敗後再試行
+
+`deploy-and-jobs-retry-smoke` でQ&A・リマインド・Notion cleanupを順に検証する。`tests/test_jobs_retry.py` はQ&Aとcleanupの再試行欠落を再現し、`tests/test_e2e_jobs_retry.py` は通常HTTPの失敗結果・別HTTP読戻し・回復・重複抑止・回収、未検証段階の拒否を確認する。
+
+[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 手順と対象外は[検証記録](E2E-JOBS-RETRY.md)を参照。

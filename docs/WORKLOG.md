@@ -1157,3 +1157,8 @@ Cloudflare や外部 API へ接続せず、同期制御と状態管理の主要�
 - [実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)（commit `3bfc782`）で実Cron3回、両方向の409拒否、競合側の同期本体・結果保存0回、owner一致、解放後の手動同期と結果KV読戻しを確認した。schedule・一時Worker・所有KV4キーの回収、DOロック解放、`passed`・`dirty=false`、監査84行、JUnit899件成功を独立照合済み。同期本体は待機用runnerであり、外部API適用中の競合は対象外。
 - `deploy-and-real-cron-contention`、一時Worker、別HTTPの手動同期、run専用DO/KVの検証と回収を追加した。通常Workerのコード・設定は変更していない。
 - 証跡は `test-results/cron-contention-36104059809/`。開始時の文書5件の未コミット変更を保持し、今回の差分だけをコミットした。
+
+## 2026-09-25: 通常ジョブの失敗後再試行E2E
+
+- [実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。
+- Q&Aの送信失敗を通知済みにする問題と、cleanup失敗時に成功時刻を進める問題をローカルで再現・修正した。詳細は[検証記録](E2E-JOBS-RETRY.md)。

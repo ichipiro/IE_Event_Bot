@@ -244,3 +244,7 @@
 ## 2026-09-25: 実Cronと手動同期の競合E2E
 
 - 実Cronと別HTTPの両方向のロック競合、解放後の再実行、結果KV読戻し、所有資源回収を検証した。[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)で成功し、[計画](E2E-PLAN.md)項目8と[検証記録](E2E-CRON-CONTENTION.md)を更新した。
+
+## 2026-09-25: 通常ジョブ再試行
+
+- Q&Aの通知失敗をcacheで抑止する問題とcleanup失敗後のinterval guardを修正。3ジョブの固定失敗・別HTTP回復・重複抑止・回収を実サービスで確認した（[検証記録](E2E-JOBS-RETRY.md)）。

@@ -28,3 +28,9 @@ Q&Aは送信失敗時に更新前のcache値を維持し、新規ページなら
 今回の失敗は固定注入であり、Discord/Notionの実障害、POST受理後の応答喪失、回線断、Worker中断、KV書込み失敗、実Cron起動、一覧取得失敗、任意件数・ページ送り、KVの全リージョン一貫性を証明しない。通常Notion一覧取得の失敗処理はこのシナリオの対象外である。
 
 関連: [全体計画](E2E-PLAN.md)、[通常cleanup](E2E-NOTION-CLEANUP-NORMAL.md)、[検証方法](TESTING.md)。
+
+## 2026-09-25 実行結果
+
+[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。
+
+run IDは `E2E-20260925T071039Z-e2335426`。証跡は `test-results/jobs-retry-36106153256/artifacts/`、独立照合は同ディレクトリの親の `verification.json` に保存した。Python907件、Node309件、Ruff・Pyright・設定/機密保護/workflow検査、Wrangler E2E dry-runが成功。本番Workerは未デプロイ。

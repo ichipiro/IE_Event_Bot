@@ -142,3 +142,7 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 [実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)（commit `3bfc782`）で実Cron3回、両方向の409拒否、競合側の同期本体・結果保存0回、owner一致、解放後の手動同期と結果KV読戻しを確認した。schedule・一時Worker・所有KV4キーの回収、DOロック解放、`passed`・`dirty=false`、監査84行、JUnit899件成功を独立照合済み。同期本体は待機用runnerであり、外部API適用中の競合は対象外。
 
 この確認はrun専用DO名とKVを使う単独Discord同期の共通ロック処理に限る。通常 `/sync/all` の実Cron競合、実同期本体、TTL超過は残る未検証範囲である。[検証記録](E2E-CRON-CONTENTION.md)。
+
+## 通常ジョブ失敗後再試行の確認済み範囲（2026-09-25）
+
+[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 上記の過去実行で対象外だった通常ジョブ再試行のうち、この固定失敗経路は対応済みとする。実障害・応答喪失・一覧取得失敗はこの結果へ含めない。詳細は[検証記録](E2E-JOBS-RETRY.md)。

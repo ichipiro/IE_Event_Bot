@@ -219,35 +219,3 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。
 
 Google→Discordの作成・更新で同期が有効なのにIDを得られない場合は、失敗した予定を通常queueへ保存する。通常dispatchは500となりcursor・最終成功時刻を進めない。専用Google E2EはNotion更新後のDiscord失敗をcallbackで固定注入し、次のHTTPでは保存queueだけを同じIDへ適用して回復を確認する。
-
-### ロック解放失敗の記録と復旧
-
-手動・Cron・Webhookの通常同期でロック解放に失敗すると、JSONログを1件出力する。
-Cloudflareの対象Workerのログで `sync_lock_release_failed` を検索する。
-`workers/wrangler.jsonc` は `observability.enabled: true` を設定済み。
-
-```json
-{"event":"sync_lock_release_failed","level":"error","stage":"rpc_call","error_type":"JsException"}
-```
-
-- `stage`: `get_stub`（接続取得）、`rpc_call`（解放RPC）、`decode_rpc`（応答解析）、`release_response`（成功応答でない）のいずれか。
-- `error_type`: 許可した例外名のみ。未分類は `other`、例外を伴わない失敗応答は `none`。
-- 例外本文、owner、トークン、応答本文は出力しない。`level` はJSON内の分類フィールドであり、ログ検索はイベント名を使う。
-
-同期本体の成功結果・失敗例外は維持するため、HTTP成功時にもこのログが出る場合がある。
-このログは解放の完了を確認できなかったことを示し、ロック残留そのものを確定しない。
-通常同期のglobalロックとGoogle同期E2Eの制御ロックは、失敗後に別接続で状態を確認する。
-自分のロックがなければ復旧成功とし、残っている場合だけ同じownerを指定して解放を再送する。
-確認と再送の間に所有者が交代しても、DO側のowner一致条件により別の処理のロックを消さない。
-
-- 初回の解放RPC、およびE2Eの初回状態確認は各2秒でタイムアウトする。
-- 復旧は0.1秒・0.2秒・0.4秒待機後の最大3回の状態確認と、最大2回の解放再送。各RPCも2秒でタイムアウトする。
-- 各確認で接続を取り直す。最後の確認は読取り専用とし、解放の応答喪失も判定する。解放RPCが成功を返しただけでは復旧成功としない。
-- 過負荷、または `retryable: false` が例外で明示された場合は再試行を打ち切る。
-- 復旧成功は `sync_lock_release_recovered`、復旧失敗は `sync_lock_release_recovery_failed` を記録する。`scope`、確認回数 `attempts`、解放再送回数 `release_attempts`、最終段階・例外種別を含む。
-
-通常同期は復旧に失敗しても本体の結果・例外を維持し、残留ロックは既存のTTLで失効する。
-E2Eは復旧成功なら元の段階の結果を返してclean管理記録の保存へ進む。
-復旧失敗なら従来どおり `google_sync_release_failed` と診断を返し、cleanとは記録しない。
-外部へのアラート通知は追加していない。
-実環境でのログ収集は、変更をデプロイした後に確認する。

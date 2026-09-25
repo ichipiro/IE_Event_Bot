@@ -1636,7 +1636,7 @@ for (const failure of [null, "stage", "dispatch", "version", "cleanup", "outcome
 }
 
 
-for (const failure of [null, "maintenance", "callback", "alarm", "retry", "release_recovery", "release_cleanup", "cleanup", "queue_cleanup", "transport_once", "transport_always", "unauthorized"]) {
+for (const failure of [null, "maintenance", "callback", "alarm", "retry", "old_token", "old_guard", "old_accepted", "old_duplicate", "release_recovery", "release_cleanup", "cleanup", "queue_cleanup", "transport_once", "transport_always", "unauthorized"]) {
   test(`通常watchと共有Webhook workflow: ${failure ?? "success"}`, async () => {
     const steps = ["prepared", "drained", "updated", "drained"];
     let index = 0;
@@ -1661,6 +1661,10 @@ for (const failure of [null, "maintenance", "callback", "alarm", "retry", "relea
           [`watch_shared_alarm_${index}`]: failure === "alarm" ? undefined : 200,
           watch_shared_busy_retry_recovered: failure === "retry" ? undefined : 200,
           watch_shared_failure_retry_recovered: 200,
+          watch_shared_old_token_rejected: failure === "old_token" ? undefined : 401,
+          watch_shared_old_channel_guard: failure === "old_guard" ? undefined : 404,
+          watch_shared_old_channel_accepted: failure === "old_accepted" ? undefined : 204,
+          watch_shared_old_channel_duplicate: failure === "old_duplicate" ? undefined : 204,
         } } } };
       },
       assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {

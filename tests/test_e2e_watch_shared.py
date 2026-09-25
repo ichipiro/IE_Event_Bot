@@ -225,3 +225,39 @@ def test_cleanup_does_not_release_live_global_lock(monkeypatch):
     status = asyncio.run(test.store._sync_do_rpc(stub, "status"))
     assert status is not None and status["lock"]["owner"] == "live"
     assert len(test.stops) == 5
+
+
+def test_old_notifications_use_normal_handler_and_owned_dedupe_cleanup(monkeypatch):
+    test = WatchScenario(monkeypatch)
+    test.prepare()
+    test.deliver(1)
+    stages = test.owner()["stages"]
+    assert stages["watch_shared_old_token_rejected"] == 401
+    assert stages["watch_shared_old_channel_guard"] == 404
+    assert stages["watch_shared_old_channel_accepted"] == 204
+    assert stages["watch_shared_old_channel_duplicate"] == 204
+    old_channel = test.owner()["watches"][0]["channel_id"]
+    storage = test.env.SYNC_COORDINATOR.getByName("global").durable_object.ctx.storage
+    key = f"gcal_msg:{old_channel}:900000003"
+    marker = json.loads(asyncio.run(storage.get(key)))
+    assert marker["owner_run_id"] == test.owner()["run_id"]
+    assert test.call("cleanup")[0] == 200
+    assert asyncio.run(storage.get(key)) is None
+
+
+def test_old_token_acceptance_fails_probe_and_remains_recoverable(monkeypatch):
+    test = WatchScenario(monkeypatch)
+    test.prepare()
+    original = entry.Default._handle_gcal_webhook
+
+    async def accept_bad_token(self, request, state, **kwargs):
+        if request.headers.get("X-Goog-Channel-Token") != test.env.GCAL_WEBHOOK_TOKEN:
+            return Response("", status=204)
+        return await original(self, request, state, **kwargs)
+
+    monkeypatch.setattr(entry.Default, "_handle_gcal_webhook", accept_bad_token)
+    status, payload = test.call("watch/trigger")
+    assert status == 409 and payload["error"] == "watch_shared_old_token_not_rejected"
+    assert test.owner()["dirty"] is True
+    assert test.call("cleanup")[0] == 200
+    assert test.owner()["outcome"] == "failed_clean"

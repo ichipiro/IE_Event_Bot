@@ -17,6 +17,8 @@ from e2e_google_sync_state import GoogleKV, GoogleStateError, WATCH_KEYS, digest
 from entry import _header
 from state import StateStore
 
+_OLD_MESSAGE = "900000003"
+
 
 def require(ok, code):
     if not ok:
@@ -173,6 +175,9 @@ async def maintain(env, store, owner, token):
         owner["stages"]["watch_shared_" + action + "_" + str(index)] = 200
         await google._save(store, owner)
         if index == 0:
+            # 停止後に再現する通知番号を先に所有記録へ登録し、途中失敗でも回収する。
+            await rpc(store, owner, channel_id=watch["channel_id"], resource_id=watch["resource_id"],
+                      message_number=_OLD_MESSAGE, resource_state="exists", dedupe=True)
             run_env.GCAL_WATCH_RENEW_THRESHOLD_SECONDS = "60"
             unchanged = dict(kv.hashes)
             noop = await google_watch.ensure_watch_active(run_env, state)
@@ -206,6 +211,7 @@ async def trigger(env, store, run_id, owner):
     if owner["step"] == 1:
         kv = GoogleKV(store, owner)
         await retry_controls(env, store, owner, HttpEnv(env, token, kv), kv)
+        await old_notifications(env, store, owner, HttpEnv(env, token, kv), kv)
         owner["hashes"] = kv.hashes
         await google._save(store, owner)
     owner["webhook_armed"] = True
@@ -357,6 +363,45 @@ async def retry_controls(env, store, owner, run_env, kv):
                 and await store.get_sync_last_epoch() == epoch, "retry_duplicate_applied_" + case)
         before_epoch = epoch
         owner["stages"]["watch_shared_" + case + "_retry_recovered"] = 200
+    await google._save(store, owner)
+
+
+async def old_notifications(env, store, owner, run_env, kv):
+    """停止済みの所有channelで、通常処理とE2E入口の現行の差を検証する。"""
+    watch = owner["watches"][0]
+    require(watch["stopped"], "old_channel_active")
+    observed = (await rpc(store, owner))["observations"].get(watch["channel_id"], {})
+    require(_OLD_MESSAGE in observed.get("messages", []), "old_message_unowned")
+    headers = {
+        "X-Goog-Channel-Token": env.GCAL_WEBHOOK_TOKEN,
+        "X-Goog-Channel-ID": watch["channel_id"], "X-Goog-Resource-ID": watch["resource_id"],
+        "X-Goog-Message-Number": _OLD_MESSAGE, "X-Goog-Resource-State": "exists",
+    }
+    request = SimpleNamespace(url=env.GCAL_WEBHOOK_URL, method="POST", headers=headers)
+    app = HttpApplication(run_env)
+    before, epoch = dict(kv.hashes), await store.get_sync_last_epoch()
+    rotated = hmac_new(env.GCAL_WEBHOOK_TOKEN.encode(), owner["run_id"].encode(), sha256).hexdigest()
+    old_token_request = SimpleNamespace(url=request.url, method="POST", headers={
+        **headers, "X-Goog-Channel-Token": rotated,
+        "X-Goog-Channel-ID": owner["watches"][3]["channel_id"],
+        "X-Goog-Resource-ID": owner["watches"][3]["resource_id"],
+    })
+    rejected = await app._handle_gcal_webhook(old_token_request, StateStore(run_env))
+    require(rejected.status == 401 and kv.hashes == before
+            and await store.get_sync_last_epoch() == epoch, "old_token_not_rejected")
+    guarded = await callback(env, store, request)
+    require(guarded is not None and guarded.status == 404, "old_channel_guard_failed")
+    # 通常handlerはchannelの現行性を検査しない。現行tokenなら同期される仕様を記録する。
+    response = await app._handle_gcal_webhook(request, StateStore(run_env))
+    result = (await StateStore(run_env).get_json("result:sync_all", {})) or {}
+    require(response.status == 204 and result.get("payload", {}).get("ok") is True
+            and await store.get_sync_last_epoch() > epoch, "old_channel_not_applied")
+    before, epoch = dict(kv.hashes), await store.get_sync_last_epoch()
+    duplicate = await app._handle_gcal_webhook(request, StateStore(run_env))
+    require(duplicate.status == 204 and kv.hashes == before
+            and await store.get_sync_last_epoch() == epoch, "old_channel_duplicate_applied")
+    owner["stages"].update(watch_shared_old_token_rejected=401, watch_shared_old_channel_guard=404,
+                           watch_shared_old_channel_accepted=204, watch_shared_old_channel_duplicate=204)
     await google._save(store, owner)
 
 

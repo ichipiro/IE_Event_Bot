@@ -208,10 +208,13 @@ async def trigger(env, store, run_id, owner):
     for fixture in owner["fixtures"]:
         fixture["apply_attempted"] = True
     await google._save(store, owner)
-    if owner["step"] == 1:
+    if owner["step"] in (1, 2):
         kv = GoogleKV(store, owner)
-        await retry_controls(env, store, owner, HttpEnv(env, token, kv), kv)
-        await old_notifications(env, store, owner, HttpEnv(env, token, kv), kv)
+        # 既存の再試行2ケースと旧通知を別HTTPへ分け、段階の時間上限を守る。
+        if owner["step"] == 1:
+            await retry_controls(env, store, owner, HttpEnv(env, token, kv), kv)
+        else:
+            await old_notifications(env, store, owner, HttpEnv(env, token, kv), kv)
         owner["hashes"] = kv.hashes
         await google._save(store, owner)
     owner["webhook_armed"] = True

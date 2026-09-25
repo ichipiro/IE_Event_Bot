@@ -720,8 +720,8 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
           (options.webhookSync && (manifest.stages?.watch_shared_release_recovery !== 200 || manifest.stages?.watch_shared_maintenance !== 200 || manifest.stages?.[`watch_shared_step_${index}`] !== 200 ||
             (index > 0 && (manifest.stages?.[`watch_shared_alarm_${index}`] !== 200 ||
               manifest.stages?.watch_shared_busy_retry_recovered !== 200 || manifest.stages?.watch_shared_failure_retry_recovered !== 200 ||
-              manifest.stages?.watch_shared_old_token_rejected !== 401 || manifest.stages?.watch_shared_old_channel_guard !== 404 ||
-              manifest.stages?.watch_shared_old_channel_accepted !== 204 || manifest.stages?.watch_shared_old_channel_duplicate !== 204)))) ||
+              (index >= 2 && (manifest.stages?.watch_shared_old_token_rejected !== 401 || manifest.stages?.watch_shared_old_channel_guard !== 404 ||
+                manifest.stages?.watch_shared_old_channel_accepted !== 204 || manifest.stages?.watch_shared_old_channel_duplicate !== 204)))))) ||
           (options.httpSync && index > 0 && manifest.stages?.[`all_http_dispatch_${index}`] !== 200) ||
           (options.allSync && ((index >= 4 && manifest.stages?.all_sync_failure_4 !== 200) ||
             (index >= 6 && manifest.stages?.all_sync_failure_6 !== 200) ||

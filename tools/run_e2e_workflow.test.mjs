@@ -1661,10 +1661,10 @@ for (const failure of [null, "maintenance", "callback", "alarm", "retry", "old_t
           [`watch_shared_alarm_${index}`]: failure === "alarm" ? undefined : 200,
           watch_shared_busy_retry_recovered: failure === "retry" ? undefined : 200,
           watch_shared_failure_retry_recovered: 200,
-          watch_shared_old_token_rejected: failure === "old_token" ? undefined : 401,
-          watch_shared_old_channel_guard: failure === "old_guard" ? undefined : 404,
-          watch_shared_old_channel_accepted: failure === "old_accepted" ? undefined : 204,
-          watch_shared_old_channel_duplicate: failure === "old_duplicate" ? undefined : 204,
+          watch_shared_old_token_rejected: (index < 2 || failure === "old_token") ? undefined : 401,
+          watch_shared_old_channel_guard: (index < 2 || failure === "old_guard") ? undefined : 404,
+          watch_shared_old_channel_accepted: (index < 2 || failure === "old_accepted") ? undefined : 204,
+          watch_shared_old_channel_duplicate: (index < 2 || failure === "old_duplicate") ? undefined : 204,
         } } } };
       },
       assert_external_state: async () => ({ ok: true, manifest: { outcome: "passed", stages: {

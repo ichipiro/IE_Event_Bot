@@ -231,6 +231,8 @@ def test_old_notifications_use_normal_handler_and_owned_dedupe_cleanup(monkeypat
     test = WatchScenario(monkeypatch)
     test.prepare()
     test.deliver(1)
+    assert "watch_shared_old_channel_accepted" not in test.owner()["stages"]
+    test.deliver(2)
     stages = test.owner()["stages"]
     assert stages["watch_shared_old_token_rejected"] == 401
     assert stages["watch_shared_old_channel_guard"] == 404
@@ -248,6 +250,7 @@ def test_old_notifications_use_normal_handler_and_owned_dedupe_cleanup(monkeypat
 def test_old_token_acceptance_fails_probe_and_remains_recoverable(monkeypatch):
     test = WatchScenario(monkeypatch)
     test.prepare()
+    test.deliver(1)
     original = entry.Default._handle_gcal_webhook
 
     async def accept_bad_token(self, request, state, **kwargs):

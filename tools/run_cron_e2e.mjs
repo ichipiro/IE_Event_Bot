@@ -42,6 +42,28 @@ export function validateReceipt(value, report, key) {
   ].map((key) => [key, value[key]]));
 }
 
+export function redactCronEvent(event, worker) {
+  requireThat(event.$metadata?.service === worker, "diagnostic_scope_mismatch");
+  const metadata = event.$metadata ?? {};
+  const runtime = event.$workers ?? {};
+  const detail = JSON.stringify([metadata.error, metadata.message, event.source]);
+  const patterns = {
+    attribute_error: /AttributeError/,
+    type_error: /TypeError/,
+    missing_arguments: /missing.*required positional/,
+    controller_dict: /dict.*(?:scheduledTime|cron)/,
+    metadata_dict: /dict.*(?:tag|id)/,
+    scheduled_time_missing: /(?:attribute|property).*scheduledTime/,
+    kv_error: /KV|kv_namespace/,
+    import_error: /ImportError|ModuleNotFoundError/,
+  };
+  return { timestamp: Number.isFinite(event.timestamp) ? event.timestamp : null,
+    event_type: ["scheduled", "fetch", "rpc"].includes(runtime.eventType) ? runtime.eventType : "unknown",
+    outcome: ["ok", "exception", "exceededCpu", "exceededMemory", "canceled"].includes(runtime.outcome) ? runtime.outcome : "unknown",
+    error_present: Boolean(metadata.error),
+    categories: Object.entries(patterns).filter(([, pattern]) => pattern.test(detail)).map(([name]) => name) };
+}
+
 export class CronE2E {
   constructor(env, { request = fetch, sleep = pause, now = Date.now, deploy } = {}) {
     requireThat(/^[a-f0-9]{32}$/.test(env.CLOUDFLARE_ACCOUNT_ID ?? "")
@@ -65,6 +87,34 @@ export class CronE2E {
   async save(report) {
     await mkdir(OUTPUT, { recursive: true });
     await writeFile(resolve(OUTPUT, `${report.run_id}.json`), `${JSON.stringify(report, null, 2)}\n`);
+  }
+
+  async diagnose(runId) {
+    const owned = scope(runId);
+    const stamp = runId.slice(4, 20);
+    const from = `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}T${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}Z`;
+    const fromMs = Date.parse(from);
+    requireThat(Number.isFinite(fromMs), "diagnostic_time_invalid");
+    const to = new Date(fromMs + 23 * 60_000).toISOString();
+    const report = { run_id: runId, ...owned, from, to, audit: [], events: [] };
+    try {
+      const data = await this.api(report, "read_cron_logs", "workers/observability/telemetry/query", {
+        method: "POST", body: { queryId: "real-cron-diagnostic", dry: true, view: "events", limit: 1000,
+          timeframe: { from, to }, parameters: { datasets: ["cloudflare-workers"], filterCombination: "and",
+            filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: owned.worker }] } },
+      });
+      const events = data.result?.events?.events;
+      requireThat(Array.isArray(events) && events.length < 1000, "diagnostic_response_invalid");
+      report.events = events.map((event) => {
+        requireThat(Number.isFinite(event.timestamp) && event.timestamp >= fromMs
+          && event.timestamp <= Date.parse(to), "diagnostic_time_mismatch");
+        return redactCronEvent(event, owned.worker);
+      });
+      report.complete = true;
+    } catch (error) { report.error = safeError(error); }
+    await this.save(report);
+    requireThat(report.complete, "diagnostic_failed");
+    return report;
   }
 
   async api(report, label, path, { method = "GET", body, missing = false } = {}) {
@@ -244,10 +294,12 @@ function safeError(error) {
 
 async function main() {
   const [command, flag, runId] = process.argv.slice(2);
-  requireThat(["run", "cleanup"].includes(command) && flag === "--run-id" && process.argv.length === 5, "arguments_invalid");
+  requireThat(["run", "cleanup", "diagnose"].includes(command) && flag === "--run-id" && process.argv.length === 5, "arguments_invalid");
   scope(runId);
   const runner = new CronE2E(process.env);
-  if (command === "cleanup") {
+  if (command === "diagnose") {
+    await runner.diagnose(runId);
+  } else if (command === "cleanup") {
     let report;
     try { report = JSON.parse(await readFile(resolve(OUTPUT, `${runId}.json`), "utf8")); }
     catch (error) {

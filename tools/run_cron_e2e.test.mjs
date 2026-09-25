@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import test from "node:test";
-import { CronE2E, scope, validateReceipt } from "./run_cron_e2e.mjs";
+import { CronE2E, scope, validateReceipt, redactCronEvent } from "./run_cron_e2e.mjs";
 
 const START = 1_800_000_000_000;
 const COMMIT = "a".repeat(40);
@@ -139,4 +139,32 @@ test("forged HTTP receipt, version, time and run mismatch are rejected", () => {
   }
   assert.deepEqual(validateReceipt({ ...good, unexpected: "discard" }, report, key), good);
   assert.throws(() => scope("../../production"), /cron_run_id_invalid/);
+});
+
+test("diagnostics retain only known classifications and refuse foreign logs", () => {
+  const event = { timestamp: START, $metadata: { service: "owned", error: "AttributeError: dict has no attribute scheduledTime PRIVATE" },
+    $workers: { eventType: "scheduled", outcome: "exception" }, source: "arbitrary log" };
+  const result = redactCronEvent(event, "owned");
+  assert.equal(result.event_type, "scheduled");
+  assert.equal(result.outcome, "exception");
+  assert.ok(result.categories.includes("controller_dict"));
+  assert.ok(!JSON.stringify(result).includes("PRIVATE"));
+  assert.ok(!JSON.stringify(result).includes("arbitrary"));
+  assert.throws(() => redactCronEvent(event, "foreign"), /cron_diagnostic_scope_mismatch/);
+});
+
+test("diagnostics use only the fixed read-only telemetry API and bounded run window", async () => {
+  const run = newRun();
+  const runner = new CronE2E(env, { request: async (url, options) => {
+    assert.ok(url.endsWith("/workers/observability/telemetry/query"));
+    const body = JSON.parse(options.body);
+    assert.equal(body.parameters.filters[0].value, scope(run).worker);
+    assert.equal(Date.parse(body.timeframe.to) - Date.parse(body.timeframe.from), 23 * 60_000);
+    return new Response(JSON.stringify({ success: true, result: { events: { events: [] } } }));
+  } });
+  runner.save = async () => {};
+  const report = await runner.diagnose(run);
+  assert.equal(report.complete, true);
+  assert.deepEqual(report.events, []);
+  assert.equal(report.audit.length, 1);
 });

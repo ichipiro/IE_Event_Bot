@@ -159,7 +159,8 @@ test("diagnostics use only the fixed read-only telemetry API and bounded run win
     assert.ok(url.endsWith("/workers/observability/telemetry/query"));
     const body = JSON.parse(options.body);
     assert.equal(body.parameters.filters[0].value, scope(run).worker);
-    assert.equal(Date.parse(body.timeframe.to) - Date.parse(body.timeframe.from), 23 * 60_000);
+    assert.equal(typeof body.timeframe.from, "number");
+    assert.equal(body.timeframe.to - body.timeframe.from, 23 * 60_000);
     return new Response(JSON.stringify({ success: true, result: { events: { events: [] } } }));
   } });
   runner.save = async () => {};

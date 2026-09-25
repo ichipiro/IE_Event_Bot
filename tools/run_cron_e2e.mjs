@@ -100,7 +100,7 @@ export class CronE2E {
     try {
       const data = await this.api(report, "read_cron_logs", "workers/observability/telemetry/query", {
         method: "POST", body: { queryId: "real-cron-diagnostic", dry: true, view: "events", limit: 1000,
-          timeframe: { from, to }, parameters: { datasets: ["cloudflare-workers"], filterCombination: "and",
+          timeframe: { from: fromMs, to: Date.parse(to) }, parameters: { datasets: ["cloudflare-workers"], filterCombination: "and",
             filters: [{ key: "$metadata.service", operation: "eq", type: "string", value: owned.worker }] } },
       });
       const events = data.result?.events?.events;

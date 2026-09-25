@@ -1,5 +1,10 @@
 # 作業履歴
 
+## 2026-09-25: 通常Notion cleanupの実サービスE2E成功
+
+- [実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。
+- 証跡と独立照合結果は `test-results/notion-cleanup-normal-36038438985/`。実装は `792dd78`、ローカルPython 868件・Node 305件と静的検査・E2E dry-runが成功。既存文書変更を保持し、本番デプロイ・マージは行っていない。
+
 ## 2026-09-25: 通常リマインドE2Eと一覧取得失敗の修正
 
 - [実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)（commit `cc97b8b`）で、専用Guildの予定4件を通常HTTPハンドラから全件取得し、対象2件の通知・範囲外2件の抑止・共有cache・別HTTPでの重複抑止を確認した。全3段階と各verify、所有予定・通知・共有KVの回収が成功した。監査18行・9操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合済み。実Cronと通知失敗後の再送は対象外。

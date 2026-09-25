@@ -2,6 +2,8 @@
 
 ## 2026-09-25
 
+- 通常Notion cleanupの全件取得・共有KV・別HTTPでの実行間隔抑止・所有資源回収を実サービスで確認（[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)）。計画を完了へ更新し、実Cronと失敗後再試行は別の未検証範囲として残した。
+
 - 通常リマインドの全件取得・対象選別・共有cache・重複抑止・回収を実サービスで確認（[実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)）。一覧取得失敗の成功誤判定とGETの429待機を修正した。
 
 ## 2026-09-24: 通常HTTP・共有KVの全体同期E2E

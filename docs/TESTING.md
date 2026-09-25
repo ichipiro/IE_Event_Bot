@@ -110,6 +110,7 @@ MCPは `trigger_sync(scenario="discord_kv", sync_phase="prepare" / "resume")` �
 | `deploy-and-qa-normal-smoke` | 空の専用Q&A DBに3件を作り、通常HTTPハンドラによる全件取得・採番・共有cache・通知・重複抑止と回収を検証する |
 | `deploy-and-reminder-normal-smoke` | 空の専用Guildへ4予定を作成し、通常HTTPハンドラの全件取得・2件選別・共有KV・通知・別HTTP重複抑止を検証して回収する |
 | `deploy-and-reminder-smoke` | 専用 Worker を deploy し、所有 Scheduled Event の前日通知と重複抑止を検証後、Discord event と message を cleanup する |
+| `deploy-and-notion-cleanup-normal-smoke` | 通常HTTPハンドラで専用DB全件取得・期限判定・共有KV・別HTTPのinterval guardを検証し、所有ページと共有キーを回収する |
 | `deploy-and-notion-cleanup-smoke` | 専用 Worker を deploy し、所有する期限到来・将来日時の Notion page だけで期限判定と interval guard を検証後、両 page を cleanup する |
 | `deploy-and-webhook-simulation-smoke` | 専用 Worker を deploy し、共通Webhook ingressのtoken拒否・message重複抑止と、所有Google eventの差分取得・Notion反映を検証後、両資源と重複状態をcleanupする |
 | `deploy-and-webhook-delivery-smoke` | 専用 Worker を deploy し、run所有の短命watchを作成してGoogleの初回`sync`通知到達を確認後、watchを停止する |
@@ -603,3 +604,9 @@ POST・不正待機値・上限超過は再試行しない。継続する429も�
 
 [実行36033540656](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36033540656)（commit `cc97b8b`）で、専用Guildの予定4件を通常HTTPハンドラから全件取得し、対象2件の通知・範囲外2件の抑止・共有cache・別HTTPでの重複抑止を確認した。全3段階と各verify、所有予定・通知・共有KVの回収が成功した。監査18行・9操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 847件成功を独立照合済み。実Cronと通知失敗後の再送は対象外。
 証跡は `test-results/reminder-normal-36033540656/evidence/`、独立照合結果は同runディレクトリの `verification.json` に保存した。
+
+## 通常Notion cleanupの全件取得と共有KV
+
+[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。
+
+実行経路・所有権・回収の条件と証跡は[通常Notion cleanupのE2E](E2E-NOTION-CLEANUP-NORMAL.md)を参照。

@@ -37,4 +37,10 @@ DOは所有権・回収記録と他scenarioとの排他を保持する。KVの�
 
 2026-09-25（JST）時点で、Python 868件・Node 305件、Ruff、Pyright、E2E設定・機密保護・workflow検査、E2E構成のWrangler dry-runが成功した。
 所有外ページ・共有KV、別run・revision、段階の再送、作成応答喪失、archive失敗、KV書込み応答喪失、期限超過、他scenarioとの相互排他を外部通信なしで確認した。
-実サービスの成功はworkflow・manifest・監査・回収の独立照合後に記録する。
+## 実サービス検証結果
+
+2026-09-25（JST）の[実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。
+
+run `E2E-20260924T181528Z-c498a6dd`、Worker version tagとdeploy／最終version fingerprint、実行checkoutのclean状態を照合した。通常cleanupとworkflow終了時の常時cleanupは両方成功した。他scenarioの過去runを今回の検証成功には含めない。
+
+マスク済み証跡は `test-results/notion-cleanup-normal-36038438985/evidence/`、独立照合結果と成果物のSHA-256は同runディレクトリの `verification.json` に保存した。

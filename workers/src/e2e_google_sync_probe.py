@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -39,6 +40,7 @@ from e2e_sync_lock_probe import RUN_PATTERN, _lock_state
 from google_auth import get_google_access_token
 from google_calendar_sync import run_google_delta_fetch
 from state import StateStore
+from sync_lock_release import _RPC_TIMEOUT_SECONDS, _recover_release, _release_retry_blocked
 
 
 class GoogleEnv(_DeltaEnv):
@@ -632,6 +634,76 @@ async def _phase(env, store, run_id, phase, invoke):
     }
 
 
+def _release_exception_cause(exc):
+    # 任意の例外本文は分類にだけ使用し、応答・ログ・manifestへコピーしない。
+    message = str(exc)
+    patterns = (
+        ("connection_limit", r"connection limit|too many (?:open )?connections"),
+        ("object_reset", r"durable object.*reset|object.*reset.*code.*updated"),
+        ("subrequest_limit", r"too many subrequests|subrequest.*limit"),
+        ("storage_timeout", r"storage operation exceeded timeout"),
+        ("overloaded", r"overloaded|too many (?:requests|concurrent|queued)|queued for too long"),
+        ("cpu_limit", r"cpu.*(?:limit|exceeded)"),
+        ("memory_limit", r"memory.*(?:limit|exceeded)"),
+        ("python_proxy", r"borrowed proxy|pyproxy|jsproxy"),
+        ("io_context", r"different request|different.*I/O context|I/O.*context"),
+        ("request_cancelled", r"I/O.*cancel|request.*cancel|context.*cancel"),
+        ("disconnected", r"disconnected|broken pipe|network connection lost"),
+        ("internal_error", r"internal error"),
+        ("data_clone", r"DataCloneError|could not be cloned"),
+    )
+    return next((kind for kind, pattern in patterns if re.search(pattern, message, re.I)), "unknown")
+
+
+async def _release_control(store, stub, control):
+    """解放失敗から限定再試行し、復旧できない場合だけ安全な診断を返す。"""
+    diagnostic = {
+        "step": "release_rpc", "exception": "none",
+        "release_ok": None, "status_ok": None, "owner_matches": None,
+    }
+    blocked = False
+    try:
+        released = await asyncio.wait_for(
+            store._sync_do_rpc(stub, "release", {"owner": control}), _RPC_TIMEOUT_SECONDS,
+        )
+        diagnostic["release_ok"] = bool(released and released.get("ok"))
+        diagnostic["step"] = "status_rpc"
+        status = await asyncio.wait_for(store._sync_do_rpc(stub, "status"), _RPC_TIMEOUT_SECONDS)
+        diagnostic["status_ok"] = bool(status and status.get("ok"))
+        lock = status.get("lock") if status else None
+        if isinstance(lock, dict):
+            diagnostic["owner_matches"] = lock.get("owner") == control
+        if not diagnostic["release_ok"]:
+            diagnostic["step"] = "release_response"
+        elif not diagnostic["status_ok"]:
+            diagnostic["step"] = "status_response"
+        elif not isinstance(lock, dict):
+            diagnostic["step"] = "lock_response"
+        elif diagnostic["owner_matches"]:
+            diagnostic["step"] = "owner_check"
+        else:
+            return None
+    except Exception as exc:
+        diagnostic["exception"] = (
+            "timeout" if isinstance(exc, TimeoutError)
+            else "type_error" if isinstance(exc, TypeError)
+            else "runtime_error" if isinstance(exc, RuntimeError)
+            else "js_exception" if type(exc).__name__ == "JsException"
+            else "other"
+        )
+        diagnostic["cause"] = _release_exception_cause(exc)
+        blocked = _release_retry_blocked(exc)
+    recovered = await _recover_release(
+        lambda: store.env.SYNC_COORDINATOR.getByName("e2e:google-sync-control"),
+        store._sync_do_rpc, control, "google_sync_control", blocked=blocked,
+    )
+    if recovered["ok"]:
+        return None
+    diagnostic["fresh_status_ok"] = recovered["status_ok"]
+    diagnostic["fresh_owner_matches"] = recovered["owner_matches"]
+    return diagnostic
+
+
 async def run_google_sync_probe(env, store, run_id, phase, invoke):
     if not RUN_PATTERN.fullmatch(run_id) or phase not in (
         "prepare",
@@ -680,20 +752,10 @@ async def run_google_sync_probe(env, store, run_id, phase, invoke):
             if isinstance(exc, GoogleStateError)
             else "google_sync_failed",
         }
-    try:
-        released = await store._sync_do_rpc(stub, "release", {"owner": control})
-        status = await store._sync_do_rpc(stub, "status")
-        if (
-            not released
-            or not released.get("ok")
-            or not status
-            or not status.get("ok")
-            or not isinstance(status.get("lock"), dict)
-            or status.get("lock", {}).get("owner") == control
-        ):
-            raise GoogleStateError("google_sync_release_failed")
-    except Exception:
-        return {"ok": False, "dirty": True, "error": "google_sync_release_failed"}
+    diagnostic = await _release_control(store, stub, control)
+    if diagnostic is not None:
+        return {"ok": False, "dirty": True, "error": "google_sync_release_failed",
+                "release_diagnostic": diagnostic}
     clean = result.pop("_clean_manifest", None)
     if clean:
         await store.put_e2e_manifest(SERVICE, clean)

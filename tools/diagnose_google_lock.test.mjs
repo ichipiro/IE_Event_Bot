@@ -35,7 +35,8 @@ test("接続上限とRPC切断を本文を残さず分類する", () => {
 
 test("runtimeの未消費応答警告を固定分類する", () => {
   const raw = event();
-  raw.$metadata.error = "A stalled HTTP response was canceled to prevent deadlock. private-secret";
+  delete raw.$metadata.error;
+  raw.message = "A stalled HTTP response was canceled to prevent deadlock. private-secret";
   assert.deepEqual(redactEvent(raw).categories, ["stalled_response"]);
   assert.ok(!JSON.stringify(redactEvent(raw)).includes("private-secret"));
 });

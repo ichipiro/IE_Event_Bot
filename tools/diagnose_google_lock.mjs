@@ -103,7 +103,7 @@ export function redactEvent(event) {
     throw new Error("diagnostic_scope_mismatch");
   }
   // 本文は分類器への入力にだけ使い、任意文字列を出力へコピーしない。
-  const text = JSON.stringify([meta.error, meta.message, event.source]);
+  const text = JSON.stringify(event);
   return {
     timestamp: number(event.timestamp), status: number(meta.statusCode),
     duration_ms: number(meta.duration), cpu_ms: number(worker.cpuTimeMs),

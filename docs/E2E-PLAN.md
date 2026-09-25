@@ -86,7 +86,7 @@
 
 ## 8. 実Cron
 
-- [ ] 隔離環境で期間と対象を限定し、Cloudflareの実Cron起動を確認する。
+- [x] 隔離環境で期間と対象を限定し、Cloudflareの実Cron起動を確認する。[実行36099565944](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36099565944)で実Cron2回、run/version/commit一致、所有KVの読戻し、schedule・一時Worker・KVの回収、`passed`・`dirty=false` を確認した。全ジョブ無効の通常scheduled dispatchまでを対象とする。詳細は[検証記録](E2E-REAL-CRON.md)を参照。
 - [ ] 手動実行との競合を検証し、終了後にスケジュールと所有資源を回収する。
 
 ## 9. 実行・復旧・証跡

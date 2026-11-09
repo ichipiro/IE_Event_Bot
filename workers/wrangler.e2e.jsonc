@@ -11,6 +11,10 @@
 	// 個人 E2E account の ID は CLOUDFLARE_ACCOUNT_ID から実行時に渡す。
 	"workers_dev": true,
 	"preview_urls": false,
+	// 複数サービスへ接続するE2EのCPU上限を30秒に固定する（Workers Paid用）。
+	"limits": {
+		"cpu_ms": 30000
+	},
 	"version_metadata": {
 		"binding": "CF_VERSION_METADATA"
 	},

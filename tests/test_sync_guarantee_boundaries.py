@@ -123,11 +123,11 @@ def test_queue_save_failure_after_notification_allows_duplicate(monkeypatch):
     assert len(calls["post"]) == 2
 
 
-@pytest.mark.parametrize("race,stale,expected_posts", [
-    (True, True, 2), (True, False, 1), (False, True, 1),
+@pytest.mark.parametrize("race,stale,source,skip_status", [
+    (True, True, "cron", 200), (True, False, "webhook", 503), (False, True, "cron", 200),
 ], ids=["race-stale", "race-fresh", "serial-stale"])
-def test_cooldown_before_lock_and_stale_snapshot_can_duplicate(monkeypatch, race, stale, expected_posts):
-    """成功API・同一DO・有効leaseでも成立するモデルであり、本番原因の証明ではない。"""
+def test_post_lock_cooldown_prevents_duplicate_notification(monkeypatch, race, stale, source, skip_status):
+    """ロック取得後は成功時刻を再読込みし、古いsnapshotを読む前に停止する。"""
     api = DiscordAPI(monkeypatch)
     env = api.env
     env.SYNC_COORDINATOR = make_sync_coordinator_namespace()
@@ -194,7 +194,7 @@ def test_cooldown_before_lock_and_stale_snapshot_can_duplicate(monkeypatch, race
         monkeypatch.setattr(second_app, "_acquire_sync_lock", delayed_acquire)
         second_task = None
         if race:
-            second_task = asyncio.create_task(second_app._run_sync_dispatch(None, StateStore(env), "cron"))
+            second_task = asyncio.create_task(second_app._run_sync_dispatch(None, StateStore(env), source))
             await asyncio.wait_for(before_acquire.wait(), timeout=5)
         try:
             # 公開Webhookの204受付ではなく、Alarmが呼ぶ通常同期本体を実行する。
@@ -208,28 +208,27 @@ def test_cooldown_before_lock_and_stale_snapshot_can_duplicate(monkeypatch, race
             expose_stale_snapshot = stale
             proceed.set()
             if second_task is None:
-                second = await second_app._run_sync_dispatch(None, StateStore(env), "cron")
+                second = await second_app._run_sync_dispatch(None, StateStore(env), source)
             else:
                 second = await asyncio.wait_for(second_task, timeout=5)
             second_body = json.loads(await second.text())
-            assert second.status == 200 and second_body["ok"]
-            completed = [first_body, second_body] if race else [first_body]
-            for body in completed:
-                assert body["google"]["ok"] and body["google_apply"]["ok"]
-                assert body["discord_notion"]["ok"]
-                assert body["discord_notion"]["error_count"] == 0
-                assert body["discord_notion"]["errors"] == []
-                assert body["discord_notion"]["pending_changes"] == 0
+            assert second.status == skip_status
+            assert second_body == {
+                "ok": True, "status": "cooldown_skip", "interval_seconds": 300, "source": source,
+            }
+            assert first_body["google"]["ok"] and first_body["google_apply"]["ok"]
+            assert first_body["discord_notion"]["ok"]
+            assert first_body["discord_notion"]["error_count"] == 0
+            assert first_body["discord_notion"]["errors"] == []
+            assert first_body["discord_notion"]["pending_changes"] == 0
             if race:
                 assert len(acquired_owners) == 1
                 assert acquired_owners[0] != posting_locks[0]["owner"]
-                assert bool(stale_reads) == stale
-                assert set(stale_reads) <= {SNAPSHOT}
             else:
-                assert second_body["status"] == "cooldown_skip"
-                assert not acquired_owners and not stale_reads
-            assert len(posts) == len(reactions) == expected_posts
-            assert len({lock["owner"] for lock in posting_locks}) == expected_posts
+                assert not acquired_owners
+            assert not stale_reads
+            assert len(posts) == len(reactions) == 1
+            assert len({lock["owner"] for lock in posting_locks}) == 1
             assert all(payload == posts[0] for payload in posts)
             assert "https://discord.com/events/test-guild/discord-one" in posts[0]["content"]
             assert len(api.pages) == len(api.google) == 1

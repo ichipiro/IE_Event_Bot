@@ -56,7 +56,21 @@ bash -n tools/configure_github_e2e_environment.sh
 
 ## 2026-11-09の同期・CI回帰
 
-認証欠落、Notion検索失敗、往復同期の由来、PR branchのシェル展開、Calendar変更時のwatch、DOの期限切れdedupeを回帰対象へ追加した。再現テスト、all-sync step 6の通常upsertでのtoken欠落・実Notion400と残件2件の復旧、all-http・watch-sharedの実E2E成功条件は[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)を参照する。実E2Eは実行準備中であり、ローカル成功とは分けて記録する。
+認証欠落、Notion検索失敗、往復同期の由来、PR branchのシェル展開、Calendar変更時のwatch、DOの期限切れdedupeを回帰対象へ追加した。再現テスト、all-sync step 6の通常upsertでのtoken欠落・実Notion400と残件2件の復旧、最終3実行とCPU中断後の回収履歴は[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)を参照する。6件は対象の有限ケースとして完了した。
+
+専用E2Eのデプロイ設定はWorkers Paidを前提とし、`limits.cpu_ms=30000`を指定する。Free環境でのCPU中断後、所有資源を回収してからユーザーがPaidへの変更を実施した。CPU上限は外部API待機を含むwall timeとは異なる。契約の変更とWorkerのデプロイは別操作として扱う。
+
+最終3実行はsource SHA `7b83e7c3c44ffd45fbadcd21929519c7d2ca207e`で行い、clean checkout・run/Worker version一致、各`passed`・全manifest cleanを確認した。
+
+| mode | 実行 | 監査行 / 完了操作 | 検証の再試行 |
+| --- | --- | ---: | ---: |
+| all-sync | [42632176251](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42632176251) | 42 / 21 | 0 |
+| all-http | [42633930931](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42633930931) | 22 / 11 | 0 |
+| watch-shared | [42635018615](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42635018615) | 108 / 54 | 43 |
+
+watchの43回は想定内の検証待ちであり、外部書込みphaseの再送ではない。実Google通知からの共有状態同期、通知キュー・Alarmを含む回収を確認し、2026-11-09 23:36:56 JSTに完了した。Calendar切替・保存Calendar欠落とdedupe期限条件の詳細はローカル回帰で確認しており、同一Calendarの実watch試験をその条件別の実環境検証とは扱わない。
+
+最終ローカル検査はPython1,231件、Node407件・Cron13件、Ruff・Pyright、E2E設定・機密情報混入・workflow検査、通常/E2E dry-runが成功した。本番Workerのデプロイとmergeは行っていない。
 
 ## 通常Discord同期の状態保存と排他
 

@@ -3,7 +3,10 @@
 ## 2026-11-09: 同期・CIの回帰修正
 
 - 認証・Notion検索失敗のqueue保持、由来情報の保持と内容比較、PR guard、Calendar変更時のwatch更新、期限切れdedupeの掃除を修正し、旧コードの再現テストと回帰を追加した。
-- all-syncの期待本文を修正し、step 6でtoken欠落・実Notion400を通常upsertへ通して残件2件の復旧を検証する。all-http・watch-sharedを含む実E2Eは実行準備中。最終結果は[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)へ追記する。
+- all-syncの期待本文を修正し、step 6でtoken欠落・実Notion400を通常upsertへ通して残件2件の復旧を検証した。初期cursor、署名のネイティブ経路、期限切れロックの所有回収と機密値を含まない診断も追加した。
+- Python1,231件、Node407件・Cron13件、Ruff・Pyright・E2E契約・通常/E2E dry-runが成功した。
+- ユーザーがPaid移行を承認し、管理画面で変更完了後、E2E専用CPU上限30秒で最終3モードを実行した。source SHA `7b83e7c3c44ffd45fbadcd21929519c7d2ca207e`でall-sync 42632176251、all-http 42633930931、watch-shared 42635018615が成功。各runの版・clean checkout・`passed`・全manifest clean、watchの通知キュー・Alarm回収を照合し、23:36:56 JSTに完了した。
+- 6件は対象の有限ケースとして完了。Calendar切替・dedupe期限条件はローカル確認の範囲を保つ。CPU失敗runの回収履歴と最終証跡は[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)へ保存し、本番デプロイとmergeは行っていない。
 
 ## 2026-11-09: E2E専用Pythonの整理
 

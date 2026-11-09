@@ -3,7 +3,7 @@
 	"name": "ie-event-bot-e2e",
 	"main": "src/e2e/e2e_entry.py",
 	"base_dir": "src",
-	// 本番 Worker と同じランタイム条件で挙動を比較する。
+	// 互換日付と互換フラグは本番 Worker と揃える。
 	"compatibility_date": "2026-03-07",
 	"compatibility_flags": [
 		"python_workers"

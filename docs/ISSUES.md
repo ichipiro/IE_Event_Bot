@@ -8,9 +8,9 @@
 
 ## 2026-11-09: 同期・CIの6件の回帰修正
 
-- 状態: 対応中（最終回帰確認中、実E2Eは実行準備中）。
+- 状態: 完了（対象の有限ケース）。Paid・E2E専用CPU上限30秒で最終3モードが成功し、全所有資源を回収した。
 - 対象: Google認証欠落時の同期消失、Notion検索失敗後の重複・削除取りこぼし、往復同期の由来情報、PR branchのシェル展開、Calendar変更時のwatch、期限切れdedupeの掃除。
-- 旧コードの再現テスト、all-syncの認証欠落・実Notion400・残件2件の復旧、all-http・watch-sharedの実行範囲を[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)で追跡する。過去のE2E完了記録とは区別する。
+- 旧コードの再現テスト、all-syncの認証欠落・実Notion400・残件2件の復旧、最終3実行とCPU中断後の回収履歴は[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)に保存した。過去のE2E完了記録とは区別する。
 
 ## 課題一覧
 
@@ -169,3 +169,9 @@ KV保存だけを最大3回、1秒・2秒待機で再試行する修正を追加
 ## 2026-09-25: 対象内E2Eの完了
 
 既存19実行と追加5実行のGitHub成功・commit・保存済み回収証跡を再照合した。対象内の有限ケースは完了し、Issue #17の完了条件へ反映して2026-09-25にclosedを読戻し確認した。旧失敗と回収、元のRPC例外の原因未特定、追加対象外5件、保証外事項は保持する。[完了判定](e2e/E2E-AUDIT-20260925.md#対象内e2eの完了判定)を参照。正式リリース・本番反映はE2E完了と分けて追跡する。
+
+## 2026-11-09: 同期・CIの6件の完了
+
+[all-sync 42632176251](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42632176251)、[all-http 42633930931](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42633930931)、[watch-shared 42635018615](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42635018615)が同じsource SHAで成功した。各runのclean checkout・Worker version一致、`passed`・全manifest clean、watchの通知キュー・Alarmを含む回収を照合し、2026-11-09 23:36:56 JSTに対象の有限ケースを完了した。
+
+Calendar切替とdedupe期限条件の詳細はローカル回帰の確認であり、同一Calendarの実watch試験の保証範囲を広げない。CPU中断した旧runはすべて回収済みとし、失敗履歴は[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)に保持する。本番デプロイとmergeは行っていない。

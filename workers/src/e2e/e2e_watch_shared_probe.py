@@ -410,12 +410,13 @@ async def old_notifications(env, store, owner, run_env, kv):
 
 
 async def reclaim_expired_lock(env, store, owner, run_id):
-    require(owner["run_id"] == run_id and owner["target_fingerprints"] == google._targets(env), "cleanup_owner")
+    require(owner.get("dirty") is True and owner.get("all_sync") is True
+            and owner["run_id"] == run_id and owner["target_fingerprints"] == google._targets(env), "cleanup_owner")
     lock = await google._lock_state(store)
     if not lock.get("owner"):
         return
     from uuid import uuid4
-    claimant = f"e2e-watch-recovery:{run_id}:{uuid4().hex}"
+    claimant = f"e2e-google-sync-recovery:{run_id}:{uuid4().hex}"
     stub = store._sync_do_stub(env.SYNC_COORDINATOR)
     # 有効期限の判定はDOの通常acquireへ任せる。ownerなしreleaseは使わない。
     acquired = await store._sync_do_rpc(stub, "acquire", {"owner": claimant, "ttl_seconds": 60})

@@ -50,6 +50,9 @@ pip-wheel-metadata/
 # Local generated artifacts
 artifacts/
 
+# ローカルの作業履歴・認証メモ
+/docs/work/
+
 # E2E browser authentication and reports
 playwright/.auth/
 e2e/.auth/

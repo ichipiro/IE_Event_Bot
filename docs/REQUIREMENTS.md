@@ -19,6 +19,8 @@ Windows 専用の環境は必須要件ではない。
 
 ## Python 依存関係
 
+この節は、リポジトリ用の `.venv` に導入するPythonパッケージをまとめる。Node.jsの依存はnpmで別に管理する。
+
 `pyproject.toml` の開発依存:
 
 | パッケージ | バージョン | 用途 |
@@ -34,7 +36,9 @@ Windows 専用の環境は必須要件ではない。
 | `rsa` | `4.9.1` | Google サービスアカウント署名 |
 | `google-auth` | `2.38.0` | Google 認証 |
 
-依存関係を変更した場合は、設定ファイルと `README_ENV.md` を同時に確認する。
+`.[dev]` で導入するのは開発依存の `ruff`、`pytest`、`pyright`。Worker実行用の追加依存 `rsa` と `google-auth` は `workers/requirements.txt` から導入する。依存関係を変更した場合は、設定ファイルとこの文書の整合を確認する。
+
+## Node.js 依存関係
 
 Node.js 開発依存:
 
@@ -42,7 +46,7 @@ Node.js 開発依存:
 | --- | --- | --- |
 | `wrangler` | `4.127.1` | Worker 設定検証、開発、デプロイ |
 
-Wrangler の正本は `package.json` と `package-lock.json` であり、グローバル版は前提にしない。`README_ENV.md` は Python 仮想環境専用のため、Node.js 依存は記載しない。
+Wrangler の正本は `package.json` と `package-lock.json` であり、グローバル版は前提にしない。
 
 ## Cloudflare バインディング
 
@@ -85,12 +89,26 @@ Wrangler の正本は `package.json` と `package-lock.json` であり、グロ�
 
 ## ローカルセットアップ
 
+### 仮想環境を有効化する場合
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 python -m pip install -r workers/requirements.txt
+npm ci
+```
+
+### 仮想環境の実行ファイルを直接使う場合
+
+`activate` を使わず、`.venv/bin/python` / `.venv/bin/pip` を直接実行しても、同じ仮想環境を使用できる。
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m pip install -r workers/requirements.txt
 npm ci
 ```
 

@@ -8,22 +8,22 @@
 
 ## 2026-11-10: 本番のイベント作成通知の重複調査
 
-- 状態: 対応中。全体同期の取得後クールダウンはローカル修正済みで、all-sync・all-http・watch-shared・通知専用の全4実E2Eが成功した。リリース・本番デプロイは未実行で、反映に向けて進行中。対象は2026-11-09 13:36 JST（04:36 UTC）の通知であり、前日リマインダーではない。片方の通知は削除済みで、2件のイベントIDの一致と今回の本番原因は確認できていない。
+- 状態: 対応中（原因調査）。取得後クールダウンの限定修正は全4実E2E・正式リリースを経て、v0.7.0として2026-11-10 03:02:34 JSTに本番へ反映済み。HTTPと新版の定期実行の正常終了も確認した。対象は2026-11-09 13:36 JST（04:36 UTC）の通知であり、前日リマインダーではない。片方の通知は削除済みで、2件のイベントIDの一致と今回の本番原因は確認できていない。
 - 手動ログの報告: `POST /gcal/webhook` は2026-11-09 13:35:55.424、CPU 773ms、Wall 1.33秒、HTTP 204で、ユーザー報告ではログにエラーはない。時刻は日本時間と解釈する。リポジトリと同じ構成なら、この204はDOキューへの保存ACKで、後続Alarm内の同期・通知・snapshot保存の成功までは示さない。CPU超過を今回の原因とする証拠は得られていない。
 - コードで確認した原因候補: 通知POST後のmessage IDはメモリに置かれ、queue・snapshotは全件処理後に保存する。保存失敗・応答喪失・古い状態の再読取りで再POSTでき、成功済みevent IDの永続的な配信台帳はない。[保証限界テスト](../tests/test_sync_guarantee_boundaries.py)の固定障害で再現済みで、これらの制限全体は今回のクールダウン修正だけでは解消しない。同じ経路は調査時のupstream `main` の `ea62da9739c5d6727995e80b5fe86049b287b622` にも存在するが、本番稼働版との一致は未確認。
 - 修正前の正常終了だけの重複経路: クールダウン判定はglobal DOロックの取得前だけにあった。片方が判定を通過して取得前に待つ間に、他方が通知・状態保存・ロック解放まで成功すると、待っていた同期も開始できた。その同期が古い空snapshotを読む条件では、TTL未超過・同じ有効global DO・クールダウン有効・API成功のまま同じイベントへ2回投稿できた。最新snapshotなら1投稿、完全直列で300秒以内ならクールダウンで1投稿となる対照もある。固定した読み取りと実行順のモデルであり、今回の本番での発生順の証明ではない。
 - ローカル修正: 全体同期はglobalロック取得後にownerを確認し、DOの最終成功時刻を再読込みしてクールダウンを再判定する。該当時はsnapshotや同期先APIへ進まず、manual・Cronは200、Webhookは503の`cooldown_skip`を返し、取得したロックをfinallyで解放する。`test_post_lock_cooldown_prevents_duplicate_notification`は旧entryで2件失敗・1件成功、修正後は3件とも同一イベントへのPOSTが1回となり、後続のsnapshot未読・ロック解放も確認した。
 - 残る保証限界: `/sync/discord-notion`の単独同期は今回の再判定対象外であり、全体同期でもクールダウン経過後（既定300秒）の古い状態、投稿応答喪失、投稿後の保存失敗による再投稿は残る。別namespace、無効なクールダウン、ロックTTL超過を含む一度だけの配信を保証する修正ではない。
 - 別イベントの可能性: 異なるGoogleイベントIDの同内容2件や、対応IDのないGoogle予定と既存Discord予定の併存では、別DiscordイベントIDに対する2通知が全処理成功で成立する。同じGoogle IDの重複入力は1件にまとめられる。別状態namespaceの稼働系2つが同じ通知先を扱う場合にも重複は可能だが、本番入力のIDや稼働系の併存は未確認。
-- 本番URL: ユーザーが [本番URL](https://ie-event-bot.ichipiro-explorer.workers.dev/) を提示し、Worker名を追跡設定と同じ `ie-event-bot` に訂正した。それ以前の `e-event-bot` という候補名は本番と扱わない。この環境からの `/health`・`/status` のGETはCloudflareの403応答であり、稼働状況や拒否理由は確定できない。
+- 本番URL: ユーザーが [本番URL](https://ie-event-bot.ichipiro-explorer.workers.dev/) を提示し、Worker名を追跡設定と同じ `ie-event-bot` に訂正した。それ以前の `e-event-bot` という候補名は本番と扱わない。初回調査時の `/health`・`/status` はCloudflareの403だったが、今回の反映前後の `/health` は200・`ok=true`を確認した。
 - 初回照会: E2E用認証のaccountを使った [実行42638839818](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42638839818) は `ie-event-bot` の設定・deployment取得が404・code 10007、telemetryが0件だった。候補名 `e-event-bot` の [実行42639962476](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42639962476) も同じ結果。対象の稼働版と当時のログは取得できておらず、0件を本番の無障害の証拠にしない。
 - 本番account指定の再照会: 追跡Wrangler設定のaccountと `ie-event-bot` に固定した [実行42641140991](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42641140991)（source `600b830241fb34941d9d5cdee67793216b7958a6`）も、設定・deployment・telemetryがすべて403・code 10000（authentication）で拒否された。全ローカル検証は成功したが、本番照会は失敗。現在の認証では本番ログを取得できず、tokenの権限・対象accountのどちらに問題があるかまでは確定していない。
 - 認証先の確認: ユーザー指定の組織リポジトリ `ichipiro/IE_Event_Bot` は読み取り可能。現在参照できるGitHub Environmentは0件、当該リポジトリで利用できる組織Secretは0件、リポジトリSecretは `RELEASE_AUTOMATION_TOKEN` のみで、Cloudflare用認証先は見つからない。端末のWranglerも未ログインであり、GitHubへのアクセスだけでは本番Cloudflareのログを取得できない。Secret値は取得していない。
 - 実E2Eの結果: all-sync [42647189757](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42647189757)、all-http [42653543691](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42653543691)、watch-shared [42654734843](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42654734843)、通知専用 [42656512602](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42656512602)が成功し、各runの版・SHA・監査対応・`passed`・全manifest cleanと回収を照合した。通知専用は28検証stage・監査18行／9操作・確認再試行0回で、通知2件の最終読戻しと回収が成功した。sourceは696／dcdaを区別し、runtimeビルド入力のGit object一致を確認した。all-httpの先行失敗は終了status 1と、終了status 0後の版反映待ちタイムアウトの別件で、scenario資源は未作成・詳細原因は未確定。結果・時刻・件数と失敗の証跡は[今回の検証記録](e2e/E2E-SYNC-COOLDOWN-20261110.md)に記載した。
 - E2Eの境界: 全体同期E2Eは `_DeltaEnv` で作成通知を無効化している。通知専用E2Eは独自のDO所有記録・投稿前後保存を追加しているため、通常通知の一度限りの配信を証明しない。取得後クールダウンの競合の直接再現・修正確認はローカル回帰であり、通知E2Eはその競合やPOST総数の直接計測を行わない。詳細は[保証範囲](TESTING.md#状態障害の保証範囲表)を参照。
 - ログの境界: 通常処理はDiscordの投稿ID・POST回数をログに記録しない。診断結果のHTTP statusはWorker入口の応答であり、Discord POSTの応答ではない。CPU超過などが見つかっても、通知と保存の前後関係を単独では確定できない。
-- リリース・本番反映: ユーザーが修正と標準フローでの本番反映を承認した。実E2E後にfork featureからupstream developへPRし、release・Release Please・同期を経る[正規フロー](fork-upstream-workflow.md)で進める。本番デプロイは別工程で、まだ完了していない。先の承認済み6件の修正とE2E整理も今回の統合対象とする。
-- 残作業: リリース・本番デプロイ・稼働版照合を行う。本番組織の認証先を確認し、設定・当該時間窓のログを照合する。CPU上限、KV障害、TTL失効、別Workerの併存のいずれが今回発生したかは未確定で、本番原因の確定と限定修正の完了を区別する。
+- リリース・本番反映: [正規フロー](fork-upstream-workflow.md)のPR・Release Please・両developへの戻し同期を完了し、[v0.7.0](https://github.com/ichipiro/IE_Event_Bot/releases/tag/v0.7.0)をユーザーの最終承認後に本番へ反映した。先の承認済み6件の修正とE2E整理も含む。03:07:43 JSTの再照合でSHA・100%稼働版と設定保持を確認し、73.52秒の観測では新版16実行すべて正常、例外・エラーログ0件だった。詳細は[本番反映記録](e2e/E2E-SYNC-COOLDOWN-20261110.md#本番反映)を参照。
+- 残作業: 元の事象の当該時間窓のログ・イベントIDを照合し、原因を調査する。CPU上限、KV障害、TTL失効、別Workerの併存のいずれが当時発生したかは未確定で、本番原因の確定と限定修正の完了を区別する。npm監査の13件とCPU上限・配置設定値の個別照合も未解決である。
 
 ## 2026-11-09: 同期・CIの6件の回帰修正
 

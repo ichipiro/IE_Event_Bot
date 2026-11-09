@@ -4,7 +4,7 @@
 
 2026-11-09 13:36 JSTのイベント作成通知の重複調査で、正常終了する同期2回が同じ通知を投稿できる条件を再現した。今回の修正は、そのうち開始判定とロック取得の間の競合を対象とする。本番の発生順の確定とは区別する。
 
-実装commitは `d310ca8d0feb0eb1421ab376abc6c9fd69e0976c`。リリース・本番デプロイは未実行で、反映に向けて対応中である。先の承認済み同期修正・E2E整理を含むfeatureから、[正規フロー](../fork-upstream-workflow.md)で統合する。
+実装commitは `d310ca8d0feb0eb1421ab376abc6c9fd69e0976c`。先の承認済み同期修正・E2E整理とともに[正規フロー](../fork-upstream-workflow.md)で統合し、v0.7.0として本番反映・稼働版照合まで完了した。元の本番事象の発生順は未確定である。
 
 ## 修正とローカル検証
 
@@ -49,6 +49,14 @@ all-syncのsourceは`696d0f67f4a8e75a7b951f0cb683257686864195`、後続3モー�
 両方ともsourceは`696d0f6`で、監査はdeployの開始／終了2行・1操作だけだった。scenarioのprepare・fixture作成はなく、今回runの所有資源は作成されていない。証跡が示すWorker tagとcleanなGoogle同期manifestは、前のall-sync run `E2E-20261109T154336Z-c184f8c5`のものである。全manifestの`dirty=false`を確認したが、古い`passed`を失敗runの成功と解釈しない。
 
 1回目の詳細なCLI原因と、2回目に公開応答の版確認が完了しなかった原因は未特定である。2回目の終了status 0から、デプロイ自体が行われなかったとは断定しない。診断追加後の再実行成功も、先の根本原因を特定・修正した証明にはしない。
+
+## 本番反映
+
+- ユーザーの最終承認後、[v0.7.0](https://github.com/ichipiro/IE_Event_Bot/releases/tag/v0.7.0)・SHA `c9eb0709fda2fcf176589ff90b6a8e315894f648` を本番 `ie-event-bot` へ反映した。2026-11-10 03:02:34 JSTに100%へ切り替え、03:07:43 JSTに稼働版のtag・Version ID・SHAを再照合した。
+- 変数33件・Secret 5件を引き継ぐ設定で候補をアップロードし、bindingの名前・型、既知変数のdigest、既存KV/DO namespace・互換設定・migration tagの一致を確認した。認証値を取得せず、Cron・ログ設定を再適用せず、DOマイグレーションも送信していない。
+- 反映後の `/health` は200・`ok=true`。新版のVersion IDが一致するHTTP 3件・定期実行1件・その他12件を73.52秒観測し、全16実行が`outcome=ok`、例外・エラーログ0件だった。定期実行のCPUは155ms、Wallは17,698msで、切り戻しは不要だった。
+- 最初のtailコマンドはsampling-rate引数で拒否された。引数を省いて再監視し、失敗記録をWorkerの実行結果とは別に保持した。最終照合は `test-results/production-deployment-20261110-0242/final-verification.json`、候補・反映・監視の証跡も同ディレクトリに保存した。ログ本文やHTTPヘッダーは保存していない。
+- npm脆弱性13件（critical 1・high 8・moderate 4）は承認時に提示した未解決事項であり、依存更新はしていない。CPU上限と配置設定値の個別取得も未実施。今回の観測は短時間の稼働確認で、各外部APIの業務結果を個別照合したものではない。
 
 ## 保証の境界
 

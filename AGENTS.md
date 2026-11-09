@@ -54,7 +54,7 @@ python -m pip install -e ".[dev]"
 python -m pip install -r workers/requirements.txt
 ```
 
-`README_ENV.md` に記載された `.venv/bin/python` などの直接実行も同じ仮想環境を使用する方法として扱う。
+`docs/REQUIREMENTS.md` に記載された `.venv/bin/python` などの直接実行も同じ仮想環境を使用する方法として扱う。
 
 ## プロジェクト構成
 
@@ -72,7 +72,7 @@ python -m pip install -r workers/requirements.txt
 - `workers/wrangler.jsonc`: Cloudflare Workers のバインディング、変数、Cron 設定。
 - `tests/`: 外部通信を遮断したローカル単体テストと Workers API の代替実装。
 - `pyproject.toml`: Python パッケージ情報と開発依存。
-- `README_ENV.md`: リポジトリの仮想環境へ導入する Python パッケージ。
+- `docs/REQUIREMENTS.md`: 実行環境、Python仮想環境とNode.jsの依存・セットアップ。
 
 ## リポジトリ固有の規則
 
@@ -81,12 +81,20 @@ python -m pip install -r workers/requirements.txt
 - ユーザーファイル、KV 関連文書、生成物を無断で削除しない。
 - 開始時に未コミット変更を確認し、既存変更をユーザーの作業として保持する。
 - 環境・セットアップ手順は、確認済みの Linux / WSL の挙動に合わせる。
-- 依存関係を変更した場合、必要に応じて `README_ENV.md` も更新する。
+- 依存関係を変更した場合、必要に応じて `docs/REQUIREMENTS.md` も更新する。
 - Worker の挙動を変更した場合、`workers/wrangler.jsonc` と、該当する HTTP ルートまたは Cron の入口を併せて確認する。
 - 状態管理を変更した場合、Workers KV の `STATE_KV` と Durable Object の `SYNC_COORDINATOR` の責務分担を保つ。
 - `new_sqlite_classes` は Durable Object のマイグレーションであり、Cloudflare D1 のバインディングではない。
 - コミットと Pull Request のタイトルには、`docs/DEVELOPMENT.md` で定める Conventional Commits 形式を使う。
 - 文書の記述とコードが食い違う場合は、コードと設定を現行実装として確認し、文書の不確実性を明記する。
+
+## 本番Workerのデプロイ
+
+- 本番Workerへのデプロイは、準備・検証後に必ずユーザーへ確認し、明示的な承認を受けてからエージェントが実行する。
+- 確認前に、対象アカウント・Worker、正式タグとcommit SHA、設定の変更・保持範囲、検証結果と未解決事項、実行コマンドと切り戻し方針を提示できる状態にする。
+- GitHub Release、E2E、認証の完了や、一般的な作業依頼を本番デプロイの承認として扱わない。このフローを定める依頼自体もデプロイ承認には含めない。
+- 本番へのversion upload、通信の切り替え、切り戻しも承認の対象とする。承認済みの対象・版・設定・実行範囲が変わった場合は、変更内容を示して再確認する。同じ承認範囲での確認は繰り返さない。
+- 承認後はエージェントが反映と稼働版の照合を行い、実行結果を報告する。詳細は[本番デプロイの承認手順](docs/fork-upstream-workflow.md#20-本番workerのデプロイ)を参照する。
 
 ## 検証
 
@@ -124,7 +132,8 @@ pytest -q
 
 - このリポジトリは Windows ネイティブではなく、Linux / WSL ワークスペースとして扱う。
 - Cloudflare の実行時挙動は `workers/wrangler.jsonc` のバインディングと管理画面側の状態にも依存する。
-- `README_ENV.md` は、リポジトリの仮想環境に属する Python パッケージだけを扱う。
+- Python仮想環境の導入対象とNode.jsの要件は `docs/REQUIREMENTS.md` にまとめる。
+- `docs/work/` は作業履歴・認証メモのローカル保存先であり、Git管理外とする。共有文書はこの配下のファイルだけに依存しない。
 - `docs/Event_Bot仕様書.md`、`docs/KV.md`、`docs/Operations.md`、`docs/do-kv-design.md` は既存の `.gitignore` 対象である。ローカルでは保持し、標準文書には必要な内容を統合するが、追跡方針は別の明示的な変更なしに変えない。
 - Git のマージ、GitHub Release、Cloudflare Worker のデプロイは別々の工程である。
 
@@ -154,8 +163,6 @@ pytest -q
 
 ## 詳細資料
 
-- [`README_ENV.md`](README_ENV.md)
-  - Linux 仮想環境に導入する Python パッケージ。
 - [`docs/TESTING.md`](docs/TESTING.md)
   - 外部通信を遮断したローカル単体テストの構成、実行方法、検証境界。
 - [`docs/e2e/E2E-PLAN.md`](docs/e2e/E2E-PLAN.md)
@@ -179,7 +186,9 @@ pytest -q
   - コードと設定から確認できる未解決事項。
 - [`docs/GOAL.md`](docs/GOAL.md)
   - プロジェクトの目標と完了条件。
-- [`docs/WORKLOG.md`](docs/WORKLOG.md)
-  - 文書化を含む作業履歴。
+- `docs/work/WORKLOG.md`
+  - 文書化を含むローカル作業履歴。Git管理外。
+- `docs/work/AUTH.md`
+  - 認証方式・保存先・確認状態のローカル整理。認証情報の値は保存せず、Git管理外とする。
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
   - プロジェクト文書の変更履歴。

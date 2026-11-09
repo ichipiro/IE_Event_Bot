@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from time import monotonic
 from uuid import uuid4
 
 from workers import DurableObject, Response
@@ -40,6 +41,10 @@ _E2E_MANIFEST_KINDS = {
 }
 _E2E_MANIFEST_MAX_BYTES = 32_768
 _E2E_RUN_ID_PATTERN = re.compile(r"^E2E-\d{8}T\d{6}Z-[0-9a-f]{8}$")
+_GOOGLE_MESSAGE_PREFIX = "gcal_msg:"
+_GOOGLE_MESSAGE_CURSOR = "gcal_gc:cursor"
+_GOOGLE_MESSAGE_SWEEP_LIMIT = 100
+_GOOGLE_MESSAGE_SWEEP_SECONDS = 0.05
 
 
 def _decode_lock_record(value) -> dict:
@@ -81,6 +86,17 @@ def _decode_json_record(value) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _expired_google_message(value, now: float) -> bool:
+    """所有E2E、不明な形式、有効な処理中leaseは掃除しない。"""
+    record = _decode_json_record(value)
+    if record.get("owner_run_id") or record.get("status") not in (None, "processing"):
+        return False
+    expires_at = record.get("expires_at")
+    if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)):
+        return False
+    return 0 < expires_at <= now
+
+
 class SyncCoordinator(DurableObject):
     """
     同期処理まわりの高頻度状態を扱う Durable Object。
@@ -120,6 +136,46 @@ class SyncCoordinator(DurableObject):
     async def alarm(self):
         from google_webhook_queue import run_alarm
         await run_alarm(self.env, self.ctx.storage)
+
+    async def _sweep_google_messages(self, now: float) -> None:
+        """通知操作ごとに有限ページを巡回し、期限切れの通常通知だけを回収する。"""
+        storage = self.ctx.storage
+        cursor = str(await storage.get(_GOOGLE_MESSAGE_CURSOR) or "")
+        if not cursor.startswith(_GOOGLE_MESSAGE_PREFIX):
+            cursor = ""
+        options = {"prefix": _GOOGLE_MESSAGE_PREFIX, "limit": _GOOGLE_MESSAGE_SWEEP_LIMIT}
+        if cursor:
+            options["startAfter"] = cursor
+        # storage.listはJS APIなので、PythonのdictをJSのoptions objectへ変換する。
+        try:
+            js = __import__("js")
+        except ModuleNotFoundError:
+            native_options = options
+        else:
+            native_options = js.JSON.parse(json.dumps(options))
+        records = await storage.list(native_options)
+        if not isinstance(records, dict):
+            records = records.to_py()
+        if not isinstance(records, dict):
+            raise TypeError("google_message_list_invalid")
+        keys = sorted(key for key in records if isinstance(key, str)
+                      and key.startswith(_GOOGLE_MESSAGE_PREFIX) and key > cursor)[:_GOOGLE_MESSAGE_SWEEP_LIMIT]
+        deadline = monotonic() + _GOOGLE_MESSAGE_SWEEP_SECONDS
+        last_key = ""
+        for key in keys:
+            if last_key and monotonic() >= deadline:
+                break
+            last_key = key
+            if not _expired_google_message(records[key], now):
+                continue
+            # list時の古い値では削除しない。storage I/Oだけの区間をDOのinput gateが保護する。
+            current = await storage.get(key)
+            if _expired_google_message(current, now):
+                await storage.delete(key)
+        if last_key and (last_key != keys[-1] or len(keys) == _GOOGLE_MESSAGE_SWEEP_LIMIT):
+            await storage.put(_GOOGLE_MESSAGE_CURSOR, last_key)
+        elif cursor:
+            await storage.delete(_GOOGLE_MESSAGE_CURSOR)
 
     async def _handle_action(self, payload: dict) -> tuple[dict, int]:
         """同期状態のactionを実行し、本文とHTTP互換statusを返す。"""
@@ -220,6 +276,8 @@ class SyncCoordinator(DurableObject):
             if owner_run_id and not _E2E_RUN_ID_PATTERN.fullmatch(owner_run_id):
                 return {"ok": False, "error": "invalid_e2e_owner_run_id"}, 400
             ttl_seconds = max(60.0, float(payload.get("ttl_seconds") or 86400))
+            await self._sweep_google_messages(now)
+            now = time.time()
             storage_key = f"gcal_msg:{channel_id}:{message_number}"
             current = _decode_json_record(await self.ctx.storage.get(storage_key))
             expires_at = float(current.get("expires_at") or 0.0)

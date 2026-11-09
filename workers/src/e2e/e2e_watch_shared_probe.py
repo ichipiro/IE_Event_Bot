@@ -297,6 +297,7 @@ async def verify_watch(env, store, owner):
     # token変更中のwatchは専用入口の通常tokenで拒否するため、最終watchを確認する。
     latest = owner["watches"][-1]
     if not observations.get(latest["channel_id"], {}).get("sync"):
+        print(json.dumps({"event": "e2e_google_sync_verify", "reason": "watch_sync_pending"}))
         raise GoogleStateError("google_sync_not_ready")
     if owner["step"]:
         require(owner["stages"].get(f"watch_shared_callback_{owner['step']}") == 204, "callback_missing")

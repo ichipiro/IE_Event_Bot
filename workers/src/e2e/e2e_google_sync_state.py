@@ -309,6 +309,7 @@ class GoogleKV:
         if value in ("jsnull", "jsundefined"):
             value = None
         if (None if value is None else digest(value)) != self.hashes.get(key):
+            print(json.dumps({"event": "e2e_google_sync_verify", "reason": "kv_digest_pending"}))
             raise GoogleStateError("google_sync_not_ready")
         return value
 

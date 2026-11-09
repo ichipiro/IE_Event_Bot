@@ -24,6 +24,26 @@ test("復旧ログを固定分類し、任意の本文は残さない", () => {
     assert.ok(!JSON.stringify(redacted).includes("private-log-value"));
   }
 });
+
+for (const reason of ["kv_digest_pending", "watch_sync_pending"]) {
+  test(`E2E検証待ちの固定理由だけを分類する: ${reason}`, () => {
+    const raw = event();
+    delete raw.$metadata.error;
+    raw.source.message = JSON.stringify({ event: "e2e_google_sync_verify", reason,
+      key: "private-kv-key", value: "private-kv-value", id: "private-watch-id" });
+    const redacted = redactEvent(raw);
+    assert.deepEqual(redacted.categories, [reason]);
+    assert.ok(!JSON.stringify(redacted).includes("private-"));
+  });
+}
+
+test("理由のない旧not_readyログからKVとwatchの原因を推定しない", () => {
+  const raw = event();
+  delete raw.$metadata.error;
+  raw.source.message = "google_sync_not_ready";
+  assert.deepEqual(redactEvent(raw).categories, []);
+});
+
 function event(timestamp = Date.parse("2026-09-24T09:26:58Z")) {
   return { timestamp, $metadata: { service: "ie-event-bot-e2e", statusCode: 409,
     error: "secret-test-value: Durable Object storage operation exceeded timeout" },

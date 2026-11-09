@@ -14,6 +14,8 @@ const CLASSIFIERS = {
   lock_release_probe_passed: /e2e_lock_release_probe_passed/i,
   release_failed: /google_sync_release_failed/i,
   busy: /google_sync_busy/i,
+  kv_digest_pending: /\bkv_digest_pending\b/,
+  watch_sync_pending: /\bwatch_sync_pending\b/,
   storage_timeout: /storage operation exceeded timeout/i,
   object_reset: /durable object.*reset|object.*reset.*code.*updated/i,
   overloaded: /overloaded|too many (?:requests|concurrent|queued)|queued for too long/i,

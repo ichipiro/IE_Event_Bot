@@ -12,7 +12,7 @@
 | エージェント指示 | `AGENTS.md` |
 | 開発規則 | `docs/DEVELOPMENT.md` |
 | Python バージョンと依存 | `pyproject.toml`、`workers/requirements.txt`、`docs/REQUIREMENTS.md` |
-| Node.js 要件と Wrangler | `package.json`、`package-lock.json` |
+| Node.js・npmの使用版と依存パッケージ | `.node-version`、`package.json`、`package-lock.json` |
 | Worker、バインディング、変数、Cron | `workers/wrangler.jsonc` |
 | HTTP、認可、Cron | `workers/src/entry.py` |
 | KV と Durable Object の抽象化 | `workers/src/state.py` |

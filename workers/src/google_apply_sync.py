@@ -681,9 +681,12 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
             queued = merged_queue[queue_positions[event_id]]
             pending_hash = (queued or {}).get(_DISCORD_ACK_PENDING)
             # ack待ちの間に届いた実編集・取消だけは、古い適用済み内容より優先する。
-            if pending_hash and (event.get("status") == "cancelled"
-                                 or google_content_hash(event) != pending_hash):
-                merged_queue[queue_positions[event_id]] = event
+            if pending_hash and (
+                (event.get("status") == "cancelled") != (queued.get("status") == "cancelled")
+                or google_content_hash(event) != google_content_hash(queued)
+            ):
+                # 以前のGoogle markerへ戻っても、Discordの適用済み内容はまだ古い。
+                merged_queue[queue_positions[event_id]] = {**event, _DISCORD_ACK_PENDING: pending_hash}
             continue
         queue_positions[event_id] = len(merged_queue)
         merged_queue.append(event)
@@ -887,12 +890,13 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
             # 元が Discord 由来なら元 Discord イベントIDをそのまま使う
             content_hash = google_content_hash(event)
             private = _google_private_props(event)
-            ack_pending = event.get(_DISCORD_ACK_PENDING) == content_hash
+            applied_hash = event.get(_DISCORD_ACK_PENDING)
+            ack_pending = applied_hash == content_hash
             if origin_discord_event_id:
                 discord_event_id = origin_discord_event_id
                 gcal_discord_map[google_event_id] = origin_discord_event_id
             elif (gcal_discord_map.get(google_event_id)
-                  and (ack_pending or private.get(DISCORD_CONTENT_HASH) == content_hash)):
+                  and (ack_pending or (not applied_hash and private.get(DISCORD_CONTENT_HASH) == content_hash))):
                 # Discordへ反映済みの内容だけを省略し、Googleの実編集は通常適用する。
                 discord_event_id = str(gcal_discord_map[google_event_id])
             # そうでなければ Googleイベントを Discord 側へ作成または更新
@@ -911,7 +915,7 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
                     errors.append(f"discord_sync_failed:{google_event_id}")
 
             if (discord_event_id and not origin_discord_event_id
-                    and (ack_pending or (private.get(DISCORD_CONTENT_HASH)
+                    and (applied_hash or (private.get(DISCORD_CONTENT_HASH)
                                          and private[DISCORD_CONTENT_HASH] != content_hash))):
                 # 応答失敗後も適用済みのDiscordへ再送せず、queueから記録だけを再試行する。
                 event[_DISCORD_ACK_PENDING] = content_hash

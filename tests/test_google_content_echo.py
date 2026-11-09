@@ -158,7 +158,7 @@ def test_repeated_google_content_preserves_later_discord_edit_even_after_ack_fai
     assert len(acknowledgements) == (2 if fail_first_ack else 1)
 
 
-@pytest.mark.parametrize("incoming_change", ["content", "cancelled", "equivalent_time"])
+@pytest.mark.parametrize("incoming_change", ["content", "restored", "cancelled", "equivalent_time"])
 def test_ack_retry_uses_new_google_content_but_keeps_equivalent_retry(monkeypatch, incoming_change):
     pipeline = Pipeline(monkeypatch)
     pipeline.worker.env.GOOGLE_API_BEARER_TOKEN = "test-token"
@@ -182,6 +182,8 @@ def test_ack_retry_uses_new_google_content_but_keeps_equivalent_retry(monkeypatc
     before_calls = list(pipeline.discord_calls)
     if incoming_change == "content":
         remote["description"] = "Googleで本文Cへ編集"
+    elif incoming_change == "restored":
+        remote["description"] = "本文A"
     elif incoming_change == "cancelled":
         remote["status"] = "cancelled"
     else:
@@ -195,6 +197,51 @@ def test_ack_retry_uses_new_google_content_but_keeps_equivalent_retry(monkeypatc
         assert not pipeline.discord and pipeline.pages["page-first"]["archived"]
     elif incoming_change == "content":
         assert pipeline.discord["discord-first"]["description"] == "Googleで本文Cへ編集"
+    elif incoming_change == "restored":
+        assert pipeline.discord["discord-first"]["description"] == "本文A"
     else:
         assert pipeline.discord["discord-first"]["description"] == "Discordで本文Cへ編集"
         assert pipeline.discord_calls == before_calls
+
+
+@pytest.mark.parametrize("interrupted_change", ["edit", "cancel"])
+def test_ack_retry_uses_restored_google_after_newer_apply_fails(monkeypatch, interrupted_change):
+    pipeline = Pipeline(monkeypatch)
+    pipeline.worker.env.GOOGLE_API_BEARER_TOKEN = "test-token"
+    remote = google_event("first", description="本文A")
+    remote["extendedProperties"] = {"private": {DISCORD_CONTENT_HASH: google_content_hash(remote)}}
+    statuses = [503, 200]
+
+    async def acknowledge(url, options=None):
+        assert options is not None
+        status = statuses.pop(0)
+        if status == 200:
+            remote["extendedProperties"]["private"][DISCORD_CONTENT_HASH] = json.loads(
+                options["body"])["extendedProperties"]["private"][DISCORD_CONTENT_HASH]
+        return Response(json.dumps(remote), status=status)
+
+    async def fail_apply(*args, **kwargs):
+        return None if interrupted_change == "edit" else False
+
+    monkeypatch.setattr(apply, "fetch", acknowledge)
+    assert pipeline.run((200, {"items": [deepcopy(remote)]}))[0] == 200
+    remote["description"] = "本文B"
+    assert pipeline.run((200, {"items": [deepcopy(remote)]}))[0] == 500
+    if interrupted_change == "edit":
+        remote["description"] = "本文C"
+        failed_function = "_discord_api_request"
+    else:
+        remote["status"] = "cancelled"
+        failed_function = "_notion_archive_page"
+    original = getattr(apply, failed_function)
+    monkeypatch.setattr(apply, failed_function, fail_apply)
+    assert pipeline.run((200, {"items": [deepcopy(remote)]}))[0] == 500
+    monkeypatch.setattr(apply, failed_function, original)
+    remote["description"] = "本文B"
+    remote["status"] = "confirmed"
+
+    assert pipeline.run((200, {"items": [deepcopy(remote)]}))[0] == 200
+
+    assert pipeline.discord["discord-first"]["description"] == "本文B"
+    assert not pipeline.pages["page-first"].get("archived")
+    assert json.loads(pipeline.kv.data[QUEUE]) == []

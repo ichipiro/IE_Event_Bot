@@ -52,6 +52,9 @@ class Scenario:
             self.calls.append(("google", method))
             path = unquote(urlparse(url).path)
             event_id = path.rsplit("/", 1)[-1]
+            if method == "GET" and event_id == "events" and "showDeleted=false" in url:
+                return 200, {"items": [deepcopy(event) for event in self.google.values()
+                                       if event.get("status") != "cancelled"]}
             if method == "POST":
                 assert isinstance(payload, dict)
                 event = deepcopy(payload)

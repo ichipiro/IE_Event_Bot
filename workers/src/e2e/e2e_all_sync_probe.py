@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -339,6 +340,8 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
     if not token:
         raise GoogleStateError("all_sync_token_required")
     if phase == "prepare_all":
+        # active一覧の確認中に追加された変更も、同じ初期窓へ含める。
+        initial_cursor = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         stages = {}
         _require(not (await google._verify_calendar(env.GOOGLE_CALENDAR_ID, token, stages)
                       or await google._verify_guild(env, env.DISCORD_GUILD_ID, stages, {})
@@ -347,20 +350,25 @@ async def run_phase(env, store, run_id, phase, invoke, owner):
         if http_sync:
             _require(not any([await google._raw_shared(env, key) is not None for key in ALL_KEYS + (WATCH_KEYS if webhook_sync else ())]), "shared_not_empty")
         origin_maps = {}
-        baseline = await google._check_full_empty(env, token, stages, origin_maps=origin_maps if http_sync else None)
+        baseline = await google._check_full_empty(env, token, stages, origin_maps=origin_maps if http_sync else None,
+                                                  initial_cursor=initial_cursor)
         slots = [{"run_id": slot_run_id(run_id, i), "google_event_id": source_id(run_id, i),
                   "source": google._event_payload(slot_run_id(run_id, i), source_id(run_id, i)),
                   "source_attempted": False, "apply_attempted": False} for i in range(2)]
         owner = {"kind": KIND, "version": 1, "dirty": True, "run_id": run_id, "scope_id": uuid4().hex,
                  "target_fingerprints": google._targets(env), "step": 0, "stage": "working",
                  "hashes": {}, "fixtures": slots, "stages": stages, "all_sync": True,
-                 "baseline_deleted": baseline}
+                 "baseline_deleted": baseline, "initial_cursor": initial_cursor}
         if http_sync:
             owner["http_sync"] = True
             owner["http_baseline_maps"] = origin_maps
         if webhook_sync:
             from e2e.e2e_watch_shared_probe import initial_watch_owner
             owner.update(initial_watch_owner(env, run_id))
+        await google._save(store, owner)
+        kv = GoogleKV(store, owner)
+        await kv.put("sync:updated_min", initial_cursor)
+        owner["hashes"] = kv.hashes
         await google._save(store, owner)
         for slot in slots:
             status, _ = await google._google_request("GET", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]), token)

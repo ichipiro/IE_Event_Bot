@@ -8,7 +8,6 @@ from e2e import e2e_google_sync_probe as google
 from e2e.e2e_all_sync_probe import AllEnv, _require
 from e2e.e2e_google_sync_state import GoogleKV, MAX_BASELINE_DELETED
 from google_apply_sync import _build_discord_description
-from state import StateStore
 
 
 class HttpEnv:
@@ -23,9 +22,9 @@ class HttpEnv:
 
 
 async def _inputs(env, store, owner, token):
-    """全件の所有確認だけを行う。通常同期へ渡す一覧の加工は行わない。"""
+    """初期cursorから取得した全入力の所有を確認し、通常同期の一覧は加工しない。"""
     fetched = await google.run_google_delta_fetch(
-        google.GoogleEnv(env, token), StateStore(google._DeltaEnv(env)), commit_cursor=False,
+        google.GoogleEnv(env, token), google._delta_state(env, owner.get("initial_cursor")), commit_cursor=False,
     )
     _require(fetched.get("ok"), "http_input_fetch_failed")
     slots = {s["google_event_id"]: s for s in owner["fixtures"]}
@@ -71,7 +70,7 @@ async def dispatch(env, store, owner, token, invoke):
         await _inputs(env, store, owner, token)
     kv = GoogleKV(store, owner)
     run_env = HttpEnv(env, token, kv)
-    # 空状態で確認した削除履歴も通常適用へ渡す。実行は所有2件と履歴上限で有限にする。
+    # 初期窓で確認した削除履歴も通常適用へ渡す。実行は所有2件と履歴上限で有限にする。
     for slot in owner["fixtures"]:
         slot["apply_attempted"] = True
     await google._save(store, owner)

@@ -4,6 +4,7 @@ import json
 import math
 import re
 from copy import deepcopy
+from datetime import datetime
 from hashlib import sha256
 from types import SimpleNamespace
 
@@ -21,7 +22,7 @@ KEYS = (
     "result:sync_all",
 )
 STEPS = ("pending", "drained", "updated", "deleted", "retry_pending", "retried")
-OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "notion_query_retry", "notion_create_retry", "notion_writeback_retry", "boundary", "matrix", "all_sync", "http_sync", "webhook_sync")
+OWNER_FIELDS = ("run_id", "scope_id", "target_fingerprints", "full_apply", "notion_query_retry", "notion_create_retry", "notion_writeback_retry", "boundary", "matrix", "all_sync", "http_sync", "webhook_sync", "initial_cursor")
 ALL_KEYS = KEYS + ("discord:snapshot", "sync:discord_notion_queue")
 WATCH_KEYS = ("gcal_watch_state", "result:gcal_watch_ensure")
 
@@ -116,6 +117,16 @@ def valid_google_transition(previous, value):
             return False
         if type(value.get("webhook_sync", False)) is not bool or (value.get("webhook_sync") and not value.get("http_sync")):
             return False
+        initial_cursor = value.get("initial_cursor")
+        if initial_cursor is not None:
+            if not value.get("all_sync") or not isinstance(initial_cursor, str) or not initial_cursor.endswith("Z"):
+                return False
+            try:
+                parsed = datetime.fromisoformat(initial_cursor.replace("Z", "+00:00"))
+                if parsed.tzinfo is None or not math.isfinite(parsed.timestamp()):
+                    return False
+            except (ValueError, OverflowError):
+                return False
         if value.get("webhook_sync"):
             from e2e.e2e_watch_shared_probe import valid_watch_owner
             if not valid_watch_owner(previous, value):

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from types import SimpleNamespace
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -61,6 +62,22 @@ class GoogleEnv(_DeltaEnv):
     def __init__(self, env, token):
         super().__init__(env)
         self.GOOGLE_API_BEARER_TOKEN = token
+
+
+class _InitialCursorKV:
+    """準備時の差分取得へcursorだけを渡し、共有KVへは接続しない。"""
+
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    async def get(self, key):
+        return self.cursor if key == "sync:updated_min" else None
+
+
+def _delta_state(env, initial_cursor=None):
+    if initial_cursor is None:
+        return StateStore(_DeltaEnv(env))
+    return StateStore(SimpleNamespace(STATE_KV=_InitialCursorKV(initial_cursor), SYNC_COORDINATOR=None))
 
 
 def _targets(env):
@@ -629,10 +646,39 @@ async def _check_shared_cleanup(env, owner, *, keys=KEYS):
             raise GoogleStateError("google_sync_shared_owner_mismatch")
 
 
-async def _check_full_empty(env, token, stages, *, origin_maps=None, compact=False):
+async def _check_active_empty(env, token, stages):
+    """古いactive予定も確認し、削除履歴だけを全件取得から除く。"""
+    url = _event_collection_url(env.GOOGLE_CALENDAR_ID) + (
+        "?singleEvents=true&showDeleted=false&maxResults=2500&fields=items(status),nextPageToken"
+    )
+    seen = set()
+    page = ""
+    while True:
+        status, data = await _google_request("GET", url + page, token)
+        if status != 200 or not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise GoogleStateError("google_sync_active_calendar_invalid")
+        for event in data["items"]:
+            event_status = event.get("status") if isinstance(event, dict) else None
+            if event_status not in ("confirmed", "tentative", "cancelled"):
+                raise GoogleStateError("google_sync_active_calendar_invalid")
+            if event_status != "cancelled":
+                raise GoogleStateError("google_sync_calendar_not_empty")
+        next_page = data.get("nextPageToken")
+        if next_page is None or next_page == "":
+            break
+        if not isinstance(next_page, str) or next_page in seen:
+            raise GoogleStateError("google_sync_active_calendar_invalid")
+        seen.add(next_page)
+        page = "&pageToken=" + quote(next_page, safe="")
+    stages["google_sync_active_empty"] = 200
+
+
+async def _check_full_empty(env, token, stages, *, origin_maps=None, compact=False, initial_cursor=None):
     if any([await _raw_shared(env, key) is not None for key in KEYS]):
         raise GoogleStateError("google_sync_shared_not_empty")
-    result = await run_google_delta_fetch(GoogleEnv(env, token), StateStore(_DeltaEnv(env)), commit_cursor=False)
+    if initial_cursor is not None:
+        await _check_active_empty(env, token, stages)
+    result = await run_google_delta_fetch(GoogleEnv(env, token), _delta_state(env, initial_cursor), commit_cursor=False)
     if not result.get("ok") or not isinstance(result.get("items"), list):
         raise GoogleStateError("google_sync_calendar_fetch_failed")
     baseline = {}

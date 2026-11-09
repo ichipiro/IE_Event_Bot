@@ -95,7 +95,9 @@ class NativeCrypto:
         assert key_format == "pkcs8" and extractable is False
         assert type(usages) is NativeArray and usages == ["sign"]
         assert type(key_bytes) is NativeBytes
-        if self.failure == "import":
+        if self.failure in ("import", "import_once"):
+            if self.failure == "import_once":
+                self.failure = None
             raise RuntimeError("test import failure")
         return {"format": key_format, "key": base64.b64encode(key_bytes.data).decode(),
                 "algorithm": algorithm.value, "extractable": extractable, "usages": usages}
@@ -150,7 +152,7 @@ def python_imports(monkeypatch):
     return calls
 
 
-def test_worker_uses_real_webcrypto_before_python_signers(monkeypatch, signing_key):
+def test_worker_uses_real_webcrypto_before_python_signers(monkeypatch, signing_key, capsys):
     native = NativeCrypto()
     monkeypatch.setitem(sys.modules, "js", native.js)
     imports = python_imports(monkeypatch)
@@ -159,10 +161,11 @@ def test_worker_uses_real_webcrypto_before_python_signers(monkeypatch, signing_k
 
     assert native.calls == ["importKey", "sign"]
     assert imports == []
+    assert json.loads(capsys.readouterr().out) == {"event": "google_auth_signer", "backend": "webcrypto"}
 
 
 @pytest.mark.parametrize("failure", ["import", "sign"])
-def test_native_failure_preserves_google_auth_fallback(monkeypatch, signing_key, failure):
+def test_native_failure_preserves_google_auth_fallback(monkeypatch, signing_key, failure, capsys):
     native = NativeCrypto(failure)
     monkeypatch.setitem(sys.modules, "js", native.js)
     imports = python_imports(monkeypatch)
@@ -171,15 +174,17 @@ def test_native_failure_preserves_google_auth_fallback(monkeypatch, signing_key,
 
     assert native.calls == (["importKey"] if failure == "import" else ["importKey", "sign"])
     assert "google.auth.crypt" in imports and "google.auth.jwt" in imports
+    assert json.loads(capsys.readouterr().out) == {"event": "google_auth_signer", "backend": "python"}
 
 
-def test_cpython_keeps_existing_google_auth_signer(monkeypatch, signing_key):
+def test_cpython_keeps_existing_google_auth_signer(monkeypatch, signing_key, capsys):
     monkeypatch.setitem(sys.modules, "js", None)
     imports = python_imports(monkeypatch)
 
     assertion(monkeypatch, signing_key)
 
     assert "google.auth.crypt" in imports and "google.auth.jwt" in imports
+    assert json.loads(capsys.readouterr().out) == {"event": "google_auth_signer", "backend": "python"}
 
 
 def test_missing_subtle_sign_keeps_existing_google_auth_signer(monkeypatch, signing_key):
@@ -214,3 +219,51 @@ def test_pkcs1_key_keeps_existing_google_auth_signer(monkeypatch, signing_key):
 
     assert native.calls == []
     assert "google.auth.crypt" in imports and "google.auth.jwt" in imports
+
+
+def test_python_rsa_fallback_logs_only_success_backend(monkeypatch, signing_key, capsys):
+    monkeypatch.setitem(sys.modules, "js", None)
+    original = google_auth.importlib.import_module
+
+    def unavailable(name):
+        if name.startswith(("google.auth.", "cryptography.")):
+            raise ImportError("test Python backend unavailable")
+        return original(name)
+
+    monkeypatch.setattr(google_auth.importlib, "import_module", unavailable)
+
+    assertion(monkeypatch, signing_key, pkcs1=True)
+
+    assert json.loads(capsys.readouterr().out) == {"event": "google_auth_signer", "backend": "python"}
+
+
+def test_retried_native_signer_logs_actual_backend_once(monkeypatch, signing_key, capsys):
+    native = NativeCrypto("import_once")
+    monkeypatch.setitem(sys.modules, "js", native.js)
+
+    def unavailable(name):
+        raise ImportError("test Python backend unavailable")
+
+    monkeypatch.setattr(google_auth.importlib, "import_module", unavailable)
+
+    assertion(monkeypatch, signing_key)
+
+    assert native.calls == ["importKey", "importKey", "sign"]
+    assert json.loads(capsys.readouterr().out) == {"event": "google_auth_signer", "backend": "webcrypto"}
+
+
+def test_failed_assertion_never_logs_backend_success(monkeypatch, signing_key, capsys):
+    native = NativeCrypto("import")
+    monkeypatch.setitem(sys.modules, "js", native.js)
+
+    def unavailable(name):
+        raise ImportError("test Python backend unavailable")
+
+    monkeypatch.setattr(google_auth.importlib, "import_module", unavailable)
+
+    token = asyncio.run(google_auth._build_service_account_assertion({
+        "client_email": "service-account@example.test", "private_key": signing_key.pkcs8,
+    }, google_auth._GOOGLE_CALENDAR_SCOPES))
+
+    assert token is None
+    assert capsys.readouterr().out == ""

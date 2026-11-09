@@ -3,7 +3,7 @@ import json
 import time
 import base64
 from uuid import uuid4
-from typing import Any
+from typing import Any, Literal
 
 from workers import fetch as _runtime_fetch
 
@@ -256,11 +256,14 @@ def _uint8_array_to_bytes(js_arr):
         return None
 
 
-async def _sign_rs256(message: bytes, private_key_pem: str):
+async def _sign_rs256(
+    message: bytes, private_key_pem: str,
+) -> tuple[bytes | None, Literal["python", "webcrypto"]]:
     global _last_sign_error
     _last_sign_error = None
     """
     RS256 秘密鍵署名を行う。
+    署名と、実際に成功したbackendを返す。
     - `cryptography` 優先（PKCS8 対応）
     - 失敗時 `rsa` パッケージへフォールバック（PKCS1 対応）
     """
@@ -279,7 +282,7 @@ async def _sign_rs256(message: bytes, private_key_pem: str):
             password=None,
         )
         sig = key.sign(message, crypto_padding.PKCS1v15(), crypto_hashes.SHA256())
-        return sig
+        return sig, "python"
     # 例外 -> exc
     # 失敗した署名方法 : 例外の型 : メッセージ
     except Exception as exc:
@@ -291,12 +294,12 @@ async def _sign_rs256(message: bytes, private_key_pem: str):
         rsa: Any = importlib.import_module("rsa")
 
         key = rsa.PrivateKey.load_pkcs1(private_key_pem.encode("utf-8"))
-        return rsa.sign(message, key, "SHA-256")
+        return rsa.sign(message, key, "SHA-256"), "python"
     except Exception as exc:
         _last_sign_error = f"rsa_failed:{type(exc).__name__}:{str(exc)[:160]}"
         pass
 
-    return await _sign_webcrypto(message, private_key_pem)
+    return await _sign_webcrypto(message, private_key_pem), "webcrypto"
 
 
 async def _sign_webcrypto(message: bytes, private_key_pem: str):
@@ -380,7 +383,9 @@ async def _build_service_account_assertion(sa_info: dict, scope: str):
     # PythonのRSA計算より先に試す。Workerで実際に署名できた場合だけ置き換える。
     native_signature = await _sign_webcrypto(signing_input, private_key)
     if native_signature:
-        return f"{header_b64}.{payload_b64}.{_b64url(native_signature)}"
+        token = f"{header_b64}.{payload_b64}.{_b64url(native_signature)}"
+        print(json.dumps({"event": "google_auth_signer", "backend": "webcrypto"}))
+        return token
     # google-auth が使える場合は RSA signer 実装に委譲する
     try:
         gcrypt: Any = importlib.import_module("google.auth.crypt")
@@ -392,15 +397,15 @@ async def _build_service_account_assertion(sa_info: dict, scope: str):
             payload,
             header=header,
         )
-        if isinstance(token, bytes):
-            return token.decode("utf-8")
-        return str(token)
+        token = token.decode("utf-8") if isinstance(token, bytes) else str(token)
+        print(json.dumps({"event": "google_auth_signer", "backend": "python"}))
+        return token
     # 無理なら自前で作る
     except Exception as exc:
         _last_assertion_error = f"google_auth_signer_failed:{type(exc).__name__}:{str(exc)[:160]}"
         pass
 
-    signature = await _sign_rs256(signing_input, private_key)
+    signature, backend = await _sign_rs256(signing_input, private_key)
     # エラー箇所確認用( signer 不可 + 鍵署名失敗)
     if not signature:
         global _last_sign_error
@@ -414,7 +419,9 @@ async def _build_service_account_assertion(sa_info: dict, scope: str):
                 f":{_last_sign_error}" if _last_sign_error else ""
             )
         return None
-    return f"{header_b64}.{payload_b64}.{_b64url(signature)}"
+    token = f"{header_b64}.{payload_b64}.{_b64url(signature)}"
+    print(json.dumps({"event": "google_auth_signer", "backend": backend}))
+    return token
 
 
 async def _fetch_token_from_service_account(env, state):

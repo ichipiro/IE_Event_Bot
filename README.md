@@ -274,7 +274,8 @@ curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
 
 - Python package metadata: `pyproject.toml`
 - 開発依存: `ruff`, `pytest`, `pyright`
-- Wrangler / Node.js 要件: `package.json`, `package-lock.json`
+- Node.js / npm本体: WSL共通環境へ導入。使用版は`.node-version`と`package.json`で指定し、セットアップは[`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md)を参照
+- Wranglerと依存パッケージ: `package.json`, `package-lock.json`
 - 固定 Wrangler の導入と版確認: `npm ci`、`npm run wrangler -- --version`
 - ローカルテスト: [`docs/TESTING.md`](docs/TESTING.md)
 - リリース補助: `.release-please-config.json`

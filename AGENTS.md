@@ -32,6 +32,7 @@
 
 - 主な実行環境は Linux / WSL である。
 - Python 作業にはリポジトリルートの `.venv` を使う。
+- Node.jsとnpmはWSL本体へ導入した共通の実行環境を使い、`.venv`やリポジトリ内へ本体を導入しない。使用版は`.node-version`・`package.json`で指定し、依存パッケージだけを`npm ci`で導入する。
 - Windows 専用の手順は、ユーザーが明示的に求めた場合だけ提示する。
 - 主なアプリケーション対象は `workers/` 配下の Cloudflare Python Workers である。
 - Cloudflare、Discord、Google、Notion の実環境状態は、ローカルの静的検査だけでは確定できない。

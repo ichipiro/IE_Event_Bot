@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ie-event-bot"
-version = "0.7.1"
+version = "0.7.2"
 description = "Discord, Google Calendar, and Notion integration bot"
 requires-python = ">=3.10"
 

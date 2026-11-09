@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import e2e_lock_release_probe as probe
-from e2e_google_sync_state import GoogleStateError
+from e2e import e2e_lock_release_probe as probe
+from e2e.e2e_google_sync_state import GoogleStateError
 from state import StateStore
 from tests.fakes import make_sync_coordinator_namespace
 

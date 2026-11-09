@@ -7,9 +7,9 @@ import pytest
 from workers import Response
 
 import discord_notion_sync
-import e2e_discord_delta_probe as probe
-import e2e_discord_probe
-import e2e_entry
+from e2e import e2e_discord_delta_probe as probe
+from e2e import e2e_discord_probe
+from e2e import e2e_entry
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_discord_notion_probe import (

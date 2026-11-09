@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import sync_lock_do
-from e2e_entry import Default
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.test_e2e_sync_lock_probe import environment
 

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import e2e_sync_fault_probe as probe
+from e2e import e2e_sync_fault_probe as probe
 import sync_lock_do
-from e2e_entry import Default
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_sync_lock_probe import OTHER, RUN, environment
@@ -219,7 +219,7 @@ def test_control_release_failure_keeps_dirty(env, monkeypatch):
 
 
 def test_expiry_poll_uses_do_time_at_boundary(monkeypatch):
-    from e2e_sync_fault_probe import _wait_expired
+    from e2e.e2e_sync_fault_probe import _wait_expired
 
     clocks = iter(
         [

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from workers import Response
 
-import e2e_google_webhook_delivery_probe as probe
+from e2e import e2e_google_webhook_delivery_probe as probe
 from state import StateStore
 from tests.fakes import MemoryKV, make_sync_coordinator_namespace
 

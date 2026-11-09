@@ -9,11 +9,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pytest
 from workers import Response
 
-import e2e_google_matrix_probe as matrix
-import e2e_google_sync_probe as probe
+from e2e import e2e_google_matrix_probe as matrix
+from e2e import e2e_google_sync_probe as probe
 import google_calendar_sync
-from e2e_google_matrix_state import STATUSES
-from e2e_google_sync_state import KEYS
+from e2e.e2e_google_matrix_state import STATUSES
+from e2e.e2e_google_sync_state import KEYS
 from tests.test_e2e_google_sync_probe import Scenario
 
 

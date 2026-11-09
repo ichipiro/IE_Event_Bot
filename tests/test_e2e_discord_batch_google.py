@@ -8,10 +8,10 @@ import pytest
 from workers import Response
 
 import discord_notion_sync
-import e2e_google_probe
-from e2e_discord_batch_state import GOOGLE_SERVICE, key_prefix
-from e2e_discord_kv_state import KEYS
-from e2e_entry import Default
+from e2e import e2e_google_probe
+from e2e.e2e_discord_batch_state import GOOGLE_SERVICE, key_prefix
+from e2e.e2e_discord_kv_state import KEYS
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_discord_batch_probe import env_for_batch
@@ -313,7 +313,7 @@ def test_changed_target_or_gate_stops_before_external_requests(monkeypatch, chan
 
 
 def test_auth_failure_during_reverification_revokes_passed_outcome(monkeypatch):
-    import e2e_discord_batch_google
+    from e2e import e2e_discord_batch_google
 
     env = environment()
     install(monkeypatch, env)
@@ -337,7 +337,7 @@ def test_auth_failure_during_reverification_revokes_passed_outcome(monkeypatch):
 
 def test_service_account_resolution_uses_disabled_cache_state(monkeypatch):
     import google_auth
-    from e2e_discord_batch_google import GoogleBatch
+    from e2e.e2e_discord_batch_google import GoogleBatch
 
     env = environment()
     env.GOOGLE_API_BEARER_TOKEN = ""

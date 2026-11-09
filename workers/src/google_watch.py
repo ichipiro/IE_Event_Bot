@@ -268,6 +268,11 @@ async def ensure_watch_active(env, state):
         result = await renew_watch(env, state)
         return {"ok": bool(result.get("ok")), "action": "renew_token_changed", "result": result}
 
+    calendar_id = _env_text(env, "GOOGLE_CALENDAR_ID", "")
+    if calendar_id and str(current.get("calendar_id") or "").strip() != calendar_id:
+        result = await renew_watch(env, state)
+        return {"ok": bool(result.get("ok")), "action": "renew_calendar_changed", "result": result}
+
     # 期限不明なら renew
     if expires_at <= 0:
         result = await renew_watch(env, state)

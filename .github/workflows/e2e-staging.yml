@@ -14,6 +14,7 @@ on:
           - deploy-and-real-cron-contention
           - read-only-real-cron-diagnostics
           - read-only-google-lock-diagnostics
+          - read-only-event-notification-diagnostics
           - deploy-and-crud-smoke
           - deploy-and-discord-google-smoke
           - deploy-and-discord-notion-smoke
@@ -55,6 +56,16 @@ on:
 
       recovery_run_id:
         description: "recoveryモードで回収する既存run ID。それ以外は空欄"
+        required: false
+        type: string
+
+      diagnostic_start_utc:
+        description: "本番イベント通知の診断開始UTC（最大60分、読み取り専用）"
+        required: false
+        type: string
+
+      diagnostic_end_utc:
+        description: "本番イベント通知の診断終了UTC"
         required: false
         type: string
 
@@ -208,7 +219,7 @@ jobs:
       - name: Install Node.js dependencies
         run: npm ci
       - name: Create run ID
-        if: ${{ inputs.mode != 'read-only-google-lock-diagnostics' }}
+        if: ${{ inputs.mode != 'read-only-google-lock-diagnostics' && inputs.mode != 'read-only-event-notification-diagnostics' }}
         id: run_id
         env:
           E2E_MODE: ${{ inputs.mode }}
@@ -219,6 +230,7 @@ jobs:
       - name: Read-only Google lock diagnostics
         if: ${{ inputs.mode == 'read-only-google-lock-diagnostics' }}
         env:
+          E2E_DIAGNOSTIC_RUN_ID: ${{ inputs.recovery_run_id }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node tools/diagnose_google_lock.mjs
@@ -228,6 +240,22 @@ jobs:
         with:
           name: google-lock-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/google-lock-diagnostics/report.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Read-only event notification diagnostics
+        if: ${{ inputs.mode == 'read-only-event-notification-diagnostics' }}
+        env:
+          START_UTC: ${{ inputs.diagnostic_start_utc }}
+          END_UTC: ${{ inputs.diagnostic_end_utc }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node tools/diagnose_event_notifications.mjs
+      - name: Upload redacted event notification diagnostics
+        if: ${{ always() && inputs.mode == 'read-only-event-notification-diagnostics' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: event-notification-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/event-notification-diagnostics/report.json
           if-no-files-found: error
           retention-days: 14
       - name: Read-only preflight

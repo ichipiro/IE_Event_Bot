@@ -5,6 +5,8 @@ import hashlib
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from workers import Response
 
 import google_watch
@@ -200,13 +202,14 @@ def test_ensure_watch_keeps_watch_with_current_token_fingerprint(monkeypatch) ->
                 {
                     "channel_id": "current-channel",
                     "resource_id": "current-resource",
+                    "calendar_id": "calendar-id",
                     "expiration": "4102444800000",
                     "webhook_token_sha256": fingerprint,
                 }
             )
         }
     )
-    env = SimpleNamespace(STATE_KV=kv, GCAL_WEBHOOK_TOKEN="channel-token")
+    env = SimpleNamespace(STATE_KV=kv, GCAL_WEBHOOK_TOKEN="channel-token", GOOGLE_CALENDAR_ID="calendar-id")
 
     async def fail_if_renewed(env, state):
         raise AssertionError("同じ token の watch を更新してはならない")
@@ -218,3 +221,46 @@ def test_ensure_watch_keeps_watch_with_current_token_fingerprint(monkeypatch) ->
     assert result["ok"] is True
     assert result["action"] == "noop_valid"
     assert "webhook_token_sha256" not in result["watch_state"]
+
+
+@pytest.mark.parametrize("old_calendar", ["calendar-A", None])
+def test_ensure_watch_replaces_watch_for_current_calendar(monkeypatch, old_calendar) -> None:
+    current = {
+        "channel_id": "old-channel",
+        "resource_id": "old-resource",
+        "expiration": "4102444800000",
+        "webhook_token_sha256": hashlib.sha256(b"channel-token").hexdigest(),
+    }
+    if old_calendar is not None:
+        current["calendar_id"] = old_calendar
+    kv = MemoryKV({"gcal_watch_state": json.dumps(current)})
+    env = SimpleNamespace(
+        STATE_KV=kv, GCAL_WEBHOOK_TOKEN="channel-token",
+        GCAL_WEBHOOK_URL="https://bot.test/gcal/webhook", GOOGLE_CALENDAR_ID="calendar-B",
+    )
+    calls = []
+
+    async def fake_token(_env, _state):
+        return "google-access-token"
+
+    async def fake_fetch(url, options=None):
+        assert options is not None
+        calls.append((url, json.loads(options["body"])))
+        if url.endswith("/channels/stop"):
+            return Response("", status=204)
+        return Response(json.dumps({
+            "id": "new-channel", "resourceId": "new-resource", "expiration": "4102444800000",
+        }), status=200)
+
+    monkeypatch.setattr(google_watch, "get_google_access_token", fake_token)
+    monkeypatch.setattr(google_watch, "fetch", fake_fetch)
+
+    result = run(ensure_watch_active(env, StateStore(env)))
+
+    assert result["ok"] is True
+    assert result["action"] == "renew_calendar_changed"
+    assert calls[0][1] == {"id": "old-channel", "resourceId": "old-resource"}
+    assert calls[1][0].endswith("/calendars/calendar-B/events/watch")
+    saved = json.loads(kv.data["gcal_watch_state"])
+    assert saved["calendar_id"] == "calendar-B"
+    assert saved["channel_id"] == "new-channel"

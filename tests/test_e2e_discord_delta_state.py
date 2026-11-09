@@ -6,7 +6,7 @@ from copy import deepcopy
 import pytest
 
 import discord_notion_sync
-import e2e_discord_delta_probe as probe
+from e2e import e2e_discord_delta_probe as probe
 from state import StateStore
 from sync_lock_do import SyncCoordinator
 from tests.test_e2e_discord_notion_probe import DISCORD_EVENT_ID, RUN_ID, make_env, run

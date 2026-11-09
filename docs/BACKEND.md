@@ -29,14 +29,15 @@ StateStore
 | `workers/src/google_calendar_sync.py` | `updatedMin` を使う Google Calendar 差分取得 |
 | `workers/src/google_apply_sync.py` | Google イベントの Notion / Discord 反映 |
 | `workers/src/discord_notion_sync.py` | Discord の差分検出、Notion / Google 反映 |
+| `workers/src/google_event_content.py` | 往復同期の内容比較 |
 | `workers/src/google_auth.py` | Google アクセストークンの優先順位、取得、KV キャッシュ |
 | `workers/src/google_watch.py` | Google Calendar watch の登録・更新・期限確認 |
 | `workers/src/jobs.py` | Q&A 通知、前日リマインド、Notion クリーンアップ |
 | `workers/src/health_checks.py` | Notion、Discord、Google の疎通診断 |
 | `workers/src/state.py` | 状態ストアの抽象化 |
 | `workers/src/sync_lock_do.py` | `SyncCoordinator` Durable Object |
-| `workers/src/e2e_entry.py` | E2E 専用 route allowlist、run ID、status、Cron 無効化 |
-| `workers/src/e2e_*_probe.py` | 専用外部資源の CRUD、所有権確認、cleanup |
+| `workers/src/e2e/e2e_entry.py` | E2E 専用 route allowlist、run ID、status、Cron 無効化 |
+| `workers/src/e2e/e2e_*_probe.py` | 専用外部資源の CRUD、所有権確認、cleanup |
 
 ## HTTP ルート
 
@@ -77,6 +78,8 @@ StateStore
 
 通常の差分処理は、失敗・上限超過の操作を `sync:discord_notion_queue` に保存してから `discord:snapshot` を進める。queue保存が失敗した場合は旧snapshotから差分を再検出でき、snapshot保存が失敗した場合は保存済みqueueから再試行できる。外部反映後の保存失敗では成功済み操作が再実行され得る。
 
+Google同期が有効なときの認証欠落と、Notion検索のHTTP失敗・不正応答は成功や0件と扱わず、未処理操作をqueueへ残す。既存Google予定の由来情報を保持し、内容を照合して重複反映を抑止する。Googleの実編集は反映し、既存の誤ったorigin属性は自動移行しない。Calendar設定が保存済みwatchと異なる場合もwatchを更新する。今回の検証範囲は[回帰記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)を参照する。
+
 作成通知が有効な新規イベントは、通知先をqueueの `notification` に保持する。上限超過や同期失敗で繰り越しても、同期成功後に通知する。通知だけが失敗した場合は `op=notify` として保存し、イベントに新しい変更がなければGoogle・Notionを再適用しない。投稿済みのmessage IDがあれば、そのメッセージへの✅リアクションだけを再試行する。通知操作も通常の処理件数上限に含める。イベントが一覧から消えた場合は既存の削除処理へ切り替え、保留通知を送らない。通知待ちの完了イベントが一覧から消えた場合は、同期先を削除せず保留通知だけを取り除く。
 
 通知先チャンネルの変更・無効化時は、保留通知を別チャンネルへ転送せず失敗として保持する。元の設定を復元すれば再試行できる。投稿結果を取得できない場合やKVの保存失敗・古い値の参照では重複投稿があり得るため、一度だけの配信は保証しない。
@@ -91,6 +94,8 @@ StateStore
 4. 同期中・クールダウン・失敗時は通知を保持してAlarmを再予約する。成功した通知だけ永続キューから除去する。
 
 通知キューは最大128件、失敗時の通常再試行は60秒後。送信元のHTTP接続終了に依存せず継続する。[CloudflareのAlarm仕様](https://developers.cloudflare.com/durable-objects/api/alarms/)は少なくとも一度の実行であり、外部API反映とDO保存の間の応答喪失を含め、厳密に一度だけの外部書込みは保証しない。DOなしの旧構成は従来の同期HTTP処理とKV重複記録を維持し、通知の永続キューと強整合leaseは利用できない。
+
+重複抑止レコードは通知操作時に最大100件ずつ掃除する。有効claimとE2E所有値を保護し、巡回位置は`gcal_gc:cursor`へ保存する。50msはループ内予算で、処理全体の厳密な時間上限ではない。既存Alarmは変更せず、無通信中の期限切れ値は次の通知操作まで残る。
 
 ### Cron
 
@@ -146,7 +151,7 @@ E2Eは復旧成功なら元の段階の結果を返してclean管理記録の保
 外部へのアラート通知は追加していない。
 実環境でのログ収集は、変更をデプロイした後に確認する。
 
-`deploy-and-watch-shared-smoke` は `e2e_lock_release_probe.py` でrun専用DOを使い、
+`deploy-and-watch-shared-smoke` は `workers/src/e2e/e2e_lock_release_probe.py` でrun専用DOを使い、
 通常解放・E2E制御解放それぞれの「解放前の失敗」「解放後の応答喪失」「再試行上限」「所有者交代」を検証する。
 通常コードの呼出先を専用DOへ限定し、実際のRPC前後で固定例外を注入する。実際の回線障害を起こす検証ではない。
 別接続から所有者・解放結果を読み戻し、RPC回数と接続取得回数を照合する。
@@ -157,7 +162,7 @@ E2Eは復旧成功なら元の段階の結果を返してclean管理記録の保
 
 通常StateStoreの検証用 `discord_state` は、`E2E_STATE_SCOPE` 設定時だけ専用の保存・検証・回収routeを公開する。KV bindingをrun ID・一意なscope・snapshot / queueの固定キーへ制限し、読書きのたびにDO manifestの所有権を確認する。snapshot / queueは通常どおり別々のKV書込みであり、DOには所有メタデータだけを保存する。外部イベントの同期は行わず、通常経路と接続する前段の基盤として扱う。
 
-`workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
+`workers/wrangler.e2e.jsonc` は `workers/src/e2e/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
 
 Google→Notion scenario は、専用 Calendar の event を `apply_google_events` へ渡し、専用 Notion 内部 DB の page を確認後に両方を cleanup する。外部 Notion DB と Discord 反映を事前に拒否し、一時状態により通常の同期対応表と queue を変更しない。Google event ID、Notion page ID、対象 fingerprint は `google_notion` の Durable Object manifest で管理する。
 
@@ -204,16 +209,16 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 
 ### 通常同期ロックの専用E2E
 
-`e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。
+`workers/src/e2e/e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。
 
 
 ### 状態障害と期限切れの検査
 
 通常の単独同期・全体同期は、同期の段階間でDOのownerと期限を再確認し、失効・確認不能なら409 `sync_lock_lost` として後続の結果保存を止める。確認とKV書込みは原子的ではなく、同期本体内の状態保存や既に開始した外部処理の排他を保証しない。
 
-`e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
+`workers/src/e2e/e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
 
-`e2e_google_sync_probe.py` は通常 `_run_sync_dispatch` → `run_google_delta_fetch` → `apply_google_events` を接続する。取得後に所有2件へ限定し、通常StateStoreをrun別の6つのKVキーへ向ける。初回上限1件、残件消化・更新・削除は上限2件で、各段階の別HTTP読戻しを必須とする。共有状態の形式と共通同期ロックを使うが、通常Google認証cache・Notion外部DB・Discord通常ポーリングへは接続しない。
+`workers/src/e2e/e2e_google_sync_probe.py` は通常 `_run_sync_dispatch` → `run_google_delta_fetch` → `apply_google_events` を接続する。取得後に所有2件へ限定し、通常StateStoreをrun別の6つのKVキーへ向ける。初回上限1件、残件消化・更新・削除は上限2件で、各段階の別HTTP読戻しを必須とする。共有状態の形式と共通同期ロックを使うが、通常Google認証cache・Notion外部DB・Discord通常ポーリングへは接続しない。
 
 
 通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。

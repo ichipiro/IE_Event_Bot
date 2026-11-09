@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from e2e_google_sync_probe import _release_control
+from e2e.e2e_google_sync_probe import _release_control
 from state import StateStore
 
 

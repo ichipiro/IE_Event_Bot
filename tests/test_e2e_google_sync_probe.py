@@ -8,13 +8,13 @@ from urllib.parse import unquote, urlparse
 import pytest
 from workers import Response
 
-import e2e_google_sync_probe as probe
-import e2e_discord_probe
-import e2e_notion_probe
+from e2e import e2e_google_sync_probe as probe
+from e2e import e2e_discord_probe
+from e2e import e2e_notion_probe
 import google_apply_sync
 import google_calendar_sync
-from e2e_entry import Default
-from e2e_google_sync_state import SERVICE, KEYS, GoogleKV, GoogleStateError
+from e2e.e2e_entry import Default
+from e2e.e2e_google_sync_state import SERVICE, KEYS, GoogleKV, GoogleStateError
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_sync_lock_probe import environment, RUN
@@ -52,6 +52,9 @@ class Scenario:
             self.calls.append(("google", method))
             path = unquote(urlparse(url).path)
             event_id = path.rsplit("/", 1)[-1]
+            if method == "GET" and event_id == "events" and "showDeleted=false" in url:
+                return 200, {"items": [deepcopy(event) for event in self.google.values()
+                                       if event.get("status") != "cancelled"]}
             if method == "POST":
                 assert isinstance(payload, dict)
                 event = deepcopy(payload)
@@ -313,7 +316,7 @@ def test_do_rejects_owner_replacement(monkeypatch, field):
 
 
 def test_source_collision_is_preserved_by_cleanup(monkeypatch):
-    from e2e_google_sync_state import source_id
+    from e2e.e2e_google_sync_state import source_id
 
     test = Scenario(monkeypatch)
     event_id = source_id(RUN, 0)

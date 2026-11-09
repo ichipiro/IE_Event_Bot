@@ -43,9 +43,14 @@
 - Cloudflare Wrangler の導入: <https://developers.cloudflare.com/workers/wrangler/install-and-update/>
 - Cloudflare Workers KV: <https://developers.cloudflare.com/kv/>
 - Cloudflare Durable Objects: <https://developers.cloudflare.com/durable-objects/>
+- Cloudflare Workers WebCrypto: <https://developers.cloudflare.com/workers/runtime-apis/web-crypto/>
+- Cloudflare Workers CPU上限と`exceededCpu`: <https://developers.cloudflare.com/workers/platform/limits/>
+- Cloudflare Workersの料金・Paidプラン: <https://developers.cloudflare.com/workers/platform/pricing/>
 - Google Calendar API: <https://developers.google.com/calendar/api/guides/overview>
 - Google Calendar push notifications: <https://developers.google.com/calendar/api/guides/push>
 - Google Calendar Events watch: <https://developers.google.com/workspace/calendar/api/v3/reference/events/watch>
+- Google Calendar Events list（`showDeleted`・`updatedMin`・ページング）: <https://developers.google.com/workspace/calendar/api/v3/reference/events/list>
+- Google Calendar 拡張プロパティの部分更新: <https://developers.google.com/workspace/calendar/api/guides/extended-properties>
 - Notion API: <https://developers.notion.com/reference/intro>
 - Discord Guild Scheduled Event: <https://discord.com/developers/docs/resources/guild-scheduled-event>
 - PlantUML download: <https://plantuml.com/download>

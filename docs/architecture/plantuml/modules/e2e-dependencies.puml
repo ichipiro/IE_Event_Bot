@@ -4,10 +4,10 @@ title 隔離 E2E Worker と検証ツールの静的依存
 !pragma layout smetana
 left to right direction
 package "隔離 E2E Worker" {
-  component "<b>P017 e2e_discord_probe</b>\n役割: 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。" as P017
-  component "<b>P018 e2e_entry</b>\n役割: 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。" as P018
-  component "<b>P019 e2e_google_probe</b>\n役割: 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。" as P019
-  component "<b>P020 e2e_notion_probe</b>\n役割: 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。" as P020
+  component "<b>P017 e2e.e2e_discord_probe</b>\n役割: 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。" as P017
+  component "<b>P018 e2e.e2e_entry</b>\n役割: 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。" as P018
+  component "<b>P019 e2e.e2e_google_probe</b>\n役割: 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。" as P019
+  component "<b>P020 e2e.e2e_notion_probe</b>\n役割: 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。" as P020
 }
 package "通常 Worker の再利用" {
   component "<b>P001 entry</b>" as P001

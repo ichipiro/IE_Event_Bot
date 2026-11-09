@@ -2,7 +2,7 @@
 
 import pytest
 
-import e2e_entry
+from e2e import e2e_entry
 from state import StateStore
 from tests.test_e2e_jobs_retry import CASES
 from tests.test_e2e_qa_notification_probe import run

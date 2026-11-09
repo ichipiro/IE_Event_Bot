@@ -8,9 +8,9 @@ import pytest
 from workers import Response
 
 import google_apply_sync
-import e2e_google_boundary_probe as boundary
-import e2e_google_sync_probe as probe
-from e2e_google_sync_state import KEYS, SERVICE
+from e2e import e2e_google_boundary_probe as boundary
+from e2e import e2e_google_sync_probe as probe
+from e2e.e2e_google_sync_state import KEYS, SERVICE
 from tests.test_e2e_google_sync_probe import Scenario
 
 

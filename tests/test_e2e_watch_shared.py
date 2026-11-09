@@ -10,7 +10,7 @@ from workers import Response
 
 import google_watch
 import entry
-import e2e_watch_shared_probe as probe
+from e2e import e2e_watch_shared_probe as probe
 from tests.fakes import Request
 from tests.test_e2e_all_sync import AllScenario
 
@@ -95,7 +95,7 @@ def test_watch_maintenance_real_ingress_shared_sync_and_cleanup(monkeypatch):
     test = WatchScenario(monkeypatch)
     before = deepcopy(test.env.STATE_KV.data)
     test.prepare()
-    from e2e_lock_release_probe import CASES, probe_name
+    from e2e.e2e_lock_release_probe import CASES, probe_name
     from state import StateStore
     assert all(test.owner()["stages"]["watch_shared_release_" + case] == 200 for case in CASES)
     probe_stub = test.env.SYNC_COORDINATOR.getByName(probe_name(test.owner()["run_id"]))

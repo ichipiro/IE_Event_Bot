@@ -8,9 +8,9 @@ from urllib.parse import urlparse
 
 from workers import Response
 
-import e2e_entry
-import e2e_notion_probe
-from e2e_entry import Default
+from e2e import e2e_entry
+from e2e import e2e_notion_probe
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace
 

@@ -9,7 +9,7 @@ package "アプリケーション実装 — 詳細図 application" {
   class "<b>C003 sync_lock_do.SyncCoordinator</b>\n役割: 同期ロック、最終同期時刻、Webhook 重複抑止を Durable Object 上で直列化する。" as C003
 }
 package "E2E Worker — 詳細図 e2e" {
-  class "<b>C008 e2e_entry.Default</b>\n役割: 通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。" as C008
+  class "<b>C008 e2e.e2e_entry.Default</b>\n役割: 通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。" as C008
 }
 package "検証ツール — 詳細図 tooling" {
   class "<b>C004 tools.validate_plantuml.Findings</b>\n役割: PlantUML 成果物の検証中に見つかったエラーと警告を分類して保持する。" as C004

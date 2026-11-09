@@ -52,7 +52,7 @@ class MemoryKV:
 
 
 class MemoryStorage:
-    """Durable Object storage の get / put / delete を再現する。"""
+    """Durable Object storage の get / put / delete / list を再現する。"""
 
     def __init__(self) -> None:
         self.data: dict[str, Any] = {}
@@ -75,6 +75,13 @@ class MemoryStorage:
 
     async def delete(self, key: str) -> None:
         self.data.pop(key, None)
+
+    async def list(self, options: dict[str, Any] | None = None) -> dict[str, Any]:
+        options = options or {}
+        prefix = options.get("prefix", "")
+        start = options.get("startAfter", "")
+        keys = [key for key in sorted(self.data) if key.startswith(prefix) and key > start]
+        return {key: self.data[key] for key in keys[:options.get("limit", 1000)]}
 
 
 class DurableObjectStub:

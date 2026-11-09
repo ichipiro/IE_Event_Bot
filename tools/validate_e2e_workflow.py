@@ -173,7 +173,7 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, "always()" in text, "always_cleanup_missing")
     _expect(
         errors,
-        text.count("retention-days: 14") == 5,
+        text.count("retention-days: 14") == 6,
         "artifact_retention_changed",
     )
     _expect(
@@ -238,16 +238,35 @@ def _check_workflow(text: str) -> list[str]:
     _expect(errors, f"inputs.mode != '{diagnostic_mode}'" in _step_block(text, "Create run ID"), "diagnostic_run_id_not_skipped")
     for name, block in (("deploy", deploy_block), ("cleanup", cleanup_block)):
         _expect(errors, diagnostic_mode not in block, f"diagnostic_in_write_step:{name}")
+    event_mode = "read-only-event-notification-diagnostics"
+    event_block = _step_block(text, "Read-only event notification diagnostics")
+    event_artifact = _step_block(text, "Upload redacted event notification diagnostics")
+    _expect(errors, f"inputs.mode == '{event_mode}'" in event_block, "event_diagnostic_mode_guard_missing")
+    _expect(errors, "run: node tools/diagnose_event_notifications.mjs" in event_block,
+            "event_diagnostic_command_changed")
+    _expect(errors, f"inputs.mode != '{event_mode}'" in _step_block(text, "Create run ID"),
+            "event_diagnostic_run_id_not_skipped")
+    _expect(errors, "START_UTC: ${{ inputs.diagnostic_start_utc }}" in event_block
+            and "END_UTC: ${{ inputs.diagnostic_end_utc }}" in event_block,
+            "event_diagnostic_window_binding_changed")
+    _expect(errors, f"always() && inputs.mode == '{event_mode}'" in event_artifact
+            and "path: test-results/event-notification-diagnostics/report.json" in event_artifact,
+            "event_diagnostic_artifact_scope_changed")
+    for name, block in (("deploy", deploy_block), ("cleanup", cleanup_block)):
+        _expect(errors, event_mode not in block, f"event_diagnostic_in_write_step:{name}")
+    for name in (*FORBIDDEN_RUNTIME_SECRETS, "INTERNAL_API_TOKEN", "E2E_WORKER_URL", "E2E_WORKER_URL_SHA256"):
+        _expect(errors, name not in event_block, f"event_diagnostic_sensitive_env:{name}")
     _expect(errors, bool(deploy_block), "deploy_step_missing")
     _expect(errors, bool(cleanup_block), "cleanup_step_missing")
     _expect(errors, bool(evidence_block), "evidence_step_missing")
     for name in ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"):
         assignments = re.findall(rf"^\s+{re.escape(name)}:", text, re.MULTILINE)
-        _expect(errors, len(assignments) == 6, f"cloudflare_secret_scope_changed:{name}")
+        _expect(errors, len(assignments) == 7, f"cloudflare_secret_scope_changed:{name}")
         _expect(errors, name in recovery_logs, f"cloudflare_secret_not_in_recovery_logs:{name}")
         _expect(errors, name in cron_deploy and name in cron_cleanup, f"cron_secret_missing:{name}")
         _expect(errors, name in deploy_block, f"cloudflare_secret_not_in_deploy:{name}")
         _expect(errors, name in diagnostic_block, f"cloudflare_secret_not_in_diagnostic:{name}")
+        _expect(errors, name in event_block, f"cloudflare_secret_not_in_event_diagnostic:{name}")
         _expect(errors, name not in cleanup_block, f"cloudflare_secret_in_cleanup:{name}")
         _expect(errors, name not in evidence_block, f"cloudflare_secret_in_evidence:{name}")
     _expect(

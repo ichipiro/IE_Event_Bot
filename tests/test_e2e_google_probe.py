@@ -9,9 +9,9 @@ from urllib.parse import unquote
 
 from workers import Response
 
-import e2e_entry
-import e2e_google_probe
-from e2e_entry import Default
+from e2e import e2e_entry
+from e2e import e2e_google_probe
+from e2e.e2e_entry import Default
 from state import StateStore
 from sync_lock_do import SyncCoordinator
 from tests.fakes import (

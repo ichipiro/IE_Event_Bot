@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.7.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.6.0...v0.7.0) (2026-11-09)
+
+
+### Features
+
+* **diagnostics:** 本番通知の読み取り専用診断を追加する ([1bb20ac](https://github.com/ichipiro/IE_Event_Bot/commit/1bb20ac1d49552116eabd69b0c1226a536d10c52))
+
+
+### Bug Fixes
+
+* **auth:** WorkerでネイティブのJWT署名を優先する ([0ed401d](https://github.com/ichipiro/IE_Event_Bot/commit/0ed401d2700d36536ea1b41738e9e265ffc05417))
+* **auth:** 署名の成功経路を安全に記録する ([19215d6](https://github.com/ichipiro/IE_Event_Bot/commit/19215d6891705adf58d2172d8665b4b452f97429))
+* **ci:** ブランチ名のシェル展開を防ぐ ([2f0abd7](https://github.com/ichipiro/IE_Event_Bot/commit/2f0abd745a515d6860d0cd5850dad69dd64c0bc2))
+* **diagnostics:** 組織管理の本番Worker名を指定する ([0524826](https://github.com/ichipiro/IE_Event_Bot/commit/052482691aaa507a2bfa30d6e5e0c6fe328a1117))
+* **diagnostics:** 追跡設定の本番アカウントに照会先を固定する ([600b830](https://github.com/ichipiro/IE_Event_Bot/commit/600b830241fb34941d9d5cdee67793216b7958a6))
+* **e2e:** Paid環境のCPU上限を30秒に固定する ([7b83e7c](https://github.com/ichipiro/IE_Event_Bot/commit/7b83e7c3c44ffd45fbadcd21929519c7d2ca207e))
+* **e2e:** watch途中の検証済み状態を回収可能にする ([b9bf17c](https://github.com/ichipiro/IE_Event_Bot/commit/b9bf17c3db19e36e851fe92c00027a17a8dd669a))
+* **e2e:** デプロイ失敗と公開版の差異を安全に記録する ([dcda063](https://github.com/ichipiro/IE_Event_Bot/commit/dcda0631a81ff7fdf5f488c74d0a679d14f24c3e))
+* **e2e:** 全体同期の期限切れロックを回収する ([739d4a9](https://github.com/ichipiro/IE_Event_Bot/commit/739d4a93a25dd1084e38fb3b95ae64c00cdd53e0))
+* **e2e:** 古い削除履歴を保持して差分試験を開始する ([0113886](https://github.com/ichipiro/IE_Event_Bot/commit/01138868a16eca2a24aa1c267e5f68670177c7b5))
+* **e2e:** 実行時上限と署名経路の診断を追加する ([1001f14](https://github.com/ichipiro/IE_Event_Bot/commit/1001f14c8768a9845aa6bcd961911028694222c4))
+* **e2e:** 検証待ちの理由を機密値なしで記録する ([efafc44](https://github.com/ichipiro/IE_Event_Bot/commit/efafc44d3d0b2204ff9f086b9de2e70ac5a979b6))
+* **state:** watch更新と期限切れ通知の回収を修正 ([bfda9d2](https://github.com/ichipiro/IE_Event_Bot/commit/bfda9d2925df58c01d9f06a47dd9c888772b91db))
+* **sync:** ロック取得後に同期のクールダウンを再確認する ([d310ca8](https://github.com/ichipiro/IE_Event_Bot/commit/d310ca8d0feb0eb1421ab376abc6c9fd69e0976c))
+* **sync:** 同期欠落と往復更新の不備を修正 ([18f2d76](https://github.com/ichipiro/IE_Event_Bot/commit/18f2d762fe4eef4986d9fad3049074ad756a5118))
+* **sync:** 同期欠落と通知競合を防ぎE2E構成を整理する ([2797c59](https://github.com/ichipiro/IE_Event_Bot/commit/2797c59b268736e2b322fffa48b7b3138f1f23a1))
+* **sync:** 記録待ち中の本文復元を正しく反映する ([3fa11eb](https://github.com/ichipiro/IE_Event_Bot/commit/3fa11eb9882e697532c30b9795e84bbcd709a14e))
+
+
+### Documentation
+
+* **e2e:** CPU中断と回収および追加修正を記録する ([ceb860a](https://github.com/ichipiro/IE_Event_Bot/commit/ceb860a75bdd025f85b221bd86bff9e0895b734e))
+* **e2e:** 修正版の実サービス検証4件を記録する ([aa3fdbe](https://github.com/ichipiro/IE_Event_Bot/commit/aa3fdbed768df3d464713497afcee7b6c6e19425))
+* **e2e:** 最終3試験の成功と資源回収を確定する ([c26040a](https://github.com/ichipiro/IE_Event_Bot/commit/c26040a9cefd9ba9f795ee77b7ed9d0316184c31))
+* **e2e:** 追加回帰と初回停止の検証結果を記録する ([31473c4](https://github.com/ichipiro/IE_Event_Bot/commit/31473c463bd2b31dc03eaeb6866ebef9136ad8b4))
+* **operations:** 本番URLと認証拒否の診断結果を更新する ([9986f28](https://github.com/ichipiro/IE_Event_Bot/commit/9986f2849d7223ee07a0fae9af5c96b8478afda0))
+* **operations:** 本番の通知重複調査と未確認事項を記録する ([2dc0ac3](https://github.com/ichipiro/IE_Event_Bot/commit/2dc0ac305738db239448620fbf81d4ac60b58019))
+* **release:** v0.6.0公開と統合結果を記録 ([5ae7727](https://github.com/ichipiro/IE_Event_Bot/commit/5ae7727c8fdec1171eca6fb3dae4b7f4a3acecf8))
+* **sync:** 競合修正の検証範囲とリリース準備を記録する ([696d0f6](https://github.com/ichipiro/IE_Event_Bot/commit/696d0f67f4a8e75a7b951f0cb683257686864195))
+
 ## [0.6.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.5.1...v0.6.0) (2026-09-25)
 
 

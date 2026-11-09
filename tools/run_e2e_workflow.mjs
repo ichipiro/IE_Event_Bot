@@ -9,6 +9,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   RUN_ID_PATTERN,
   createE2eMcpServer,
+  isGoogleSyncRecoveryStage,
   readAuditEntries,
 } from "./e2e_mcp_server.mjs";
 
@@ -513,7 +514,7 @@ export async function runGoogleSyncRecovery(callTool, runId) {
   const owner = before.scenarios?.google_sync;
   if (before.mode !== "e2e" || before.orchestrated_writes_enabled !== false ||
       before.worker_version?.tag !== runId || !owner?.present || !owner.dirty ||
-      owner.run_id !== runId || !["cleanup", "ready", "working"].includes(owner.stage) ||
+      owner.run_id !== runId || !isGoogleSyncRecoveryStage(owner) ||
       Object.values(before.services ?? {}).some(item => item.dirty) ||
       Object.entries(before.scenarios ?? {}).some(([key, item]) => key !== "google_sync" && item.dirty)) {
     throw new E2eWorkflowError("google_sync_recovery_owner_mismatch");
@@ -745,7 +746,8 @@ export async function runDeployAndGoogleSyncSmoke(callTool, runId, options = {})
                 manifest.stages?.watch_shared_old_channel_accepted !== 204 || manifest.stages?.watch_shared_old_channel_duplicate !== 204)))))) ||
           (options.httpSync && index > 0 && manifest.stages?.[`all_http_dispatch_${index}`] !== 200) ||
           (options.allSync && ((index >= 4 && manifest.stages?.all_sync_failure_4 !== 200) ||
-            (index >= 6 && manifest.stages?.all_sync_failure_6 !== 200) ||
+            (index >= 6 && (manifest.stages?.all_sync_failure_6 !== 200 ||
+              manifest.stages?.all_sync_token_missing !== 200 || manifest.stages?.all_sync_query_rejection !== 400)) ||
             (index >= 8 && (manifest.stages?.all_sync_cooldown !== 200 || manifest.stages?.all_sync_contention !== 200)))) ||
           status.worker_version?.id_sha256 !== deployed.version_sha256) {
         throw new E2eWorkflowError("google_sync_verification_mismatch");

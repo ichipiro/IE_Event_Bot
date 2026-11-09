@@ -68,6 +68,7 @@ python -m pip install -r workers/requirements.txt
 - `workers/src/health_checks.py`: 外部サービスへの疎通確認。
 - `workers/src/state.py`: Workers KV と Durable Object を介した状態管理。
 - `workers/src/sync_lock_do.py`: 排他、最終同期時刻、Webhook 重複抑止を扱う Durable Object。
+- `workers/src/e2e/`: E2E 専用の入口、検証シナリオ、所有状態の管理。
 - `workers/wrangler.jsonc`: Cloudflare Workers のバインディング、変数、Cron 設定。
 - `tests/`: 外部通信を遮断したローカル単体テストと Workers API の代替実装。
 - `pyproject.toml`: Python パッケージ情報と開発依存。
@@ -157,6 +158,8 @@ pytest -q
   - Linux 仮想環境に導入する Python パッケージ。
 - [`docs/TESTING.md`](docs/TESTING.md)
   - 外部通信を遮断したローカル単体テストの構成、実行方法、検証境界。
+- [`docs/e2e/E2E-PLAN.md`](docs/e2e/E2E-PLAN.md)
+  - E2E の計画。検証記録と監査資料は `docs/e2e/` にまとめる。
 - `docs/Event_Bot仕様書.md`
   - 追跡対象外で維持するローカル機能仕様書。
 - `docs/KV.md`

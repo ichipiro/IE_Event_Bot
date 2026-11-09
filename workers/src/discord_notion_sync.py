@@ -9,6 +9,7 @@ from workers import fetch as _runtime_fetch
 
 from discord_retry_state import merge_retry_ops, snapshot_with_pending, split_snapshot
 from google_auth import get_google_access_token
+from google_event_content import DISCORD_CONTENT_HASH, google_content_hash
 
 _DISCORD_GET_ATTEMPTS = 4
 _DISCORD_MAX_RETRY_DELAY = 10.0
@@ -324,7 +325,7 @@ async def _discord_add_reaction(env, channel_id: str, message_id: str, emoji: st
     return result is not None or int(status or 0) == 204
 
 
-async def _notion_query_by_message_id(env, db_id: str, message_id: str, *, strict: bool = False):
+async def _notion_query_by_message_id(env, db_id: str, message_id: str, *, strict: bool = True):
     """
     Notion DB からメッセージID一致のページを1件取得する。
     一致がなければ None。
@@ -358,6 +359,13 @@ async def _notion_query_by_message_id(env, db_id: str, message_id: str, *, stric
     if strict and (not isinstance(data, dict) or not isinstance(data.get("results"), list)):
         raise RuntimeError("notion_query_invalid")
     results = data.get("results") or []
+    if strict and any(
+        not isinstance(page, dict)
+        or not isinstance(page.get("id"), str) or not page["id"].strip()
+        or not isinstance(page.get("properties"), dict)
+        for page in results
+    ):
+        raise RuntimeError("notion_query_invalid")
     return results[0] if results else None
 
 
@@ -626,9 +634,8 @@ def _google_event_body(
         "description": description,
         "start": {"dateTime": start_dt.astimezone(timezone.utc).isoformat(), "timeZone": "Asia/Tokyo"},
         "end": {"dateTime": end_dt.astimezone(timezone.utc).isoformat(), "timeZone": "Asia/Tokyo"},
+        "location": str(location or ""),
     }
-    if location:
-        payload["location"] = str(location)
     # Discord 側で作られたイベントであることを示す
     if discord_event_id:
         payload["extendedProperties"] = {
@@ -724,6 +731,8 @@ async def _sync_discord_event_upsert(
         not require_new_internal_page or not _google_sync_enabled(env) or not google_token
     ):
         return False
+    if _google_sync_enabled(env) and not google_token:
+        return False
     # 時刻/基本情報の正規化
     event_id = str((event or {}).get("id") or "")
     if not event_id:
@@ -769,8 +778,12 @@ async def _sync_discord_event_upsert(
             start_dt,
             end_dt,
             location=location,
-            discord_event_id=event_id,
+            # 既存Google予定の由来情報はPATCHで上書きしない。
+            discord_event_id=event_id if not google_event_id else None,
         )
+        # 同一内容の再取得がDiscordの新しい編集を上書きしないようにする。
+        private = google_payload.setdefault("extendedProperties", {}).setdefault("private", {})
+        private[DISCORD_CONTENT_HASH] = google_content_hash(google_payload)
         if google_event_id:
             google_ok = await _google_update_event(env, google_token, google_event_id, google_payload)
             if not google_ok:
@@ -866,6 +879,8 @@ async def _sync_discord_event_delete(
     external_db = _env_text(env, "NOTION_EVENT_ID", "")
     prop_google_id = _prop(env, "NOTION_PROP_GOOGLE_EVENT_ID", "GoogleイベントID")
 
+    if _google_sync_enabled(env) and not google_token:
+        return False
     if expected_internal_page_id is not None and not internal_db:
         return False
     if internal_db:
@@ -1059,7 +1074,11 @@ async def _apply_discord_event_diff(
                 retry_ops.append({"op": "delete", "id": event_id})
                 continue
             apply = upsert_runner or _sync_discord_event_upsert
-            ok = op_type == "notify" or await apply(env, event, google_token)
+            try:
+                ok = op_type == "notify" or await apply(env, event, google_token)
+            except Exception:
+                # 検索・適用の例外でも、snapshotを進める前に残件へ戻す。
+                ok = False
             if not ok:
                 had_error = True
                 errors.append(f"upsert_failed:{event_id}")
@@ -1074,7 +1093,10 @@ async def _apply_discord_event_diff(
         # 削除
         else:
             delete = delete_runner or _sync_discord_event_delete
-            ok = await delete(env, event_id, google_token)
+            try:
+                ok = await delete(env, event_id, google_token)
+            except Exception:
+                ok = False
             if not ok:
                 had_error = True
                 errors.append(f"delete_failed:{event_id}")

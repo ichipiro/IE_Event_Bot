@@ -4,8 +4,12 @@
 
 - ユーザーの修正・標準フローでの本番反映の承認を受け、全体同期のglobalロック取得後にownerと最終成功時刻を確認する限定修正を追加した。該当時は同期本体へ進まず、manual・Cronは200、Webhookは503の`cooldown_skip`を返し、ロックを解放する。本番設定は変更していない。
 - 3ケースを`test_post_lock_cooldown_prevents_duplicate_notification`へ更新した。旧entryでは2件失敗・1件成功、修正後は3件とも同一イベントへのPOST・リアクションが1回となる。古いsnapshotを読む前の停止、先行処理の正常終了と最終ロック解放も確認した。関連ローカル98件と独立確認53件が成功した。検査範囲は重複するため合算せず、全体検査の最終件数とは区別する。
-- Python1,243件、Node424件・Cron契約13件、Ruff・Pyright、設定・機密保護・workflow検査、通常/E2EのWrangler dry-runが成功した。通知専用・all-http・all-sync・watch-sharedの実E2Eを再実行準備中で、先の成功記録を今回修正版の実績へ数えない。
-- 先の承認済み6件の修正・E2E整理も統合対象に含め、fork feature→upstream develop→release/main→Release Please→同期の[正規フロー](fork-upstream-workflow.md)と別工程の本番デプロイを進める。リリース・本番反映は対応中で、まだ完了していない。
+- Python1,243件、診断追加後のNode440件・Cron契約13件、Ruff・Pyright、設定・機密保護・workflow検査、通常/E2EのWrangler dry-runが成功した。診断追加でWorker本体とPythonの検査件数は変わっていない。
+- all-sync [42647189757](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42647189757)はsource `696d0f6`・監査42行／21操作、all-http [42653543691](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42653543691)は`dcda063`・22行／11操作、watch-shared [42654734843](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42654734843)は`dcda063`・82行／41操作で成功した。各runの版・SHA・監査対応・`passed`・全manifest clean、所有資源とwatch・通知キュー・Alarmの回収を照合した。watchの30回は確認用resumeの待機再試行で、後続200で解消した。
+- 通知専用 [42656512602](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42656512602)もsource `dcda063`で成功し、全4実E2Eを完了した。28検証stage、監査18行／9操作、確認再試行0回、通知2件の最終読戻し・同じmessageへのリアクション再試行・所有資源とKVの回収、版・run・SHA・`passed`・全manifest cleanを照合し、2026-11-10 01:40:48.848 JSTに完了した。競合の直接再現はローカル回帰であり、このE2Eで通常通知の一度限りの配信やPOST総数を証明しない。
+- 696／dcdaの差分はデプロイ診断とNodeテストの2ファイルだけで、Worker・依存定義／lock・runtime設定のGit object一致を確認した。ビルド入力の同一性を根拠にall-syncの成功を保持し、source SHAはrunごとに記録する。デプロイ済みバイナリの同一性を証明するものではない。
+- all-httpの先行 [42648795897](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42648795897)はWrangler終了status 1、[42649745400](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42649745400)は終了status 0後の版反映待ちタイムアウトで停止した。両runともscenario資源は未作成・全manifest cleanで、旧all-syncの`passed`を今回成功へ数えない。詳細原因は未特定。実行時刻・件数・失敗の区別は[検証記録](e2e/E2E-SYNC-COOLDOWN-20261110.md)へ保存した。
+- 先の承認済み6件の修正・E2E整理も統合対象に含め、fork feature→upstream develop→release/main→Release Please→同期の[正規フロー](fork-upstream-workflow.md)と別工程の本番デプロイを進める。リリース・本番デプロイは未実行で、反映に向けて対応中である。
 - 今回の本番原因は未確定のまま保持する。単独Discord同期、300秒経過後の古い状態、投稿応答喪失・保存失敗を含む一度だけの通知は保証しない。詳細は[課題](ISSUES.md#2026-11-10-本番のイベント作成通知の重複調査)と[保証範囲](TESTING.md#状態障害の保証範囲表)を参照。
 
 ## 2026-11-10: 本番イベント作成通知の重複調査

@@ -370,6 +370,8 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 | 段階間のowner確認時点で期限切れ・別owner・確認不能 | 409で停止し、その段階以降のcursor・最終結果保存を拒否する | `test_sync_lock_expiry.py`、実DOの固定TTLケース |
 | owner確認後、結果KV保存の完了前に期限切れ | 新実行が保存した結果を旧実行が上書きし、旧実行も200を返し得る。旧ownerの解放処理は新ownerを解放しない | 追加テスト `test_expiry_during_result_put_can_overwrite_new_result` の手動・Cron分岐・全体同期3ケース |
 
+2026-11-10に `test_cooldown_before_lock_and_stale_snapshot_can_duplicate` の3ケースを追加した。通常の全体同期・実StateStore・同じglobal DOを使い、API成功・TTL未超過・クールダウン300秒の条件でも、判定後からロック取得前の実行順と古いsnapshotの組合せで、内部応答200・エラー0のまま同じイベントURL・同じ本文を2回投稿することを確認した。古くするのはsnapshotだけで、queueとDOの最終成功時刻は最新である。最新snapshotの対照と、前の同期完了後300秒以内に開始する直列の対照は1投稿になる。実行順と古い読取りは固定モデルであり、本番のAlarm配信順・KV遅延・発生頻度の測定ではない。成功したテストは未修正の保証限界を記録している。
+
 外部適用・通知とKV保存を一つのトランザクションにはしていない。DOのowner確認とKV保存も不可分ではない。項目3の「保証範囲確定」はこの表の確定を指し、残件の無損失、一度限りの反映、全書込みの排他を完了条件へ追加したものではない。
 
 ### 通常Google同期のローカル接続検証

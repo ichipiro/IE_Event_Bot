@@ -9,7 +9,10 @@
 ## 2026-11-10: 本番のイベント作成通知の重複調査
 
 - 状態: 確認待ち。対象は2026-11-09 13:36 JST（04:36 UTC）の通知であり、前日リマインダーではない。片方の通知は削除済みで、2件のイベントIDの一致は確認できていない。
+- 手動ログの報告: `POST /gcal/webhook` は2026-11-09 13:35:55.424、CPU 773ms、Wall 1.33秒、HTTP 204で、ユーザー報告ではログにエラーはない。時刻は日本時間と解釈する。リポジトリと同じ構成なら、この204はDOキューへの保存ACKで、後続Alarm内の同期・通知・snapshot保存の成功までは示さない。CPU超過を今回の原因とする証拠は得られていない。
 - コードで確認した原因候補: 通知POST後のmessage IDはメモリに置かれ、queue・snapshotは全件処理後に保存する。保存失敗・応答喪失・古い状態の再読取りで再POSTでき、成功済みevent IDの永続的な配信台帳はない。[保証限界テスト](../tests/test_sync_guarantee_boundaries.py)の固定障害で再現済みであり、不具合の修正を意味しない。同じ経路はupstream `main` の `ea62da9739c5d6727995e80b5fe86049b287b622` にも存在するが、本番稼働版との一致は未確認。
+- 正常終了だけの重複経路: クールダウン判定はglobal DOロックの取得前にあり、取得後に再判定しない。片方が判定を通過して取得前に待つ間に、他方が通知・状態保存・ロック解放まで成功すると、待っていた同期も開始できる。その同期が古い空snapshotを読む条件では、TTL未超過・同じ有効global DO・クールダウン有効・API成功のまま同じイベントへ2回投稿できた。最新snapshotなら1投稿、完全直列で300秒以内ならクールダウンで1投稿となる対照もある。固定した読み取りと実行順のモデルであり、今回の本番での発生順の証明ではない。
+- 別イベントの可能性: 異なるGoogleイベントIDの同内容2件や、対応IDのないGoogle予定と既存Discord予定の併存では、別DiscordイベントIDに対する2通知が全処理成功で成立する。同じGoogle IDの重複入力は1件にまとめられる。別状態namespaceの稼働系2つが同じ通知先を扱う場合にも重複は可能だが、本番入力のIDや稼働系の併存は未確認。
 - 本番URL: ユーザーが [本番URL](https://ie-event-bot.ichipiro-explorer.workers.dev/) を提示し、Worker名を追跡設定と同じ `ie-event-bot` に訂正した。それ以前の `e-event-bot` という候補名は本番と扱わない。この環境からの `/health`・`/status` のGETはCloudflareの403応答であり、稼働状況や拒否理由は確定できない。
 - 初回照会: E2E用認証のaccountを使った [実行42638839818](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42638839818) は `ie-event-bot` の設定・deployment取得が404・code 10007、telemetryが0件だった。候補名 `e-event-bot` の [実行42639962476](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42639962476) も同じ結果。対象の稼働版と当時のログは取得できておらず、0件を本番の無障害の証拠にしない。
 - 本番account指定の再照会: 追跡Wrangler設定のaccountと `ie-event-bot` に固定した [実行42641140991](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42641140991)（source `600b830241fb34941d9d5cdee67793216b7958a6`）も、設定・deployment・telemetryがすべて403・code 10000（authentication）で拒否された。全ローカル検証は成功したが、本番照会は失敗。現在の認証では本番ログを取得できず、tokenの権限・対象accountのどちらに問題があるかまでは確定していない。

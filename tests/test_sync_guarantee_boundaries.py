@@ -1,16 +1,22 @@
-"""固定の障害モデルで現行同期の保証限界を記録する。外部通信は行わない。"""
+"""固定条件のモデルで現行同期の保証限界を記録する。外部通信は行わない。"""
 
 import asyncio
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
 
 import discord_notion_sync as sync
+import google_calendar_sync as calendar
 import sync_lock_do
 from e2e.e2e_entry import Default
+from entry import Application
 from state import StateStore
+from tests.conftest import Response
+from tests.fakes import make_sync_coordinator_namespace
 from tests.test_discord_notification_retry import poll, prepare
+from tests.test_discord_sync_failures import DiscordAPI
 from tests.test_e2e_sync_lock_probe import environment
 
 QUEUE = "sync:discord_notion_queue"
@@ -115,6 +121,129 @@ def test_queue_save_failure_after_notification_allows_duplicate(monkeypatch):
     assert poll(env)["ok"]
     assert calls["upsert"] == ["event-0", "event-0"]
     assert len(calls["post"]) == 2
+
+
+@pytest.mark.parametrize("race,stale,expected_posts", [
+    (True, True, 2), (True, False, 1), (False, True, 1),
+], ids=["race-stale", "race-fresh", "serial-stale"])
+def test_cooldown_before_lock_and_stale_snapshot_can_duplicate(monkeypatch, race, stale, expected_posts):
+    """成功API・同一DO・有効leaseでも成立するモデルであり、本番原因の証明ではない。"""
+    api = DiscordAPI(monkeypatch)
+    env = api.env
+    env.SYNC_COORDINATOR = make_sync_coordinator_namespace()
+    env.SYNC_DO_LOCK_ENABLED = "true"
+    env.SYNC_DO_LOCK_TTL_SECONDS = "120"
+    env.SYNC_ALL_INCLUDE_DISCORD_NOTION = "true"
+    env.KV_SYNC_COOLDOWN_ENABLED = "true"
+    env.SYNC_INTERVAL_SECONDS = "300"
+    env.DISCORD_NOTION_MAX_CHANGES_PER_RUN = "2"
+    env.EVENT_CREATE_CHANNEL_ID = "test-channel"
+    first_app, second_app = Application(env), Application(env)
+    posts, reactions, posting_locks, acquired_owners = [], [], [], []
+    stale_reads = []
+    original_get = env.STATE_KV.get
+    original_acquire = second_app._acquire_sync_lock
+    expose_stale_snapshot = False
+
+    async def calendar_token(*args):
+        return "test-google-token"
+
+    async def calendar_fetch(*args):
+        # Google差分は空、Discordの同一予定1件を毎回正常取得する有限モデル。
+        return Response(json.dumps({"items": []}), status=200)
+
+    async def discord_request(_env, method, path, payload=None):
+        lock = (await first_app._sync_lock_status())["lock"]
+        assert lock["owner"] and lock["now"] < lock["expires_at"]
+        if method == "POST" and path == "/channels/test-channel/messages":
+            posts.append(deepcopy(payload))
+            posting_locks.append(lock)
+            return {"id": f"message-{len(posts)}"}, 200
+        if method == "PUT" and path.startswith("/channels/test-channel/messages/"):
+            reactions.append(path)
+            return None, 204
+        raise AssertionError((method, path))
+
+    async def snapshot_read(key):
+        if expose_stale_snapshot and key == SNAPSHOT:
+            stale_reads.append(key)
+            return "{}"
+        return await original_get(key)
+
+    monkeypatch.setattr(calendar, "get_google_access_token", calendar_token)
+    monkeypatch.setattr(calendar, "fetch", calendar_fetch)
+    monkeypatch.setattr(sync, "_discord_api_request", discord_request)
+    monkeypatch.setattr(env.STATE_KV, "get", snapshot_read)
+
+    async def scenario():
+        nonlocal expose_stale_snapshot
+        started = asyncio.get_running_loop().time()
+        before_acquire, proceed = asyncio.Event(), asyncio.Event()
+
+        async def delayed_acquire(source, **kwargs):
+            # 後続がcooldown=falseを取得した後、実DO acquireの直前だけ保留する。
+            before_acquire.set()
+            await proceed.wait()
+            previous = (await second_app._sync_lock_status())["lock"]
+            assert not previous.get("owner")
+            acquired = await original_acquire(source, **kwargs)
+            assert acquired["ok"] and acquired["owner"]
+            acquired_owners.append(acquired["owner"])
+            return acquired
+
+        monkeypatch.setattr(second_app, "_acquire_sync_lock", delayed_acquire)
+        second_task = None
+        if race:
+            second_task = asyncio.create_task(second_app._run_sync_dispatch(None, StateStore(env), "cron"))
+            await asyncio.wait_for(before_acquire.wait(), timeout=5)
+        try:
+            # 公開Webhookの204受付ではなく、Alarmが呼ぶ通常同期本体を実行する。
+            first = await first_app._run_sync_dispatch(None, StateStore(env), "webhook")
+            first_body = json.loads(await first.text())
+            assert first.status == 200 and first_body["ok"] and len(posts) == 1
+            assert "discord-one" in json.loads(env.STATE_KV.data[SNAPSHOT])
+            assert json.loads(env.STATE_KV.data[QUEUE]) == []
+            # 最終成功時刻は同じDOから最新値を読める。古くするのはsnapshotだけ。
+            assert await StateStore(env).should_skip_sync_by_cooldown(300)
+            expose_stale_snapshot = stale
+            proceed.set()
+            if second_task is None:
+                second = await second_app._run_sync_dispatch(None, StateStore(env), "cron")
+            else:
+                second = await asyncio.wait_for(second_task, timeout=5)
+            second_body = json.loads(await second.text())
+            assert second.status == 200 and second_body["ok"]
+            completed = [first_body, second_body] if race else [first_body]
+            for body in completed:
+                assert body["google"]["ok"] and body["google_apply"]["ok"]
+                assert body["discord_notion"]["ok"]
+                assert body["discord_notion"]["error_count"] == 0
+                assert body["discord_notion"]["errors"] == []
+                assert body["discord_notion"]["pending_changes"] == 0
+            if race:
+                assert len(acquired_owners) == 1
+                assert acquired_owners[0] != posting_locks[0]["owner"]
+                assert bool(stale_reads) == stale
+                assert set(stale_reads) <= {SNAPSHOT}
+            else:
+                assert second_body["status"] == "cooldown_skip"
+                assert not acquired_owners and not stale_reads
+            assert len(posts) == len(reactions) == expected_posts
+            assert len({lock["owner"] for lock in posting_locks}) == expected_posts
+            assert all(payload == posts[0] for payload in posts)
+            assert "https://discord.com/events/test-guild/discord-one" in posts[0]["content"]
+            assert len(api.pages) == len(api.google) == 1
+            assert json.loads(env.STATE_KV.data[QUEUE]) == []
+            assert set(env.SYNC_COORDINATOR.requested_names) == {"global"}
+            assert not (await first_app._sync_lock_status())["lock"].get("owner")
+            # 時刻操作やlease失効を使わず、300秒のcooldown内に全処理を終える。
+            assert asyncio.get_running_loop().time() - started < 60
+        finally:
+            if second_task is not None and not second_task.done():
+                second_task.cancel()
+                await asyncio.gather(second_task, return_exceptions=True)
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("source", ["manual", "cron", "all"])

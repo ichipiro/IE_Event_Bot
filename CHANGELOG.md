@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.2](https://github.com/ichipiro/IE_Event_Bot/compare/v0.7.1...v0.7.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **tooling:** Node.jsの実行環境と版指定を統一する ([bf7a4e4](https://github.com/ichipiro/IE_Event_Bot/commit/bf7a4e4eeb467a12514aec322f41dfc7906db0ff))
+* **tooling:** Node.jsの実行環境と版指定を統一する ([6027015](https://github.com/ichipiro/IE_Event_Bot/commit/6027015fcdd25096105e2bd58d45abe5b3744562))
+
 ## [0.7.1](https://github.com/ichipiro/IE_Event_Bot/compare/v0.7.0...v0.7.1) (2026-11-09)
 
 

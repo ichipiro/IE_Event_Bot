@@ -13,8 +13,8 @@ const response = (result, extra = {}) => ({ ok: true, status: 200,
   json: async () => ({ success: true, result, ...extra }) });
 
 function event(timestamp = Date.parse("2026-11-09T04:36:00Z")) {
-  return { timestamp, $metadata: { service: "ie-event-bot", statusCode: 500, error: "private-message" },
-    $workers: { scriptName: "ie-event-bot", eventType: "fetch", outcome: "exception", cpuTimeMs: 12,
+  return { timestamp, $metadata: { service: "e-event-bot", statusCode: 500, error: "private-message" },
+    $workers: { scriptName: "e-event-bot", eventType: "fetch", outcome: "exception", cpuTimeMs: 12,
       wallTimeMs: 300, event: { request: { url: "https://private-host/sync/all?token=private-query" } } },
     source: { message: "private-body", authorization: "private-token", author: "private-author" } };
 }
@@ -80,7 +80,7 @@ test("UTC入力を暦・過去・順序・60分上限で検証し、不正入力
 test("固定prodだけにmetadata GETと保存しないtelemetry POSTを行う", async () => {
   const calls = [];
   const report = await diagnostic.diagnoseNotifications({ ...ENV, SCRIPT_NAME: "private-foreign" }, requestStub(calls), NOW);
-  assert.equal(report.script, "ie-event-bot");
+  assert.equal(report.script, "e-event-bot");
   assert.equal(report.ok, true);
   assert.equal(calls.length, 4);
   for (const { url, options } of calls) {
@@ -92,11 +92,11 @@ test("固定prodだけにmetadata GETと保存しないtelemetry POSTを行う",
       const body = JSON.parse(options.body);
       assert.equal(body.dry, true);
       assert.deepEqual(body.timeframe, { from: Date.parse(ENV.START_UTC), to: Date.parse(ENV.END_UTC) });
-      assert.deepEqual(body.parameters.filters, [{ key: "$metadata.service", operation: "eq", type: "string", value: "ie-event-bot" }]);
+      assert.deepEqual(body.parameters.filters, [{ key: "$metadata.service", operation: "eq", type: "string", value: "e-event-bot" }]);
     } else {
       assert.equal(options.method, "GET");
       assert.equal(options.body, undefined);
-      assert.match(url, /\/scripts\/ie-event-bot\/(settings|deployments\?per_page=100|versions\/[a-f0-9-]{36})$/);
+      assert.match(url, /\/scripts\/e-event-bot\/(settings|deployments\?per_page=100|versions\/[a-f0-9-]{36})$/);
     }
   }
   const saved = JSON.stringify(report);
@@ -131,10 +131,15 @@ test("prodイベントは数値・固定route・有限分類だけを返す", ()
 });
 
 test("別scriptのログを拒否する", () => {
-  for (const field of ["service", "scriptName"]) {
-    const raw = event();
-    (field === "service" ? raw.$metadata : raw.$workers)[field] = "ie-event-bot-e2e";
-    assert.throws(() => diagnostic.redactProductionEvent(raw), /event_diagnostic_scope_mismatch/);
+  for (const name of ["ie-event-bot", "ie-event-bot-e2e"]) {
+    const foreign = event();
+    foreign.$metadata.service = foreign.$workers.scriptName = name;
+    assert.throws(() => diagnostic.redactProductionEvent(foreign), /event_diagnostic_scope_mismatch/);
+    for (const field of ["service", "scriptName"]) {
+      const raw = event();
+      (field === "service" ? raw.$metadata : raw.$workers)[field] = name;
+      assert.throws(() => diagnostic.redactProductionEvent(raw), /event_diagnostic_scope_mismatch/);
+    }
   }
 });
 

@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { redactApiError } from "./diagnose_google_lock.mjs";
 
-const SCRIPT = "ie-event-bot";
+const SCRIPT = "e-event-bot";
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const SOURCES = ["api", "wrangler", "terraform", "dash", "cf_cli", "dash_template", "integration",
   "quick_editor", "playground", "workersci"];

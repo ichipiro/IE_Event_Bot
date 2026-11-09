@@ -10,9 +10,12 @@
 
 - 状態: 確認待ち。対象は2026-11-09 13:36 JST（04:36 UTC）の通知であり、前日リマインダーではない。片方の通知は削除済みで、2件のイベントIDの一致は確認できていない。
 - コードで確認した原因候補: 通知POST後のmessage IDはメモリに置かれ、queue・snapshotは全件処理後に保存する。保存失敗・応答喪失・古い状態の再読取りで再POSTでき、成功済みevent IDの永続的な配信台帳はない。[保証限界テスト](../tests/test_sync_guarantee_boundaries.py)の固定障害で再現済みであり、不具合の修正を意味しない。同じ経路はupstream `main` の `ea62da9739c5d6727995e80b5fe86049b287b622` にも存在するが、本番稼働版との一致は未確認。
-- 本番照会: ユーザー申告の組織管理Worker `e-event-bot` を13:25〜13:50 JSTに限定して読み取り専用で照会した。[実行42639962476](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42639962476)はローカル検証に成功したが、E2E用認証では設定・deployment取得が404・code 10007となり、対象の稼働版とログは取得できていない。telemetryの0件を本番の無障害の証拠にしない。追跡設定のWorker名は `ie-event-bot` で、申告名とも異なる。
+- 本番URL: ユーザーが [本番URL](https://ie-event-bot.ichipiro-explorer.workers.dev/) を提示し、Worker名を追跡設定と同じ `ie-event-bot` に訂正した。それ以前の `e-event-bot` という候補名は本番と扱わない。この環境からの `/health`・`/status` のGETはCloudflareの403応答であり、稼働状況や拒否理由は確定できない。
+- 初回照会: E2E用認証のaccountを使った [実行42638839818](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42638839818) は `ie-event-bot` の設定・deployment取得が404・code 10007、telemetryが0件だった。候補名 `e-event-bot` の [実行42639962476](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42639962476) も同じ結果。対象の稼働版と当時のログは取得できておらず、0件を本番の無障害の証拠にしない。
+- 本番account指定の再照会: 追跡Wrangler設定のaccountと `ie-event-bot` に固定した [実行42641140991](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42641140991)（source `600b830241fb34941d9d5cdee67793216b7958a6`）も、設定・deployment・telemetryがすべて403・code 10000（authentication）で拒否された。全ローカル検証は成功したが、本番照会は失敗。現在の認証では本番ログを取得できず、tokenの権限・対象accountのどちらに問題があるかまでは確定していない。
 - 認証先の確認: ユーザー指定の組織リポジトリ `ichipiro/IE_Event_Bot` は読み取り可能。現在参照できるGitHub Environmentは0件、当該リポジトリで利用できる組織Secretは0件、リポジトリSecretは `RELEASE_AUTOMATION_TOKEN` のみで、Cloudflare用認証先は見つからない。端末のWranglerも未ログインであり、GitHubへのアクセスだけでは本番Cloudflareのログを取得できない。Secret値は取得していない。
 - E2Eの境界: 直前の全体同期E2Eは `_DeltaEnv` で作成通知を無効化している。通知専用E2Eは独自のDO所有記録・投稿前後保存を追加しているため、通常通知の一度限りの配信を証明しない。詳細は[保証範囲](TESTING.md#状態障害の保証範囲表)を参照。
+- ログの境界: 通常処理はDiscordの投稿ID・POST回数をログに記録しない。診断結果のHTTP statusはWorker入口の応答であり、Discord POSTの応答ではない。CPU超過などが見つかっても、通知と保存の前後関係を単独では確定できない。
 - 残作業: 本番組織の認証先を確認し、稼働版・設定・当該時間窓のログを照合する。CPU上限、KV障害、TTL失効、別Workerの併存のいずれが今回発生したかは未確定。アプリケーションの修正・本番デプロイは行っていない。
 
 ## 2026-11-09: 同期・CIの6件の回帰修正

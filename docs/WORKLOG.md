@@ -5,6 +5,8 @@
 - 11月9日13:36 JSTの事象を調査し、通常通知のPOSTとqueue・snapshot保存の間に再投稿可能な区間があることを確認した。応答喪失・保存失敗・古い状態での既存再現テスト30件が成功した。同じ経路がupstream現行mainにも存在することを確認したが、本番デプロイ版との対応は未確認。
 - 固定Worker・過去の最大60分の時間窓だけを許す読み取り専用診断を追加した。設定・deployment・telemetryを有限項目へ匿名化し、本文・URL・Secretを保存しない。通常Workerのコード・設定は変更していない。
 - 診断関連Node39件、workflowの安全性検査、Ruff・Pyrightが成功した。[実行42639962476](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42639962476)の全ローカル検証も成功したが、組織Worker `e-event-bot` の設定・deploymentは現在のE2E用認証で404となった。ログ0件を無障害と解釈せず、[課題](ISSUES.md#2026-11-10-本番のイベント作成通知の重複調査)を確認待ちにした。
+- その後の提示URLから実際のWorker名を `ie-event-bot` に訂正した。追跡設定の本番accountへ照会先を固定し、環境変数で別accountへ変更できないことを含む診断関連Node40件が成功した。公開 `/health`・`/status` はCloudflareの403で、拒否理由は未確定。
+- 本番account指定の [実行42641140991](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42641140991)（source `600b830`）も設定・deployment・telemetryすべて403・認証エラー10000で拒否された。全ローカル検証の成功と本番照会の失敗を区別し、原因確定は組織Cloudflareへの認証待ちとした。文書の相対リンク27件・差分検査が成功した。
 - 片方の通知が削除済みのためイベントID比較は未確認。本番の同期起動・通知投稿・状態変更・デプロイは行っていない。
 
 ## 2026-11-09: 同期・CIの回帰修正

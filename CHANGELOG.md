@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/ichipiro/IE_Event_Bot/compare/v0.7.0...v0.7.1) (2026-11-09)
+
+
+### Documentation
+
+* 環境要件と本番運用資料を整理する ([f9c6cac](https://github.com/ichipiro/IE_Event_Bot/commit/f9c6cac4b9b510e2deccc74e75551992e462793c))
+* 環境要件と本番運用資料を整理する ([875ad06](https://github.com/ichipiro/IE_Event_Bot/commit/875ad06f7acef0860e4745a08457fab77e284887))
+
 ## [0.7.0](https://github.com/ichipiro/IE_Event_Bot/compare/v0.6.0...v0.7.0) (2026-11-09)
 
 

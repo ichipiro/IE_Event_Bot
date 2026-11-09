@@ -296,7 +296,22 @@ async def _sign_rs256(message: bytes, private_key_pem: str):
         _last_sign_error = f"rsa_failed:{type(exc).__name__}:{str(exc)[:160]}"
         pass
 
-    # WebCrypto フォールバック
+    return await _sign_webcrypto(message, private_key_pem)
+
+
+async def _sign_webcrypto(message: bytes, private_key_pem: str):
+    """Workerのネイティブ署名を使い、未対応の環境・鍵は従来経路へ戻す。"""
+    global _last_sign_error
+    try:
+        js = __import__("js")
+        subtle = js.crypto.subtle
+        if not callable(getattr(subtle, "importKey", None)) or not callable(getattr(subtle, "sign", None)):
+            return None
+    except Exception:
+        # JsProxyの機能探索が失敗した場合も、従来の署名経路へ戻す。
+        return None
+    if not private_key_pem.strip().startswith("-----BEGIN PRIVATE KEY-----"):
+        return None
     try:
         # PEM文字列を PKCS#8 DER バイト列に変換
         der = _pem_pkcs8_to_der(private_key_pem)
@@ -311,22 +326,24 @@ async def _sign_rs256(message: bytes, private_key_pem: str):
         鍵の目的指定。
         Python 配列は不可なので JS 配列を渡す。
         """
-        js = __import__("js")
         usages = js.Array.new()
         usages.push("sign")
-        key = await js.crypto.subtle.importKey(
+        algorithm = js.JSON.parse(json.dumps({
+            "name": "RSASSA-PKCS1-v1_5", "hash": {"name": "SHA-256"},
+        }))
+        key = await subtle.importKey(
             "pkcs8",
             key_bytes,
-            {"name": "RSASSA-PKCS1-v1_5", "hash": {"name": "SHA-256"}},
+            algorithm,
             False,
             usages,
         )
         # 署名
-        sig_buffer = await js.crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, msg_bytes)
+        sig_buffer = await subtle.sign("RSASSA-PKCS1-v1_5", key, msg_bytes)
         sig_arr = js.Uint8Array.new(sig_buffer)
         return _uint8_array_to_bytes(sig_arr)
     except Exception as exc:
-        _last_sign_error = f"webcrypto_failed:{type(exc).__name__}:{str(exc)[:160]}"
+        _last_sign_error = f"webcrypto_failed:{type(exc).__name__}"
         return None
 
 
@@ -357,6 +374,13 @@ async def _build_service_account_assertion(sa_info: dict, scope: str):
         "exp": now + 3600,
         "jti": str(uuid4()),
     }
+    header_b64 = _b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_b64 = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+    # PythonのRSA計算より先に試す。Workerで実際に署名できた場合だけ置き換える。
+    native_signature = await _sign_webcrypto(signing_input, private_key)
+    if native_signature:
+        return f"{header_b64}.{payload_b64}.{_b64url(native_signature)}"
     # google-auth が使える場合は RSA signer 実装に委譲する
     try:
         gcrypt: Any = importlib.import_module("google.auth.crypt")
@@ -376,9 +400,6 @@ async def _build_service_account_assertion(sa_info: dict, scope: str):
         _last_assertion_error = f"google_auth_signer_failed:{type(exc).__name__}:{str(exc)[:160]}"
         pass
 
-    header_b64 = _b64url(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    payload_b64 = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
     signature = await _sign_rs256(signing_input, private_key)
     # エラー箇所確認用( signer 不可 + 鍵署名失敗)
     if not signature:

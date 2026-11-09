@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import e2e_google_sync_probe as probe
+from e2e import e2e_google_sync_probe as probe
 
 
 @pytest.mark.parametrize("message, cause", [

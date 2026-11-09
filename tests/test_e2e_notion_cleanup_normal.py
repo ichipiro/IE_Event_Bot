@@ -2,9 +2,9 @@
 
 import pytest
 
-import e2e_entry
-import e2e_notion_cleanup_normal as normal
-import e2e_notion_cleanup_probe as probe
+from e2e import e2e_entry
+from e2e import e2e_notion_cleanup_normal as normal
+from e2e import e2e_notion_cleanup_probe as probe
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_notion_cleanup_probe import (

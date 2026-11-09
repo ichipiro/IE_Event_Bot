@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-import e2e_google_sync_probe as probe
+from e2e import e2e_google_sync_probe as probe
 from tests.test_e2e_google_sync_probe import Scenario
 
 

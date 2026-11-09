@@ -8,10 +8,10 @@ import pytest
 from workers import Response
 
 import discord_notion_sync
-import e2e_discord_probe
-from e2e_discord_batch_state import NOTIFICATION_SERVICE, BatchDiscordKV, key_prefix
-from e2e_discord_kv_state import KEYS
-from e2e_entry import Default
+from e2e import e2e_discord_probe
+from e2e.e2e_discord_batch_state import NOTIFICATION_SERVICE, BatchDiscordKV, key_prefix
+from e2e.e2e_discord_kv_state import KEYS
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_discord_batch_probe import env_for_batch

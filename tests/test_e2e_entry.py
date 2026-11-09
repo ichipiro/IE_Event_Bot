@@ -7,15 +7,15 @@ from types import SimpleNamespace
 
 from workers import Response
 
-import e2e_entry
-from e2e_discord_probe import (
+from e2e import e2e_entry
+from e2e.e2e_discord_probe import (
     cleanup_discord_crud_probe,
 )
-from e2e_entry import Default
-from e2e_google_probe import (
+from e2e.e2e_entry import Default
+from e2e.e2e_google_probe import (
     cleanup_google_calendar_crud_probe,
 )
-from e2e_notion_probe import cleanup_notion_crud_probe
+from e2e.e2e_notion_probe import cleanup_notion_crud_probe
 from state import StateStore
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace
 

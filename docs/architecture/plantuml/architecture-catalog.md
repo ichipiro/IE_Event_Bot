@@ -3,7 +3,7 @@
 このカタログは、現行チェックアウトの実装・設定・文書を静的に調査し、PlantUML 図と `architecture-index.json` の共通根拠を示す。Cloudflare、Google、Notion、Discord の実環境設定、権限、疎通、実行成功は確認していない。
 
 - 根拠リビジョン: `43fad919c49a83568c629c4b6afea9a1b184c4c4`（未コミットの現行文書変更を含む）
-- 記号探索対象: `workers/src/*.py`、`tools/*.py`、`tools/*.ps1`、`typings/**/*.pyi`
+- 記号探索対象: `workers/src/**/*.py`、`tools/*.py`、`tools/*.ps1`、`typings/**/*.pyi`
 - 設定・文書根拠: `workers/wrangler.jsonc`、`pyproject.toml`、`.github/workflows/*.yml`、`README.md`、`docs/*.md`
 - 対象外: `.git/`、`.venv/`、`__pycache__/`、生成済み `artifacts/`。機密ファイル名に該当する `workers/service-account.json`、`.dev.vars*` は読み取っていない。
 
@@ -108,10 +108,10 @@ PlantUML JAR は `1.2026.7`、SHA-256 は `40b8173a88ae408a382555a7bbee2f785e79b
 | P014 | component | `外部同期サブシステム` | Google、Notion、Discord 間のイベント同期処理を論理的にまとめる。 | workers/src/google_calendar_sync.py:118-187、workers/src/google_apply_sync.py:599-884、workers/src/discord_notion_sync.py:808-960 | inferred | 00-repository-overview.puml、01-context-trust.puml、flows/google-webhook.puml、flows/scheduled.puml |
 | P015 | component | `外部 API 群` | Google、Notion、Discord と任意の token broker を概要図上でまとめる。 | workers/src/google_calendar_sync.py:62-187、workers/src/google_apply_sync.py:194-596、workers/src/discord_notion_sync.py:213-805、workers/src/google_auth.py:124-450 | inferred | 00-repository-overview.puml、01-context-trust.puml |
 | P016 | component | `Cloudflare 永続状態群` | STATE_KV と SyncCoordinator Durable Object storage を概要図上でまとめる。 | workers/wrangler.jsonc:9-23、workers/wrangler.jsonc:66-74、workers/src/state.py:1-349、workers/src/sync_lock_do.py:1-228 | inferred | 00-repository-overview.puml、01-context-trust.puml |
-| P017 | component | `workers/src/e2e_discord_probe.py` | 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。 | workers/src/e2e_discord_probe.py:1-1130 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、methods/00-method-index.puml、methods/e2e-discord-01.puml、methods/e2e-discord-02.puml、methods/e2e-discord-03.puml |
-| P018 | component | `workers/src/e2e_entry.py` | 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。 | workers/src/e2e_entry.py:1-376 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、classes/e2e.puml、methods/00-method-index.puml、methods/e2e-entry-01.puml、methods/e2e-entry-02.puml |
-| P019 | component | `workers/src/e2e_google_probe.py` | 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。 | workers/src/e2e_google_probe.py:1-469 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、methods/00-method-index.puml、methods/e2e-google-01.puml、methods/e2e-google-02.puml |
-| P020 | component | `workers/src/e2e_notion_probe.py` | 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。 | workers/src/e2e_notion_probe.py:1-1185 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、methods/00-method-index.puml、methods/e2e-notion-01.puml、methods/e2e-notion-02.puml、methods/e2e-notion-03.puml |
+| P017 | component | `workers/src/e2e/e2e_discord_probe.py` | 隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。 | workers/src/e2e/e2e_discord_probe.py:1-1130 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、methods/00-method-index.puml、methods/e2e-discord-01.puml、methods/e2e-discord-02.puml、methods/e2e-discord-03.puml |
+| P018 | component | `workers/src/e2e/e2e_entry.py` | 通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。 | workers/src/e2e/e2e_entry.py:1-376 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、classes/e2e.puml、methods/00-method-index.puml、methods/e2e-entry-01.puml、methods/e2e-entry-02.puml |
+| P019 | component | `workers/src/e2e/e2e_google_probe.py` | 隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。 | workers/src/e2e/e2e_google_probe.py:1-469 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、methods/00-method-index.puml、methods/e2e-google-01.puml、methods/e2e-google-02.puml |
+| P020 | component | `workers/src/e2e/e2e_notion_probe.py` | 隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。 | workers/src/e2e/e2e_notion_probe.py:1-1185 | confirmed | modules/e2e-dependencies.puml、modules/runtime-dependencies.puml、methods/00-method-index.puml、methods/e2e-notion-01.puml、methods/e2e-notion-02.puml、methods/e2e-notion-03.puml |
 | P021 | component | `tools/validate_e2e_mcp_config.py` | E2E 用 MCP 設定と承認モードが安全な制約を満たすか静的検証する。 | tools/validate_e2e_mcp_config.py:1-404 | confirmed | modules/e2e-dependencies.puml、methods/00-method-index.puml、methods/e2e-validator-01.puml |
 | P022 | component | `tools/validate_e2e_secret_hygiene.py` | E2E 設定テンプレートと Git 追跡対象に秘密情報が混入していないか検証する。 | tools/validate_e2e_secret_hygiene.py:1-150 | confirmed | modules/e2e-dependencies.puml、methods/00-method-index.puml、methods/e2e-validator-01.puml |
 | P023 | component | `tools/validate_e2e_workflow.py` | E2E GitHub Actions workflow の固定 action、手順、失敗条件を静的検証する。 | tools/validate_e2e_workflow.py:1-149 | confirmed | modules/e2e-dependencies.puml、methods/00-method-index.puml、methods/e2e-validator-02.puml |
@@ -138,7 +138,7 @@ PlantUML JAR は `1.2026.7`、SHA-256 は `40b8173a88ae408a382555a7bbee2f785e79b
 | C005 | `workers.Response` | Cloudflare Workers の HTTP 応答を表し、本文、状態、ヘッダを保持する。 | typings/workers/__init__.pyi:3-15 | runtime-unverified | classes/00-class-index.puml、classes/application.puml、classes/runtime-stubs.puml、methods/runtime-stubs.puml |
 | C006 | `workers.WorkerEntrypoint` | Cloudflare Python Worker のエントリポイント基底型を表す。 | typings/workers/__init__.pyi:17-18 | runtime-unverified | classes/00-class-index.puml、classes/application.puml、classes/runtime-stubs.puml、classes/e2e.puml |
 | C007 | `workers.DurableObject` | Cloudflare Durable Object の基底型と実行時状態を表す。 | typings/workers/__init__.pyi:20-22 | runtime-unverified | classes/00-class-index.puml、classes/application.puml、classes/runtime-stubs.puml |
-| C008 | `e2e_entry.Default` | 通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。 | workers/src/e2e_entry.py:197-376 | confirmed | classes/00-class-index.puml、classes/e2e.puml、methods/e2e-entry-02.puml |
+| C008 | `e2e.e2e_entry.Default` | 通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。 | workers/src/e2e/e2e_entry.py:197-376 | confirmed | classes/00-class-index.puml、classes/e2e.puml、methods/e2e-entry-02.puml |
 
 ## メソッド（全件）
 
@@ -204,8 +204,8 @@ PlantUML JAR は `1.2026.7`、SHA-256 は `40b8173a88ae408a382555a7bbee2f785e79b
 | M058 | `state.StateStore.get_legacy_e2e_manifest` | 旧 KV manifest を移行判定専用に読み、所有権の正本と分離する。 | service | dict \| None | 永続状態の参照または更新 | workers/src/state.py:174-180 | methods/state-02.puml |
 | M059 | `sync_lock_do.SyncCoordinator.sync_state` | 同期状態操作を RPC で受け取り、結果を JSON 文字列で返す。 | payload_json | str | 永続状態の参照または更新 | workers/src/sync_lock_do.py:68-75 | methods/sync-lock.puml |
 | M060 | `sync_lock_do.SyncCoordinator._handle_action` | 同期ロック、重複抑止、E2E manifest の action を直列化して処理する。 | payload | tuple[dict, int] | 永続状態の参照または更新 | workers/src/sync_lock_do.py:90-228 | methods/sync-lock.puml |
-| M061 | `e2e_entry.Default.fetch` | E2E 専用状態・CRUD ルートを認可し、通常 Worker の許可済みルートへ委譲する。 | request | 処理結果 | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_entry.py:200-372 | methods/e2e-entry-02.puml |
-| M062 | `e2e_entry.Default.scheduled` | E2E Worker の Cron 実行を常に無効化する。 | controller、env、ctx | 処理結果 | なし | workers/src/e2e_entry.py:374-376 | methods/e2e-entry-02.puml |
+| M061 | `e2e.e2e_entry.Default.fetch` | E2E 専用状態・CRUD ルートを認可し、通常 Worker の許可済みルートへ委譲する。 | request | 処理結果 | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_entry.py:200-372 | methods/e2e-entry-02.puml |
+| M062 | `e2e.e2e_entry.Default.scheduled` | E2E Worker の Cron 実行を常に無効化する。 | controller、env、ctx | 処理結果 | なし | workers/src/e2e/e2e_entry.py:374-376 | methods/e2e-entry-02.puml |
 
 ## 関数（全件）
 
@@ -367,94 +367,94 @@ PlantUML JAR は `1.2026.7`、SHA-256 は `40b8173a88ae408a382555a7bbee2f785e79b
 | F154 | `google_watch._channel_token_error` | channel token の必須条件と256文字上限を検証し、エラーコードまたは None を返す。 | token | str \| None | なし | workers/src/google_watch.py:48-53 | methods/google-watch.puml |
 | F155 | `google_watch._token_fingerprint` | channel token を保存用の SHA-256 fingerprint へ変換する。 | token | str | なし | workers/src/google_watch.py:56-57 | methods/google-watch.puml |
 | F156 | `google_watch._watch_state_for_response` | watch 状態を複製し、token fingerprint を除いた応答用辞書を返す。 | watch_state | dict[str, Any] | なし | workers/src/google_watch.py:60-63 | methods/google-watch.puml |
-| F157 | `e2e_discord_probe.fetch` | Workers fetch の呼び出し形式差を吸収する。 | url、options | Any | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:21-32 | methods/e2e-discord-01.puml |
-| F158 | `e2e_discord_probe._env_text` | Worker 環境変数から文字列設定を安全に取得する。 | env、key | str | なし | workers/src/e2e_discord_probe.py:35-39 | methods/e2e-discord-01.puml |
-| F159 | `e2e_discord_probe._fingerprint` | 正規化した検証対象を SHA-256 指紋へ変換する。 | value | str | なし | workers/src/e2e_discord_probe.py:42-43 | methods/e2e-discord-01.puml |
-| F160 | `e2e_discord_probe._int_value` | 入力値を既定値付きの整数へ変換する。 | value、default | int | なし | workers/src/e2e_discord_probe.py:46-50 | methods/e2e-discord-01.puml |
-| F161 | `e2e_discord_probe._new_run_id` | 時刻と乱数から形式制約を満たす E2E run ID を生成する。 | なし | str | なし | workers/src/e2e_discord_probe.py:53-55 | methods/e2e-discord-01.puml |
-| F162 | `e2e_discord_probe._run_marker` | E2E 資源を run ID に結び付ける識別マーカーを生成する。 | run_id | str | なし | workers/src/e2e_discord_probe.py:58-59 | methods/e2e-discord-01.puml |
-| F163 | `e2e_discord_probe._discord_iso` | 日時を Discord API 用 ISO 8601 文字列へ変換する。 | value | str | なし | workers/src/e2e_discord_probe.py:62-71 | methods/e2e-discord-01.puml |
-| F164 | `e2e_discord_probe._event_payload` | Discord Scheduled Event の作成 payload を組み立てる。 | run_id | dict | なし | workers/src/e2e_discord_probe.py:74-89 | methods/e2e-discord-01.puml |
-| F165 | `e2e_discord_probe._event_update_payload` | Discord Scheduled Event の更新 payload を組み立てる。 | run_id | dict | なし | workers/src/e2e_discord_probe.py:92-100 | methods/e2e-discord-01.puml |
-| F166 | `e2e_discord_probe._allowed_mentions` | Discord 通知で許可する role mention を最小範囲で組み立てる。 | role_id | dict | なし | workers/src/e2e_discord_probe.py:103-108 | methods/e2e-discord-01.puml |
-| F167 | `e2e_discord_probe._message_payload` | Discord 検証メッセージの payload を組み立てる。 | run_id、role_id、updated | dict | なし | workers/src/e2e_discord_probe.py:111-116 | methods/e2e-discord-02.puml |
-| F168 | `e2e_discord_probe._header_text` | HTTP 応答ヘッダから正規化済み文字列を取得する。 | response、name | str | なし | workers/src/e2e_discord_probe.py:119-127 | methods/e2e-discord-02.puml |
-| F169 | `e2e_discord_probe._retry_after_seconds` | rate limit 応答から再試行待機秒数を安全に算出する。 | response、data | float \| None | なし | workers/src/e2e_discord_probe.py:130-137 | methods/e2e-discord-02.puml |
-| F170 | `e2e_discord_probe._discord_request` | 小さなDiscord JSON APIを呼び、429だけ公式待機値で再試行する。 | env、method、path、payload | tuple[int, Any, int] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:140-188 | methods/e2e-discord-02.puml |
-| F171 | `e2e_discord_probe._request_stage` | E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。 | env、stages、retries、key、method、path、payload | tuple[int, Any] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:191-209 | methods/e2e-discord-02.puml |
-| F172 | `e2e_discord_probe._event_matches` | 取得したイベントが E2E の期待値と一致するか判定する。 | event、event_id、guild_id、run_id、name、location | bool | なし | workers/src/e2e_discord_probe.py:212-232 | methods/e2e-discord-02.puml |
-| F173 | `e2e_discord_probe._event_has_run` | イベントが指定 run ID の所有資源か判定する。 | event、event_id、guild_id、run_id | bool | なし | workers/src/e2e_discord_probe.py:235-246 | methods/e2e-discord-02.puml |
-| F174 | `e2e_discord_probe._message_matches` | 取得した Discord メッセージが E2E の期待値と一致するか判定する。 | message、message_id、channel_id、role_id、run_id、content | bool | なし | workers/src/e2e_discord_probe.py:249-268 | methods/e2e-discord-02.puml |
-| F175 | `e2e_discord_probe._message_has_run` | Discord メッセージが指定 run ID の所有資源か判定する。 | message、message_id、channel_id、run_id | bool | なし | workers/src/e2e_discord_probe.py:271-282 | methods/e2e-discord-02.puml |
-| F176 | `e2e_discord_probe._has_own_check_reaction` | 検証メッセージに Bot 自身の確認リアクションがあるか判定する。 | message | bool | なし | workers/src/e2e_discord_probe.py:285-297 | methods/e2e-discord-02.puml |
-| F177 | `e2e_discord_probe._verify_targets` | E2E 操作対象の設定値を検査し、安全な識別指紋を返す。 | env、stages、retries | str | なし | workers/src/e2e_discord_probe.py:300-362 | methods/e2e-discord-03.puml |
-| F178 | `e2e_discord_probe._find_event_by_run` | 指定 run ID の E2E イベントを検索する。 | env、guild_id、run_id、stages、retries、stage_key | tuple[str, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:365-397 | methods/e2e-discord-03.puml |
-| F179 | `e2e_discord_probe._find_message_by_run` | 指定 run ID の E2E メッセージを検索する。 | env、channel_id、run_id、stages、retries、stage_key | tuple[str, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:400-432 | methods/e2e-discord-03.puml |
-| F180 | `e2e_discord_probe._delete_event` | E2E が所有する外部イベントを削除する。 | env、guild_id、event_id、run_id、stages、retries | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:435-480 | methods/e2e-discord-03.puml |
-| F181 | `e2e_discord_probe._delete_message` | E2E が所有する Discord メッセージを削除する。 | env、channel_id、message_id、run_id、stages、retries | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:483-527 | methods/e2e-discord-03.puml |
-| F182 | `e2e_discord_probe._cleanup_resources` | manifest に記録された E2E 所有資源を回収する。 | env、manifest | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:530-607 | methods/e2e-discord-03.puml |
-| F183 | `e2e_discord_probe._target_fingerprints` | 操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。 | guild_id、channel_id | dict[str, str] | なし | workers/src/e2e_discord_probe.py:610-614 | methods/e2e-discord-03.puml |
-| F184 | `e2e_discord_probe._clean_manifest` | 成功済み E2E manifest を秘密値のない確定状態へ整形する。 | run_id、outcome、cleanup_attempts、stages、guild_id、channel_id、role_id、event_id、message_id、started_at | dict | なし | workers/src/e2e_discord_probe.py:617-649 | methods/e2e-discord-03.puml |
-| F185 | `e2e_discord_probe.run_discord_crud_probe` | Discord の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。 | env、state、run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:652-1032 | methods/e2e-discord-03.puml |
-| F186 | `e2e_discord_probe.cleanup_discord_crud_probe` | Discord E2E manifest が所有する残存イベントとメッセージを回収する。 | env、state、expected_run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_discord_probe.py:1035-1130 | methods/e2e-discord-03.puml |
-| F187 | `e2e_entry._request_run_id` | 要求ヘッダから形式検証済みの E2E run ID を取得する。 | request | str | なし | workers/src/e2e_entry.py:63-66 | methods/e2e-entry-01.puml |
-| F188 | `e2e_entry._manifest_summary` | E2E manifest を秘密値を含まない状態応答へ要約する。 | value | dict | なし | workers/src/e2e_entry.py:69-100 | methods/e2e-entry-01.puml |
-| F189 | `e2e_entry._binding_value` | Workers binding の辞書・属性形式を安全な文字列へ正規化する。 | binding、key | str | なし | workers/src/e2e_entry.py:103-110 | methods/e2e-entry-01.puml |
-| F190 | `e2e_entry._worker_version_summary` | Worker version metadata を存在状態と SHA-256 指紋へ要約する。 | env | dict | なし | workers/src/e2e_entry.py:113-123 | methods/e2e-entry-01.puml |
-| F191 | `e2e_entry._watch_summary` | Google watch 状態を値そのものではなく SHA-256 指紋へ要約する。 | value | dict | なし | workers/src/e2e_entry.py:126-134 | methods/e2e-entry-01.puml |
-| F192 | `e2e_entry._required_env_summary` | E2E 公開操作に必要な環境設定の有無だけを要約する。 | env | dict[str, bool] | なし | workers/src/e2e_entry.py:137-155 | methods/e2e-entry-01.puml |
-| F193 | `e2e_entry._google_auth_summary` | Google 認証源の設定・キャッシュ状態を真偽値だけで要約する。 | value | dict[str, bool] | なし | workers/src/e2e_entry.py:158-170 | methods/e2e-entry-01.puml |
-| F194 | `e2e_entry._sync_lock_summary` | SyncCoordinator の利用可否と応答状態を要約する。 | value | dict | なし | workers/src/e2e_entry.py:173-179 | methods/e2e-entry-02.puml |
-| F195 | `e2e_entry._e2e_google_crud_enabled` | Google Calendar E2E CRUD ルートの有効設定を判定する。 | env | bool | なし | workers/src/e2e_entry.py:182-184 | methods/e2e-entry-02.puml |
-| F196 | `e2e_entry._e2e_discord_crud_enabled` | Discord E2E CRUD ルートの有効設定を判定する。 | env | bool | なし | workers/src/e2e_entry.py:187-189 | methods/e2e-entry-02.puml |
-| F197 | `e2e_entry._e2e_notion_crud_enabled` | Notion E2E CRUD ルートの有効設定を判定する。 | env | bool | なし | workers/src/e2e_entry.py:192-194 | methods/e2e-entry-02.puml |
-| F198 | `e2e_google_probe.fetch` | Workers fetch の呼び出し形式差を吸収する。 | url、options | Any | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_google_probe.py:20-31 | methods/e2e-google-01.puml |
-| F199 | `e2e_google_probe._env_text` | Worker 環境変数から文字列設定を安全に取得する。 | env、key | str | なし | workers/src/e2e_google_probe.py:34-38 | methods/e2e-google-01.puml |
-| F200 | `e2e_google_probe._event_collection_url` | Google Calendar event 一覧 API の URL を組み立てる。 | calendar_id | str | なし | workers/src/e2e_google_probe.py:41-42 | methods/e2e-google-01.puml |
-| F201 | `e2e_google_probe._event_item_url` | Google Calendar event 単体 API の URL を組み立てる。 | calendar_id、event_id | str | なし | workers/src/e2e_google_probe.py:45-49 | methods/e2e-google-01.puml |
-| F202 | `e2e_google_probe._calendar_fingerprint` | Google Calendar ID を SHA-256 指紋へ変換する。 | calendar_id | str | なし | workers/src/e2e_google_probe.py:52-53 | methods/e2e-google-01.puml |
-| F203 | `e2e_google_probe._google_request` | Google Calendar APIへ小さなJSONリクエストを送り、statusと辞書を返す。 | method、url、bearer_token、payload | tuple[int, dict] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_google_probe.py:56-86 | methods/e2e-google-01.puml |
-| F204 | `e2e_google_probe._event_payload` | Google Calendar event の作成・更新 payload を組み立てる。 | run_id、event_id | dict | なし | workers/src/e2e_google_probe.py:89-116 | methods/e2e-google-01.puml |
-| F205 | `e2e_google_probe._new_run_id` | 時刻と乱数から形式制約を満たす E2E run ID を生成する。 | なし | str | なし | workers/src/e2e_google_probe.py:119-121 | methods/e2e-google-02.puml |
-| F206 | `e2e_google_probe._event_has_run` | イベントが指定 run ID の所有資源か判定する。 | event、event_id、run_id | bool | なし | workers/src/e2e_google_probe.py:124-129 | methods/e2e-google-02.puml |
-| F207 | `e2e_google_probe._event_matches` | 取得したイベントが E2E の期待値と一致するか判定する。 | event、event_id、run_id、summary | bool | なし | workers/src/e2e_google_probe.py:132-136 | methods/e2e-google-02.puml |
-| F208 | `e2e_google_probe._delete_event` | run ID一致を確認してから削除し、失敗時は3回まで再試行する。 | calendar_id、event_id、run_id、bearer_token | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_google_probe.py:139-164 | methods/e2e-google-02.puml |
-| F209 | `e2e_google_probe._clean_manifest` | 成功済み E2E manifest を秘密値のない確定状態へ整形する。 | run_id、outcome、cleanup_attempts、stages、calendar_id、event_id、started_at | dict | なし | workers/src/e2e_google_probe.py:167-191 | methods/e2e-google-02.puml |
-| F210 | `e2e_google_probe.run_google_calendar_crud_probe` | Google Calendar の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。 | env、state、run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_google_probe.py:194-372 | methods/e2e-google-02.puml |
-| F211 | `e2e_google_probe.cleanup_google_calendar_crud_probe` | Google Calendar E2E manifest が所有する残存イベントを回収する。 | env、state、expected_run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_google_probe.py:375-469 | methods/e2e-google-02.puml |
-| F212 | `e2e_notion_probe.fetch` | Workers fetch の呼び出し形式差を吸収する。 | url、options | Any | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:39-50 | methods/e2e-notion-01.puml |
-| F213 | `e2e_notion_probe._env_text` | Worker 環境変数から文字列設定を安全に取得する。 | env、key | str | なし | workers/src/e2e_notion_probe.py:53-57 | methods/e2e-notion-01.puml |
-| F214 | `e2e_notion_probe._canonical_id` | Notion ID を区切りなしの標準形式へ正規化する。 | value | str | なし | workers/src/e2e_notion_probe.py:60-64 | methods/e2e-notion-01.puml |
-| F215 | `e2e_notion_probe._fingerprint` | 正規化した検証対象を SHA-256 指紋へ変換する。 | value | str | なし | workers/src/e2e_notion_probe.py:67-68 | methods/e2e-notion-01.puml |
-| F216 | `e2e_notion_probe._new_run_id` | 時刻と乱数から形式制約を満たす E2E run ID を生成する。 | なし | str | なし | workers/src/e2e_notion_probe.py:71-73 | methods/e2e-notion-01.puml |
-| F217 | `e2e_notion_probe._run_marker` | E2E 資源を run ID に結び付ける識別マーカーを生成する。 | run_id | str | なし | workers/src/e2e_notion_probe.py:76-77 | methods/e2e-notion-01.puml |
-| F218 | `e2e_notion_probe._rich_text` | 文字列を Notion rich_text 要素へ変換する。 | content | dict | なし | workers/src/e2e_notion_probe.py:80-81 | methods/e2e-notion-01.puml |
-| F219 | `e2e_notion_probe._title` | 文字列を Notion title 要素へ変換する。 | content | dict | なし | workers/src/e2e_notion_probe.py:84-85 | methods/e2e-notion-01.puml |
-| F220 | `e2e_notion_probe._header_text` | HTTP 応答ヘッダから正規化済み文字列を取得する。 | response、name | str | なし | workers/src/e2e_notion_probe.py:88-96 | methods/e2e-notion-01.puml |
-| F221 | `e2e_notion_probe._retry_after_seconds` | rate limit 応答から再試行待機秒数を安全に算出する。 | response | float \| None | なし | workers/src/e2e_notion_probe.py:99-104 | methods/e2e-notion-01.puml |
-| F222 | `e2e_notion_probe._notion_request` | 小さなNotion JSON APIを呼び、429だけ公式待機値で再試行する。 | env、method、path、payload | tuple[int, Any, int] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:107-155 | methods/e2e-notion-01.puml |
-| F223 | `e2e_notion_probe._request_stage` | E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。 | env、stages、retries、key、method、path、payload | tuple[int, Any] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:158-171 | methods/e2e-notion-02.puml |
-| F224 | `e2e_notion_probe._schema_matches` | Notion database schema が E2E の必須プロパティを満たすか判定する。 | database、expected | bool | なし | workers/src/e2e_notion_probe.py:174-182 | methods/e2e-notion-02.puml |
-| F225 | `e2e_notion_probe._verify_database` | Notion database を取得し、対象 ID と schema を検証する。 | env、database_id、expected_schema、stages、retries、stage_key、error_prefix | str | なし | workers/src/e2e_notion_probe.py:185-211 | methods/e2e-notion-02.puml |
-| F226 | `e2e_notion_probe._verify_targets` | E2E 操作対象の設定値を検査し、安全な識別指紋を返す。 | env、stages、retries | str | なし | workers/src/e2e_notion_probe.py:214-249 | methods/e2e-notion-02.puml |
-| F227 | `e2e_notion_probe._property_text` | Notion page property から文字列値を取り出す。 | page、property_name、property_type | str | なし | workers/src/e2e_notion_probe.py:252-271 | methods/e2e-notion-02.puml |
-| F228 | `e2e_notion_probe._property_number` | Notion page property から数値を取り出す。 | page、property_name | int \| None | なし | workers/src/e2e_notion_probe.py:274-284 | methods/e2e-notion-02.puml |
-| F229 | `e2e_notion_probe._page_database_id` | Notion page の親 database ID を標準形式で取得する。 | page | str | なし | workers/src/e2e_notion_probe.py:287-291 | methods/e2e-notion-02.puml |
-| F230 | `e2e_notion_probe._page_archived` | Notion page がアーカイブ済みか判定する。 | page | bool | なし | workers/src/e2e_notion_probe.py:294-295 | methods/e2e-notion-02.puml |
-| F231 | `e2e_notion_probe._page_has_marker` | Notion page が指定 E2E マーカーを持つか判定する。 | page、page_id、database_id、marker_property、marker | bool | なし | workers/src/e2e_notion_probe.py:298-310 | methods/e2e-notion-02.puml |
-| F232 | `e2e_notion_probe._event_page_matches` | Notion event ページが E2E の期待値と一致するか判定する。 | page、page_id、database_id、marker、title、content、location、page_uuid | bool | なし | workers/src/e2e_notion_probe.py:313-344 | methods/e2e-notion-02.puml |
-| F233 | `e2e_notion_probe._qa_page_matches` | Notion Q&A ページが E2E の期待値と一致するか判定する。 | page、page_id、database_id、marker、question、answer、number | bool | なし | workers/src/e2e_notion_probe.py:347-369 | methods/e2e-notion-02.puml |
-| F234 | `e2e_notion_probe._event_create_payload` | Notion event 検証ページの作成 payload を組み立てる。 | database_id、run_id | tuple[dict, dict] | なし | workers/src/e2e_notion_probe.py:372-403 | methods/e2e-notion-03.puml |
-| F235 | `e2e_notion_probe._event_update_payload` | Notion event 検証ページの更新 payload を組み立てる。 | run_id、page_id | tuple[dict, dict] | なし | workers/src/e2e_notion_probe.py:406-423 | methods/e2e-notion-03.puml |
-| F236 | `e2e_notion_probe._qa_create_payload` | Notion Q&A 検証ページの作成 payload を組み立てる。 | database_id、run_id | tuple[dict, dict] | なし | workers/src/e2e_notion_probe.py:426-443 | methods/e2e-notion-03.puml |
-| F237 | `e2e_notion_probe._qa_update_payload` | Notion Q&A 検証ページの更新 payload を組み立てる。 | run_id | tuple[dict, dict] | なし | workers/src/e2e_notion_probe.py:446-462 | methods/e2e-notion-03.puml |
-| F238 | `e2e_notion_probe._find_page_by_marker` | 指定マーカーの Notion E2E ページを検索する。 | env、database_id、marker_property、marker、stages、retries、stage_key、error_prefix | tuple[str, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:465-510 | methods/e2e-notion-03.puml |
-| F239 | `e2e_notion_probe._archive_page` | E2E が所有する Notion ページをアーカイブする。 | env、database_id、page_id、marker_property、marker、stages、retries、stage_prefix | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:513-573 | methods/e2e-notion-03.puml |
-| F240 | `e2e_notion_probe._cleanup_resources` | manifest に記録された E2E 所有資源を回収する。 | env、manifest | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:576-665 | methods/e2e-notion-03.puml |
-| F241 | `e2e_notion_probe._target_fingerprints` | 操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。 | event_database_id、qa_database_id | dict[str, str] | なし | workers/src/e2e_notion_probe.py:668-672 | methods/e2e-notion-03.puml |
-| F242 | `e2e_notion_probe._clean_manifest` | 成功済み E2E manifest を秘密値のない確定状態へ整形する。 | run_id、outcome、cleanup_attempts、stages、event_database_id、qa_database_id、event_page_id、qa_page_id、started_at | dict | なし | workers/src/e2e_notion_probe.py:675-703 | methods/e2e-notion-03.puml |
-| F243 | `e2e_notion_probe.run_notion_crud_probe` | Notion の作成・検証・更新・アーカイブを実行し、cleanup manifest と段階結果を返す。 | env、state、run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:706-1089 | methods/e2e-notion-03.puml |
-| F244 | `e2e_notion_probe.cleanup_notion_crud_probe` | Notion E2E manifest が所有する残存ページを回収する。 | env、state、expected_run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e_notion_probe.py:1092-1185 | methods/e2e-notion-03.puml |
+| F157 | `e2e.e2e_discord_probe.fetch` | Workers fetch の呼び出し形式差を吸収する。 | url、options | Any | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:21-32 | methods/e2e-discord-01.puml |
+| F158 | `e2e.e2e_discord_probe._env_text` | Worker 環境変数から文字列設定を安全に取得する。 | env、key | str | なし | workers/src/e2e/e2e_discord_probe.py:35-39 | methods/e2e-discord-01.puml |
+| F159 | `e2e.e2e_discord_probe._fingerprint` | 正規化した検証対象を SHA-256 指紋へ変換する。 | value | str | なし | workers/src/e2e/e2e_discord_probe.py:42-43 | methods/e2e-discord-01.puml |
+| F160 | `e2e.e2e_discord_probe._int_value` | 入力値を既定値付きの整数へ変換する。 | value、default | int | なし | workers/src/e2e/e2e_discord_probe.py:46-50 | methods/e2e-discord-01.puml |
+| F161 | `e2e.e2e_discord_probe._new_run_id` | 時刻と乱数から形式制約を満たす E2E run ID を生成する。 | なし | str | なし | workers/src/e2e/e2e_discord_probe.py:53-55 | methods/e2e-discord-01.puml |
+| F162 | `e2e.e2e_discord_probe._run_marker` | E2E 資源を run ID に結び付ける識別マーカーを生成する。 | run_id | str | なし | workers/src/e2e/e2e_discord_probe.py:58-59 | methods/e2e-discord-01.puml |
+| F163 | `e2e.e2e_discord_probe._discord_iso` | 日時を Discord API 用 ISO 8601 文字列へ変換する。 | value | str | なし | workers/src/e2e/e2e_discord_probe.py:62-71 | methods/e2e-discord-01.puml |
+| F164 | `e2e.e2e_discord_probe._event_payload` | Discord Scheduled Event の作成 payload を組み立てる。 | run_id | dict | なし | workers/src/e2e/e2e_discord_probe.py:74-89 | methods/e2e-discord-01.puml |
+| F165 | `e2e.e2e_discord_probe._event_update_payload` | Discord Scheduled Event の更新 payload を組み立てる。 | run_id | dict | なし | workers/src/e2e/e2e_discord_probe.py:92-100 | methods/e2e-discord-01.puml |
+| F166 | `e2e.e2e_discord_probe._allowed_mentions` | Discord 通知で許可する role mention を最小範囲で組み立てる。 | role_id | dict | なし | workers/src/e2e/e2e_discord_probe.py:103-108 | methods/e2e-discord-01.puml |
+| F167 | `e2e.e2e_discord_probe._message_payload` | Discord 検証メッセージの payload を組み立てる。 | run_id、role_id、updated | dict | なし | workers/src/e2e/e2e_discord_probe.py:111-116 | methods/e2e-discord-02.puml |
+| F168 | `e2e.e2e_discord_probe._header_text` | HTTP 応答ヘッダから正規化済み文字列を取得する。 | response、name | str | なし | workers/src/e2e/e2e_discord_probe.py:119-127 | methods/e2e-discord-02.puml |
+| F169 | `e2e.e2e_discord_probe._retry_after_seconds` | rate limit 応答から再試行待機秒数を安全に算出する。 | response、data | float \| None | なし | workers/src/e2e/e2e_discord_probe.py:130-137 | methods/e2e-discord-02.puml |
+| F170 | `e2e.e2e_discord_probe._discord_request` | 小さなDiscord JSON APIを呼び、429だけ公式待機値で再試行する。 | env、method、path、payload | tuple[int, Any, int] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:140-188 | methods/e2e-discord-02.puml |
+| F171 | `e2e.e2e_discord_probe._request_stage` | E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。 | env、stages、retries、key、method、path、payload | tuple[int, Any] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:191-209 | methods/e2e-discord-02.puml |
+| F172 | `e2e.e2e_discord_probe._event_matches` | 取得したイベントが E2E の期待値と一致するか判定する。 | event、event_id、guild_id、run_id、name、location | bool | なし | workers/src/e2e/e2e_discord_probe.py:212-232 | methods/e2e-discord-02.puml |
+| F173 | `e2e.e2e_discord_probe._event_has_run` | イベントが指定 run ID の所有資源か判定する。 | event、event_id、guild_id、run_id | bool | なし | workers/src/e2e/e2e_discord_probe.py:235-246 | methods/e2e-discord-02.puml |
+| F174 | `e2e.e2e_discord_probe._message_matches` | 取得した Discord メッセージが E2E の期待値と一致するか判定する。 | message、message_id、channel_id、role_id、run_id、content | bool | なし | workers/src/e2e/e2e_discord_probe.py:249-268 | methods/e2e-discord-02.puml |
+| F175 | `e2e.e2e_discord_probe._message_has_run` | Discord メッセージが指定 run ID の所有資源か判定する。 | message、message_id、channel_id、run_id | bool | なし | workers/src/e2e/e2e_discord_probe.py:271-282 | methods/e2e-discord-02.puml |
+| F176 | `e2e.e2e_discord_probe._has_own_check_reaction` | 検証メッセージに Bot 自身の確認リアクションがあるか判定する。 | message | bool | なし | workers/src/e2e/e2e_discord_probe.py:285-297 | methods/e2e-discord-02.puml |
+| F177 | `e2e.e2e_discord_probe._verify_targets` | E2E 操作対象の設定値を検査し、安全な識別指紋を返す。 | env、stages、retries | str | なし | workers/src/e2e/e2e_discord_probe.py:300-362 | methods/e2e-discord-03.puml |
+| F178 | `e2e.e2e_discord_probe._find_event_by_run` | 指定 run ID の E2E イベントを検索する。 | env、guild_id、run_id、stages、retries、stage_key | tuple[str, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:365-397 | methods/e2e-discord-03.puml |
+| F179 | `e2e.e2e_discord_probe._find_message_by_run` | 指定 run ID の E2E メッセージを検索する。 | env、channel_id、run_id、stages、retries、stage_key | tuple[str, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:400-432 | methods/e2e-discord-03.puml |
+| F180 | `e2e.e2e_discord_probe._delete_event` | E2E が所有する外部イベントを削除する。 | env、guild_id、event_id、run_id、stages、retries | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:435-480 | methods/e2e-discord-03.puml |
+| F181 | `e2e.e2e_discord_probe._delete_message` | E2E が所有する Discord メッセージを削除する。 | env、channel_id、message_id、run_id、stages、retries | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:483-527 | methods/e2e-discord-03.puml |
+| F182 | `e2e.e2e_discord_probe._cleanup_resources` | manifest に記録された E2E 所有資源を回収する。 | env、manifest | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:530-607 | methods/e2e-discord-03.puml |
+| F183 | `e2e.e2e_discord_probe._target_fingerprints` | 操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。 | guild_id、channel_id | dict[str, str] | なし | workers/src/e2e/e2e_discord_probe.py:610-614 | methods/e2e-discord-03.puml |
+| F184 | `e2e.e2e_discord_probe._clean_manifest` | 成功済み E2E manifest を秘密値のない確定状態へ整形する。 | run_id、outcome、cleanup_attempts、stages、guild_id、channel_id、role_id、event_id、message_id、started_at | dict | なし | workers/src/e2e/e2e_discord_probe.py:617-649 | methods/e2e-discord-03.puml |
+| F185 | `e2e.e2e_discord_probe.run_discord_crud_probe` | Discord の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。 | env、state、run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:652-1032 | methods/e2e-discord-03.puml |
+| F186 | `e2e.e2e_discord_probe.cleanup_discord_crud_probe` | Discord E2E manifest が所有する残存イベントとメッセージを回収する。 | env、state、expected_run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_discord_probe.py:1035-1130 | methods/e2e-discord-03.puml |
+| F187 | `e2e.e2e_entry._request_run_id` | 要求ヘッダから形式検証済みの E2E run ID を取得する。 | request | str | なし | workers/src/e2e/e2e_entry.py:63-66 | methods/e2e-entry-01.puml |
+| F188 | `e2e.e2e_entry._manifest_summary` | E2E manifest を秘密値を含まない状態応答へ要約する。 | value | dict | なし | workers/src/e2e/e2e_entry.py:69-100 | methods/e2e-entry-01.puml |
+| F189 | `e2e.e2e_entry._binding_value` | Workers binding の辞書・属性形式を安全な文字列へ正規化する。 | binding、key | str | なし | workers/src/e2e/e2e_entry.py:103-110 | methods/e2e-entry-01.puml |
+| F190 | `e2e.e2e_entry._worker_version_summary` | Worker version metadata を存在状態と SHA-256 指紋へ要約する。 | env | dict | なし | workers/src/e2e/e2e_entry.py:113-123 | methods/e2e-entry-01.puml |
+| F191 | `e2e.e2e_entry._watch_summary` | Google watch 状態を値そのものではなく SHA-256 指紋へ要約する。 | value | dict | なし | workers/src/e2e/e2e_entry.py:126-134 | methods/e2e-entry-01.puml |
+| F192 | `e2e.e2e_entry._required_env_summary` | E2E 公開操作に必要な環境設定の有無だけを要約する。 | env | dict[str, bool] | なし | workers/src/e2e/e2e_entry.py:137-155 | methods/e2e-entry-01.puml |
+| F193 | `e2e.e2e_entry._google_auth_summary` | Google 認証源の設定・キャッシュ状態を真偽値だけで要約する。 | value | dict[str, bool] | なし | workers/src/e2e/e2e_entry.py:158-170 | methods/e2e-entry-01.puml |
+| F194 | `e2e.e2e_entry._sync_lock_summary` | SyncCoordinator の利用可否と応答状態を要約する。 | value | dict | なし | workers/src/e2e/e2e_entry.py:173-179 | methods/e2e-entry-02.puml |
+| F195 | `e2e.e2e_entry._e2e_google_crud_enabled` | Google Calendar E2E CRUD ルートの有効設定を判定する。 | env | bool | なし | workers/src/e2e/e2e_entry.py:182-184 | methods/e2e-entry-02.puml |
+| F196 | `e2e.e2e_entry._e2e_discord_crud_enabled` | Discord E2E CRUD ルートの有効設定を判定する。 | env | bool | なし | workers/src/e2e/e2e_entry.py:187-189 | methods/e2e-entry-02.puml |
+| F197 | `e2e.e2e_entry._e2e_notion_crud_enabled` | Notion E2E CRUD ルートの有効設定を判定する。 | env | bool | なし | workers/src/e2e/e2e_entry.py:192-194 | methods/e2e-entry-02.puml |
+| F198 | `e2e.e2e_google_probe.fetch` | Workers fetch の呼び出し形式差を吸収する。 | url、options | Any | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_google_probe.py:20-31 | methods/e2e-google-01.puml |
+| F199 | `e2e.e2e_google_probe._env_text` | Worker 環境変数から文字列設定を安全に取得する。 | env、key | str | なし | workers/src/e2e/e2e_google_probe.py:34-38 | methods/e2e-google-01.puml |
+| F200 | `e2e.e2e_google_probe._event_collection_url` | Google Calendar event 一覧 API の URL を組み立てる。 | calendar_id | str | なし | workers/src/e2e/e2e_google_probe.py:41-42 | methods/e2e-google-01.puml |
+| F201 | `e2e.e2e_google_probe._event_item_url` | Google Calendar event 単体 API の URL を組み立てる。 | calendar_id、event_id | str | なし | workers/src/e2e/e2e_google_probe.py:45-49 | methods/e2e-google-01.puml |
+| F202 | `e2e.e2e_google_probe._calendar_fingerprint` | Google Calendar ID を SHA-256 指紋へ変換する。 | calendar_id | str | なし | workers/src/e2e/e2e_google_probe.py:52-53 | methods/e2e-google-01.puml |
+| F203 | `e2e.e2e_google_probe._google_request` | Google Calendar APIへ小さなJSONリクエストを送り、statusと辞書を返す。 | method、url、bearer_token、payload | tuple[int, dict] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_google_probe.py:56-86 | methods/e2e-google-01.puml |
+| F204 | `e2e.e2e_google_probe._event_payload` | Google Calendar event の作成・更新 payload を組み立てる。 | run_id、event_id | dict | なし | workers/src/e2e/e2e_google_probe.py:89-116 | methods/e2e-google-01.puml |
+| F205 | `e2e.e2e_google_probe._new_run_id` | 時刻と乱数から形式制約を満たす E2E run ID を生成する。 | なし | str | なし | workers/src/e2e/e2e_google_probe.py:119-121 | methods/e2e-google-02.puml |
+| F206 | `e2e.e2e_google_probe._event_has_run` | イベントが指定 run ID の所有資源か判定する。 | event、event_id、run_id | bool | なし | workers/src/e2e/e2e_google_probe.py:124-129 | methods/e2e-google-02.puml |
+| F207 | `e2e.e2e_google_probe._event_matches` | 取得したイベントが E2E の期待値と一致するか判定する。 | event、event_id、run_id、summary | bool | なし | workers/src/e2e/e2e_google_probe.py:132-136 | methods/e2e-google-02.puml |
+| F208 | `e2e.e2e_google_probe._delete_event` | run ID一致を確認してから削除し、失敗時は3回まで再試行する。 | calendar_id、event_id、run_id、bearer_token | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_google_probe.py:139-164 | methods/e2e-google-02.puml |
+| F209 | `e2e.e2e_google_probe._clean_manifest` | 成功済み E2E manifest を秘密値のない確定状態へ整形する。 | run_id、outcome、cleanup_attempts、stages、calendar_id、event_id、started_at | dict | なし | workers/src/e2e/e2e_google_probe.py:167-191 | methods/e2e-google-02.puml |
+| F210 | `e2e.e2e_google_probe.run_google_calendar_crud_probe` | Google Calendar の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。 | env、state、run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_google_probe.py:194-372 | methods/e2e-google-02.puml |
+| F211 | `e2e.e2e_google_probe.cleanup_google_calendar_crud_probe` | Google Calendar E2E manifest が所有する残存イベントを回収する。 | env、state、expected_run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_google_probe.py:375-469 | methods/e2e-google-02.puml |
+| F212 | `e2e.e2e_notion_probe.fetch` | Workers fetch の呼び出し形式差を吸収する。 | url、options | Any | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:39-50 | methods/e2e-notion-01.puml |
+| F213 | `e2e.e2e_notion_probe._env_text` | Worker 環境変数から文字列設定を安全に取得する。 | env、key | str | なし | workers/src/e2e/e2e_notion_probe.py:53-57 | methods/e2e-notion-01.puml |
+| F214 | `e2e.e2e_notion_probe._canonical_id` | Notion ID を区切りなしの標準形式へ正規化する。 | value | str | なし | workers/src/e2e/e2e_notion_probe.py:60-64 | methods/e2e-notion-01.puml |
+| F215 | `e2e.e2e_notion_probe._fingerprint` | 正規化した検証対象を SHA-256 指紋へ変換する。 | value | str | なし | workers/src/e2e/e2e_notion_probe.py:67-68 | methods/e2e-notion-01.puml |
+| F216 | `e2e.e2e_notion_probe._new_run_id` | 時刻と乱数から形式制約を満たす E2E run ID を生成する。 | なし | str | なし | workers/src/e2e/e2e_notion_probe.py:71-73 | methods/e2e-notion-01.puml |
+| F217 | `e2e.e2e_notion_probe._run_marker` | E2E 資源を run ID に結び付ける識別マーカーを生成する。 | run_id | str | なし | workers/src/e2e/e2e_notion_probe.py:76-77 | methods/e2e-notion-01.puml |
+| F218 | `e2e.e2e_notion_probe._rich_text` | 文字列を Notion rich_text 要素へ変換する。 | content | dict | なし | workers/src/e2e/e2e_notion_probe.py:80-81 | methods/e2e-notion-01.puml |
+| F219 | `e2e.e2e_notion_probe._title` | 文字列を Notion title 要素へ変換する。 | content | dict | なし | workers/src/e2e/e2e_notion_probe.py:84-85 | methods/e2e-notion-01.puml |
+| F220 | `e2e.e2e_notion_probe._header_text` | HTTP 応答ヘッダから正規化済み文字列を取得する。 | response、name | str | なし | workers/src/e2e/e2e_notion_probe.py:88-96 | methods/e2e-notion-01.puml |
+| F221 | `e2e.e2e_notion_probe._retry_after_seconds` | rate limit 応答から再試行待機秒数を安全に算出する。 | response | float \| None | なし | workers/src/e2e/e2e_notion_probe.py:99-104 | methods/e2e-notion-01.puml |
+| F222 | `e2e.e2e_notion_probe._notion_request` | 小さなNotion JSON APIを呼び、429だけ公式待機値で再試行する。 | env、method、path、payload | tuple[int, Any, int] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:107-155 | methods/e2e-notion-01.puml |
+| F223 | `e2e.e2e_notion_probe._request_stage` | E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。 | env、stages、retries、key、method、path、payload | tuple[int, Any] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:158-171 | methods/e2e-notion-02.puml |
+| F224 | `e2e.e2e_notion_probe._schema_matches` | Notion database schema が E2E の必須プロパティを満たすか判定する。 | database、expected | bool | なし | workers/src/e2e/e2e_notion_probe.py:174-182 | methods/e2e-notion-02.puml |
+| F225 | `e2e.e2e_notion_probe._verify_database` | Notion database を取得し、対象 ID と schema を検証する。 | env、database_id、expected_schema、stages、retries、stage_key、error_prefix | str | なし | workers/src/e2e/e2e_notion_probe.py:185-211 | methods/e2e-notion-02.puml |
+| F226 | `e2e.e2e_notion_probe._verify_targets` | E2E 操作対象の設定値を検査し、安全な識別指紋を返す。 | env、stages、retries | str | なし | workers/src/e2e/e2e_notion_probe.py:214-249 | methods/e2e-notion-02.puml |
+| F227 | `e2e.e2e_notion_probe._property_text` | Notion page property から文字列値を取り出す。 | page、property_name、property_type | str | なし | workers/src/e2e/e2e_notion_probe.py:252-271 | methods/e2e-notion-02.puml |
+| F228 | `e2e.e2e_notion_probe._property_number` | Notion page property から数値を取り出す。 | page、property_name | int \| None | なし | workers/src/e2e/e2e_notion_probe.py:274-284 | methods/e2e-notion-02.puml |
+| F229 | `e2e.e2e_notion_probe._page_database_id` | Notion page の親 database ID を標準形式で取得する。 | page | str | なし | workers/src/e2e/e2e_notion_probe.py:287-291 | methods/e2e-notion-02.puml |
+| F230 | `e2e.e2e_notion_probe._page_archived` | Notion page がアーカイブ済みか判定する。 | page | bool | なし | workers/src/e2e/e2e_notion_probe.py:294-295 | methods/e2e-notion-02.puml |
+| F231 | `e2e.e2e_notion_probe._page_has_marker` | Notion page が指定 E2E マーカーを持つか判定する。 | page、page_id、database_id、marker_property、marker | bool | なし | workers/src/e2e/e2e_notion_probe.py:298-310 | methods/e2e-notion-02.puml |
+| F232 | `e2e.e2e_notion_probe._event_page_matches` | Notion event ページが E2E の期待値と一致するか判定する。 | page、page_id、database_id、marker、title、content、location、page_uuid | bool | なし | workers/src/e2e/e2e_notion_probe.py:313-344 | methods/e2e-notion-02.puml |
+| F233 | `e2e.e2e_notion_probe._qa_page_matches` | Notion Q&A ページが E2E の期待値と一致するか判定する。 | page、page_id、database_id、marker、question、answer、number | bool | なし | workers/src/e2e/e2e_notion_probe.py:347-369 | methods/e2e-notion-02.puml |
+| F234 | `e2e.e2e_notion_probe._event_create_payload` | Notion event 検証ページの作成 payload を組み立てる。 | database_id、run_id | tuple[dict, dict] | なし | workers/src/e2e/e2e_notion_probe.py:372-403 | methods/e2e-notion-03.puml |
+| F235 | `e2e.e2e_notion_probe._event_update_payload` | Notion event 検証ページの更新 payload を組み立てる。 | run_id、page_id | tuple[dict, dict] | なし | workers/src/e2e/e2e_notion_probe.py:406-423 | methods/e2e-notion-03.puml |
+| F236 | `e2e.e2e_notion_probe._qa_create_payload` | Notion Q&A 検証ページの作成 payload を組み立てる。 | database_id、run_id | tuple[dict, dict] | なし | workers/src/e2e/e2e_notion_probe.py:426-443 | methods/e2e-notion-03.puml |
+| F237 | `e2e.e2e_notion_probe._qa_update_payload` | Notion Q&A 検証ページの更新 payload を組み立てる。 | run_id | tuple[dict, dict] | なし | workers/src/e2e/e2e_notion_probe.py:446-462 | methods/e2e-notion-03.puml |
+| F238 | `e2e.e2e_notion_probe._find_page_by_marker` | 指定マーカーの Notion E2E ページを検索する。 | env、database_id、marker_property、marker、stages、retries、stage_key、error_prefix | tuple[str, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:465-510 | methods/e2e-notion-03.puml |
+| F239 | `e2e.e2e_notion_probe._archive_page` | E2E が所有する Notion ページをアーカイブする。 | env、database_id、page_id、marker_property、marker、stages、retries、stage_prefix | tuple[bool, int, int, str] | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:513-573 | methods/e2e-notion-03.puml |
+| F240 | `e2e.e2e_notion_probe._cleanup_resources` | manifest に記録された E2E 所有資源を回収する。 | env、manifest | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:576-665 | methods/e2e-notion-03.puml |
+| F241 | `e2e.e2e_notion_probe._target_fingerprints` | 操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。 | event_database_id、qa_database_id | dict[str, str] | なし | workers/src/e2e/e2e_notion_probe.py:668-672 | methods/e2e-notion-03.puml |
+| F242 | `e2e.e2e_notion_probe._clean_manifest` | 成功済み E2E manifest を秘密値のない確定状態へ整形する。 | run_id、outcome、cleanup_attempts、stages、event_database_id、qa_database_id、event_page_id、qa_page_id、started_at | dict | なし | workers/src/e2e/e2e_notion_probe.py:675-703 | methods/e2e-notion-03.puml |
+| F243 | `e2e.e2e_notion_probe.run_notion_crud_probe` | Notion の作成・検証・更新・アーカイブを実行し、cleanup manifest と段階結果を返す。 | env、state、run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:706-1089 | methods/e2e-notion-03.puml |
+| F244 | `e2e.e2e_notion_probe.cleanup_notion_crud_probe` | Notion E2E manifest が所有する残存ページを回収する。 | env、state、expected_run_id | dict | 外部 API 呼び出し、永続状態の参照または更新 | workers/src/e2e/e2e_notion_probe.py:1092-1185 | methods/e2e-notion-03.puml |
 | F245 | `tools.validate_e2e_mcp_config._expect` | 条件を検査し、不一致を検証エラーとして収集する。 | errors、condition、code | None | なし | tools/validate_e2e_mcp_config.py:88-90 | methods/e2e-validator-01.puml |
 | F246 | `tools.validate_e2e_mcp_config._approval_modes` | MCP 設定から承認モードの組み合わせを抽出する。 | server | dict[str, str] | なし | tools/validate_e2e_mcp_config.py:93-101 | methods/e2e-validator-01.puml |
 | F247 | `tools.validate_e2e_mcp_config._check_approvals` | E2E MCP の承認設定が安全側の許可条件を満たすか検査する。 | errors、server、read_tools、write_tools、prefix | None | ファイル参照 | tools/validate_e2e_mcp_config.py:104-115 | methods/e2e-validator-01.puml |

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
+import { access, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import test from "node:test";
-import { CronE2E, scope, validateReceipt, redactCronEvent } from "./run_cron_e2e.mjs";
+import { CronE2E, ROOT, scope, validateReceipt, redactCronEvent } from "./run_cron_e2e.mjs";
 import { CronContention, validateContention } from "./run_cron_contention.mjs";
 
 const START = 1_800_000_000_000;
@@ -63,7 +65,13 @@ function fixture({ timeout = false, foreign = false, failDelete = false, badVers
     return new Response(JSON.stringify({ success: status === 200, result }), { status });
   };
   const runner = new CronE2E(env, { request, now: () => tick ? clock++ : clock,
-    sleep: async (ms) => { clock += ms; }, deploy: async () => { exists = true; } });
+    sleep: async (ms) => { clock += ms; }, deploy: async (configPath) => {
+      const config = JSON.parse(await readFile(configPath, "utf8"));
+      assert.equal(config.main, resolve(ROOT, "workers/src/e2e/e2e_cron_entry.py"));
+      assert.equal(config.base_dir, resolve(ROOT, "workers/src"));
+      await access(config.main);
+      exists = true;
+    } });
   runner.save = async (report) => { saved = structuredClone(report); };
   return { run, runner, calls, keys, report: () => saved };
 }
@@ -192,6 +200,10 @@ test("contention evidence rejects body execution on rejection and foreign result
 
 test("both directions, release and independent result readback are required", async () => {
   const runner = new CronContention({ ...env, INTERNAL_API_TOKEN: "test-only" }, { sleep: async () => {} });
+  const config = runner.configure({ base_dir: resolve(ROOT, "workers/src") });
+  assert.equal(config.main, resolve(ROOT, "workers/src/e2e/e2e_cron_contention.py"));
+  assert.equal(config.base_dir, resolve(ROOT, "workers/src"));
+  await access(config.main);
   const run = newRun();
   const report = { run_id: run, version_id: "v1", commit: COMMIT, ...scope(run), cleanup: {}, receipts: [] };
   runner.save = async () => {};

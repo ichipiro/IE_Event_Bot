@@ -8,10 +8,10 @@ import pytest
 from workers import Response
 
 import google_calendar_sync
-from e2e_google_sync_state import GoogleKV, KEYS
+from e2e.e2e_google_sync_state import GoogleKV, KEYS
 from tests.test_e2e_google_sync_probe import Scenario
 from tests.test_e2e_sync_lock_probe import RUN, request
-import e2e_google_sync_probe as probe
+from e2e import e2e_google_sync_probe as probe
 
 
 def test_full_allows_slow_phase_and_releases_control(monkeypatch):

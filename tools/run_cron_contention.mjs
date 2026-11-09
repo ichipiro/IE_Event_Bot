@@ -34,7 +34,7 @@ export function validateContention(value, report, key) {
 export class CronContention extends CronE2E {
   configure(config) {
     requireThat(Boolean(this.env.INTERNAL_API_TOKEN), "contention_token_missing");
-    return { ...config, main: resolve(ROOT, "workers/src/e2e_cron_contention.py"), workers_dev: true,
+    return { ...config, main: resolve(ROOT, "workers/src/e2e/e2e_cron_contention.py"), workers_dev: true,
       durable_objects: { bindings: [{ name: "SYNC_COORDINATOR", class_name: "SyncCoordinator", script_name: "ie-event-bot-e2e" }] },
       vars: { ...config.vars, CRON_ENABLE_DISCORD_NOTION_SYNC: "true", SYNC_DO_LOCK_ENABLED: "true",
         KV_RESULT_MIN_WRITE_SECONDS: "0" } };

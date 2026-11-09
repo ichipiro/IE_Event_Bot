@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { diagnose, diagnosticWindows, failureReport, queryBody, redactApiError, redactEvent } from "./diagnose_google_lock.mjs";
+import * as diagnostic from "./diagnose_google_lock.mjs";
 
 const credentials = { CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: "fake-token" };
 
@@ -24,6 +25,26 @@ test("復旧ログを固定分類し、任意の本文は残さない", () => {
     assert.ok(!JSON.stringify(redacted).includes("private-log-value"));
   }
 });
+
+for (const reason of ["kv_digest_pending", "watch_sync_pending"]) {
+  test(`E2E検証待ちの固定理由だけを分類する: ${reason}`, () => {
+    const raw = event();
+    delete raw.$metadata.error;
+    raw.source.message = JSON.stringify({ event: "e2e_google_sync_verify", reason,
+      key: "private-kv-key", value: "private-kv-value", id: "private-watch-id" });
+    const redacted = redactEvent(raw);
+    assert.deepEqual(redacted.categories, [reason]);
+    assert.ok(!JSON.stringify(redacted).includes("private-"));
+  });
+}
+
+test("理由のない旧not_readyログからKVとwatchの原因を推定しない", () => {
+  const raw = event();
+  delete raw.$metadata.error;
+  raw.source.message = "google_sync_not_ready";
+  assert.deepEqual(redactEvent(raw).categories, []);
+});
+
 function event(timestamp = Date.parse("2026-09-24T09:26:58Z")) {
   return { timestamp, $metadata: { service: "ie-event-bot-e2e", statusCode: 409,
     error: "secret-test-value: Durable Object storage operation exceeded timeout" },
@@ -170,3 +191,92 @@ test("ページ上限では不完全と明示し、続きのcursorを使用す�
   assert.ok(report.windows.every((window) => !window.complete));
   assert.equal(queryBody("test", "2026-09-24", "2026-09-25", "cursor").offset, "cursor");
 });
+
+test("固定Worker設定とsubscriptionをGETし、許可した上限と分類だけを残す", async () => {
+  const calls = [];
+  const report = await diagnostic.diagnoseRuntime(credentials, async (url, options) => {
+    calls.push({ url, options });
+    const result = url.endsWith("/settings") ? {
+      limits: { cpu_ms: 50, private: "private-value" }, usage_model: "bundled",
+      bindings: [{ name: "private-binding", text: "private-value" }],
+      id: "private-script-id", compatibility_date: "private-value",
+    } : [{ id: "private-subscription-id", state: "Paid", price: 500,
+      rate_plan: { id: "WORKERS_PAID", public_name: "private-value" } }];
+    return { ok: true, status: 200, json: async () => ({ success: true, result }) };
+  });
+  assert.deepEqual(calls.map(({ url }) => url), [
+    `https://api.cloudflare.com/client/v4/accounts/${credentials.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/ie-event-bot-e2e/settings`,
+    `https://api.cloudflare.com/client/v4/accounts/${credentials.CLOUDFLARE_ACCOUNT_ID}/subscriptions`,
+  ]);
+  assert.ok(calls.every(({ options }) => options.method === "GET" && options.redirect === "error" && !options.body));
+  assert.deepEqual(report.settings, { http_status: 200, cpu_ms: 50, usage_model: "bundled" });
+  assert.deepEqual(report.subscriptions, { http_status: 200, workers_plan: "paid",
+    matches: [{ kind: "paid", state: "Paid" }] });
+  assert.ok(!JSON.stringify(report).includes("private-"));
+  assert.ok(!JSON.stringify(report).includes(credentials.CLOUDFLARE_ACCOUNT_ID));
+  assert.ok(!JSON.stringify(report).includes(credentials.CLOUDFLARE_API_TOKEN));
+});
+
+test("未設定CPUと未知のsubscriptionからFreeや実効上限を推測しない", async () => {
+  for (const cpu_ms of [undefined, -1, 10.5, "private-value"]) {
+    const report = await diagnostic.diagnoseRuntime(credentials, async (url) => ({ ok: true, status: 200,
+      json: async () => ({ success: true, result: url.endsWith("/settings") ?
+        { limits: { cpu_ms }, usage_model: "private-value" } :
+        [{ state: "Paid", rate_plan: { id: "private-value", public_name: "Workers Paid" } },
+          { state: "Cancelled", rate_plan: { id: "WORKERS_PAID" } }] }) }));
+    assert.equal(report.settings.cpu_ms, null);
+    assert.equal(report.settings.usage_model, "unknown");
+    assert.equal(report.subscriptions.workers_plan, "unknown");
+    assert.ok(!JSON.stringify(report).includes("private-value"));
+  }
+});
+
+test("設定・Billing権限拒否は固定分類だけで、片方の失敗でも残りを採取する", async () => {
+  let calls = 0;
+  const report = await diagnostic.diagnoseRuntime(credentials, async (url) => {
+    calls++;
+    if (url.endsWith("/settings")) throw new Error("private-request-token");
+    return { ok: false, status: 403, json: async () => ({ success: false,
+      errors: [{ code: 10000, message: "Permission denied private-token" }] }) };
+  });
+  assert.equal(calls, 2);
+  assert.equal(report.settings.error, "diagnostic_request_failed");
+  assert.equal(report.subscriptions.error, "diagnostic_http_403");
+  assert.deepEqual(report.subscriptions.api_failure.categories, ["permission"]);
+  assert.ok(!JSON.stringify(report).includes("private-"));
+});
+
+test("設定の異常なJSONや応答形状を成功として扱わない", async () => {
+  for (const result of [null, [], "private-value"]) {
+    const report = await diagnostic.diagnoseRuntime(credentials, async (url) => ({ ok: true, status: 200,
+      json: async () => ({ success: true, result: url.endsWith("/settings") ? result : [] }) }));
+    assert.equal(report.settings.error, "diagnostic_response_invalid");
+    assert.equal(report.subscriptions.workers_plan, "unknown");
+  }
+});
+
+test("telemetry失敗でも先に採取した設定をreportへ保持する", async () => {
+  const report = await diagnostic.collectDiagnostics(credentials, async (url) => {
+    if (url.endsWith("/settings")) return { ok: true, status: 200,
+      json: async () => ({ success: true, result: { limits: { cpu_ms: 50 }, usage_model: "bundled" } }) };
+    if (url.endsWith("/subscriptions")) return { ok: true, status: 200,
+      json: async () => ({ success: true, result: [] }) };
+    return { ok: false, status: 500, json: async () => ({ success: false, errors: [] }) };
+  });
+  assert.equal(report.error, "diagnostic_http_500");
+  assert.equal(report.runtime.settings.cpu_ms, 50);
+  assert.equal(report.runtime.subscriptions.workers_plan, "unknown");
+});
+
+for (const backend of ["webcrypto", "python"]) {
+  test(`成功した署名backendの固定enumだけを分類する: ${backend}`, () => {
+    const raw = event();
+    delete raw.$metadata.error;
+    raw.source.message = JSON.stringify({ event: "google_auth_signer", backend, private: "private-value" });
+    assert.deepEqual(redactEvent(raw).categories, [`google_auth_${backend}`]);
+    raw.source.message = JSON.stringify({ event: "other", backend, message: "google_auth_signer" });
+    assert.deepEqual(redactEvent(raw).categories, []);
+    raw.source.message = JSON.stringify({ event: "google_auth_signer", backend: "private-value" });
+    assert.deepEqual(redactEvent(raw).categories, []);
+  });
+}

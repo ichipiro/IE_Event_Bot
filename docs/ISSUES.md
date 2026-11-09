@@ -6,6 +6,31 @@
 
 状態は `未対応`、`対応中`、`確認待ち`、`完了` のいずれかを使う。下記の経過記録にある未検証・残作業は記録当時の状態であり、最新判定は末尾の完了記録を参照する。
 
+## 2026-11-10: 本番のイベント作成通知の重複調査
+
+- 状態: 対応中。全体同期の取得後クールダウンはローカル修正済みで、all-sync・all-http・watch-shared・通知専用の全4実E2Eが成功した。リリース・本番デプロイは未実行で、反映に向けて進行中。対象は2026-11-09 13:36 JST（04:36 UTC）の通知であり、前日リマインダーではない。片方の通知は削除済みで、2件のイベントIDの一致と今回の本番原因は確認できていない。
+- 手動ログの報告: `POST /gcal/webhook` は2026-11-09 13:35:55.424、CPU 773ms、Wall 1.33秒、HTTP 204で、ユーザー報告ではログにエラーはない。時刻は日本時間と解釈する。リポジトリと同じ構成なら、この204はDOキューへの保存ACKで、後続Alarm内の同期・通知・snapshot保存の成功までは示さない。CPU超過を今回の原因とする証拠は得られていない。
+- コードで確認した原因候補: 通知POST後のmessage IDはメモリに置かれ、queue・snapshotは全件処理後に保存する。保存失敗・応答喪失・古い状態の再読取りで再POSTでき、成功済みevent IDの永続的な配信台帳はない。[保証限界テスト](../tests/test_sync_guarantee_boundaries.py)の固定障害で再現済みで、これらの制限全体は今回のクールダウン修正だけでは解消しない。同じ経路は調査時のupstream `main` の `ea62da9739c5d6727995e80b5fe86049b287b622` にも存在するが、本番稼働版との一致は未確認。
+- 修正前の正常終了だけの重複経路: クールダウン判定はglobal DOロックの取得前だけにあった。片方が判定を通過して取得前に待つ間に、他方が通知・状態保存・ロック解放まで成功すると、待っていた同期も開始できた。その同期が古い空snapshotを読む条件では、TTL未超過・同じ有効global DO・クールダウン有効・API成功のまま同じイベントへ2回投稿できた。最新snapshotなら1投稿、完全直列で300秒以内ならクールダウンで1投稿となる対照もある。固定した読み取りと実行順のモデルであり、今回の本番での発生順の証明ではない。
+- ローカル修正: 全体同期はglobalロック取得後にownerを確認し、DOの最終成功時刻を再読込みしてクールダウンを再判定する。該当時はsnapshotや同期先APIへ進まず、manual・Cronは200、Webhookは503の`cooldown_skip`を返し、取得したロックをfinallyで解放する。`test_post_lock_cooldown_prevents_duplicate_notification`は旧entryで2件失敗・1件成功、修正後は3件とも同一イベントへのPOSTが1回となり、後続のsnapshot未読・ロック解放も確認した。
+- 残る保証限界: `/sync/discord-notion`の単独同期は今回の再判定対象外であり、全体同期でもクールダウン経過後（既定300秒）の古い状態、投稿応答喪失、投稿後の保存失敗による再投稿は残る。別namespace、無効なクールダウン、ロックTTL超過を含む一度だけの配信を保証する修正ではない。
+- 別イベントの可能性: 異なるGoogleイベントIDの同内容2件や、対応IDのないGoogle予定と既存Discord予定の併存では、別DiscordイベントIDに対する2通知が全処理成功で成立する。同じGoogle IDの重複入力は1件にまとめられる。別状態namespaceの稼働系2つが同じ通知先を扱う場合にも重複は可能だが、本番入力のIDや稼働系の併存は未確認。
+- 本番URL: ユーザーが [本番URL](https://ie-event-bot.ichipiro-explorer.workers.dev/) を提示し、Worker名を追跡設定と同じ `ie-event-bot` に訂正した。それ以前の `e-event-bot` という候補名は本番と扱わない。この環境からの `/health`・`/status` のGETはCloudflareの403応答であり、稼働状況や拒否理由は確定できない。
+- 初回照会: E2E用認証のaccountを使った [実行42638839818](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42638839818) は `ie-event-bot` の設定・deployment取得が404・code 10007、telemetryが0件だった。候補名 `e-event-bot` の [実行42639962476](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42639962476) も同じ結果。対象の稼働版と当時のログは取得できておらず、0件を本番の無障害の証拠にしない。
+- 本番account指定の再照会: 追跡Wrangler設定のaccountと `ie-event-bot` に固定した [実行42641140991](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42641140991)（source `600b830241fb34941d9d5cdee67793216b7958a6`）も、設定・deployment・telemetryがすべて403・code 10000（authentication）で拒否された。全ローカル検証は成功したが、本番照会は失敗。現在の認証では本番ログを取得できず、tokenの権限・対象accountのどちらに問題があるかまでは確定していない。
+- 認証先の確認: ユーザー指定の組織リポジトリ `ichipiro/IE_Event_Bot` は読み取り可能。現在参照できるGitHub Environmentは0件、当該リポジトリで利用できる組織Secretは0件、リポジトリSecretは `RELEASE_AUTOMATION_TOKEN` のみで、Cloudflare用認証先は見つからない。端末のWranglerも未ログインであり、GitHubへのアクセスだけでは本番Cloudflareのログを取得できない。Secret値は取得していない。
+- 実E2Eの結果: all-sync [42647189757](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42647189757)、all-http [42653543691](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42653543691)、watch-shared [42654734843](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42654734843)、通知専用 [42656512602](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42656512602)が成功し、各runの版・SHA・監査対応・`passed`・全manifest cleanと回収を照合した。通知専用は28検証stage・監査18行／9操作・確認再試行0回で、通知2件の最終読戻しと回収が成功した。sourceは696／dcdaを区別し、runtimeビルド入力のGit object一致を確認した。all-httpの先行失敗は終了status 1と、終了status 0後の版反映待ちタイムアウトの別件で、scenario資源は未作成・詳細原因は未確定。結果・時刻・件数と失敗の証跡は[今回の検証記録](e2e/E2E-SYNC-COOLDOWN-20261110.md)に記載した。
+- E2Eの境界: 全体同期E2Eは `_DeltaEnv` で作成通知を無効化している。通知専用E2Eは独自のDO所有記録・投稿前後保存を追加しているため、通常通知の一度限りの配信を証明しない。取得後クールダウンの競合の直接再現・修正確認はローカル回帰であり、通知E2Eはその競合やPOST総数の直接計測を行わない。詳細は[保証範囲](TESTING.md#状態障害の保証範囲表)を参照。
+- ログの境界: 通常処理はDiscordの投稿ID・POST回数をログに記録しない。診断結果のHTTP statusはWorker入口の応答であり、Discord POSTの応答ではない。CPU超過などが見つかっても、通知と保存の前後関係を単独では確定できない。
+- リリース・本番反映: ユーザーが修正と標準フローでの本番反映を承認した。実E2E後にfork featureからupstream developへPRし、release・Release Please・同期を経る[正規フロー](fork-upstream-workflow.md)で進める。本番デプロイは別工程で、まだ完了していない。先の承認済み6件の修正とE2E整理も今回の統合対象とする。
+- 残作業: リリース・本番デプロイ・稼働版照合を行う。本番組織の認証先を確認し、設定・当該時間窓のログを照合する。CPU上限、KV障害、TTL失効、別Workerの併存のいずれが今回発生したかは未確定で、本番原因の確定と限定修正の完了を区別する。
+
+## 2026-11-09: 同期・CIの6件の回帰修正
+
+- 状態: 完了（対象の有限ケース）。Paid・E2E専用CPU上限30秒で最終3モードが成功し、全所有資源を回収した。
+- 対象: Google認証欠落時の同期消失、Notion検索失敗後の重複・削除取りこぼし、往復同期の由来情報、PR branchのシェル展開、Calendar変更時のwatch、期限切れdedupeの掃除。
+- 旧コードの再現テスト、all-syncの認証欠落・実Notion400・残件2件の復旧、最終3実行とCPU中断後の回収履歴は[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)に保存した。過去のE2E完了記録とは区別する。
+
 ## 課題一覧
 
 ### ローカル単体テスト基盤
@@ -54,7 +79,7 @@
 - 対応: queueへ通知先と投稿済みmessage IDを保持する。通知だけの再試行では同期済みイベントを再適用せず、リアクション失敗では再投稿しない。
 - 検証: 修正前の再現テスト4件が失敗し、修正後の通知テスト22件が成功した。`discord_batch_notification` で所有メッセージの記録・回収、別HTTPでの再試行、専用workflowへの接続を追加し、ローカル検証した。実サービス通知・回収は実行34831533775で確認済み。投稿応答の喪失やKVの不整合を含めた一度だけの配信は保証しない。
 
-残作業と完了条件は [E2E-PLAN.md](E2E-PLAN.md) で追跡する。項目10の5件は2026-09-11のユーザー指定により追加対象外とし、過去の「未確認」記述は追加作業の指示として扱わない。
+残作業と完了条件は [E2E-PLAN.md](e2e/E2E-PLAN.md) で追跡する。項目10の5件は2026-09-11のユーザー指定により追加対象外とし、過去の「未確認」記述は追加作業の指示として扱わない。
 
 ### 通常Discord同期の共有状態と排他
 
@@ -123,9 +148,9 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 - 28step再実行成功: [実行36003358730](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36003358730)で所有7件の複数ページ取得、Notion更新／Discord削除の固定失敗・queue回復、全28段階と各verify、全資源回収が成功した。監査118行・59操作、run/version/commit一致、passed・全manifest dirty=falseを照合済み。通信失敗・ロック解放失敗は再発せず、以前の両障害の原因確定とは扱わない。
 - 全体同期の追加: 所有Google予定2件とrun別KVで、Google適用→Discordポーリング、往復時のID維持、両方向の固定部分失敗・queue回復、クールダウンとmanual／webhook／cron sourceの排他を9段階へ分割した。MCP・専用workflow、途中回収をローカル検証済み。[実行36007253095](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36007253095)で全9段階・各verify・回収が成功し、監査42行・21操作、run/version/commit一致、passed・全manifest dirty=falseを独立照合した。通常共有KV・実Webhook・実Cron・別Workerリクエスト間競合は含まない。
 - 通常HTTP・共有KVの全体同期成功: [実行36010723441](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36010723441)（commit `02bc807`）で、所有2件・通常 `/sync/all` 3回・全4段階の読戻し、両方向の本文・対応ID維持、共有KVの対応表・queue・snapshot・結果とglobal DOの成功時刻を確認した。所有資源・共有KVを回収し、監査22行・11操作、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 790件成功を成果物で独立照合済み。DO成功時刻は実行履歴として維持する。初回36010039102は状態形式の拒否で停止し、`failed_clean`・全manifest `dirty=false` を確認済み。既知の削除履歴に対する検証条件を修正して再実行した。通常通知、実Webhook・実Cron、通常入口での障害回復は対象外。詳細は[検証記録](TESTING.md#通常http入口と共有kvによる全体同期)を参照。
-- 通常watch・共有Webhookの再確認: commit `b253403` の[実行36117345631](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117345631)はwatch維持成功後、制御ロック解放RPCの `js_exception` で失敗した。実通知同期は未到達。300秒TTL経過後の[回収36117671982](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117671982)で `failed_clean`・全manifest `dirty=false`、watch・所有予定・共有KV・通知キュー／Alarmの回収を確認した。その後の再実行と自動復旧8ケースは[36125191568](E2E-LOCK-RECOVERY-20260925.md)で成功した。元のJsExceptionの詳細原因は引き続き未確定。失敗履歴の詳細は[実行記録](E2E-WATCH-SHARED-20260925.md#現行commitでの再確認)を参照。
+- 通常watch・共有Webhookの再確認: commit `b253403` の[実行36117345631](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117345631)はwatch維持成功後、制御ロック解放RPCの `js_exception` で失敗した。実通知同期は未到達。300秒TTL経過後の[回収36117671982](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36117671982)で `failed_clean`・全manifest `dirty=false`、watch・所有予定・共有KV・通知キュー／Alarmの回収を確認した。その後の再実行と自動復旧8ケースは[36125191568](e2e/E2E-LOCK-RECOVERY-20260925.md)で成功した。元のJsExceptionの詳細原因は引き続き未確定。失敗履歴の詳細は[実行記録](e2e/E2E-WATCH-SHARED-20260925.md#現行commitでの再確認)を参照。
 - 完了条件: 全下流資源と状態を強整合 manifest で所有し、run ID と対象 fingerprint の一致後だけ cleanup できること。simulation と実 webhook / Cron 配信の証拠は分けること。
-- 上記ロック解放の原因調査: 固定時間帯の実ログ419件を確認し、例外の固定分類と別stubでの状態読取りを追加した。[再実行36119459889](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36119459889)は全4段階・実通知3回・回収成功、`passed`・全manifest `dirty=false`。元の解放失敗は再現せず、根本原因の特定には至っていない。詳細は[原因調査記録](E2E-WATCH-SHARED-20260925.md#ロック解放失敗の原因調査)を参照。
+- 上記ロック解放の原因調査: 固定時間帯の実ログ419件を確認し、例外の固定分類と別stubでの状態読取りを追加した。[再実行36119459889](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36119459889)は全4段階・実通知3回・回収成功、`passed`・全manifest `dirty=false`。元の解放失敗は再現せず、根本原因の特定には至っていない。詳細は[原因調査記録](e2e/E2E-WATCH-SHARED-20260925.md#ロック解放失敗の原因調査)を参照。
 - 追跡: [GitHub Issue #17](https://github.com/lycanthr0pes/IE_Event_Bot_fork/issues/17)
 
 ## 2026-09-25: 通常リマインドの検証結果
@@ -138,28 +163,34 @@ Fork、Upstream、GitHub Actions、Release Please、branch protection の確認�
 
 [実行36038438985](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36038438985)（commit `792dd78`）で、専用内部DBの所有ページ2件を通常HTTPハンドラから全件取得し、期限切れだけのarchive・将来日時ページの保持、共有KVの `cleanup:last_epoch` と `result:job_cleanup`、別HTTPでのinterval guardを確認した。全3段階と各verify、両ページ・共有KV2キーの回収が成功した。監査18行・9操作、18検証項目、run/version/commit一致、`passed`・全manifest `dirty=false`、JUnit 868件成功を独立照合済み。実Cron、100件超のページ送り、通常ジョブ失敗後の再試行は対象外。
 
-詳細は[検証記録](E2E-NOTION-CLEANUP-NORMAL.md)を参照。
+詳細は[検証記録](e2e/E2E-NOTION-CLEANUP-NORMAL.md)を参照。
 
 ## 実Cronと別HTTPの競合確認（2026-09-25）
 
 [実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)（commit `3bfc782`）で実Cron3回、両方向の409拒否、競合側の同期本体・結果保存0回、owner一致、解放後の手動同期と結果KV読戻しを確認した。schedule・一時Worker・所有KV4キーの回収、DOロック解放、`passed`・`dirty=false`、監査84行、JUnit899件成功を独立照合済み。同期本体は待機用runnerであり、外部API適用中の競合は対象外。
 
-この確認はrun専用DO名とKVを使う単独Discord同期の共通ロック処理に限る。通常 `/sync/all` の実Cron競合、実同期本体、TTL超過は残る未検証範囲である。[検証記録](E2E-CRON-CONTENTION.md)。
+この確認はrun専用DO名とKVを使う単独Discord同期の共通ロック処理に限る。通常 `/sync/all` の実Cron競合、実同期本体、TTL超過は残る未検証範囲である。[検証記録](e2e/E2E-CRON-CONTENTION.md)。
 
 ## 通常ジョブ失敗後再試行の確認済み範囲（2026-09-25）
 
-[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 上記の過去実行で対象外だった通常ジョブ再試行のうち、この固定失敗経路は対応済みとする。実障害・応答喪失・一覧取得失敗はこの結果へ含めない。詳細は[検証記録](E2E-JOBS-RETRY.md)。
+[実行36106153256](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36106153256)（commit `cbfa2d9`）で、Q&A・リマインド・Notion cleanupの固定失敗、通常HTTPの500、別HTTPの再試行、重複抑止、共有KVと全所有資源の回収を確認した。全3manifest `passed`・`dirty=false`、監査70行・35操作、37段階検証、run/version/commit一致、JUnit907件成功を独立照合済み。失敗は書込み前の固定注入であり、実サービス障害・応答喪失・実Cronは対象外。 上記の過去実行で対象外だった通常ジョブ再試行のうち、この固定失敗経路は対応済みとする。実障害・応答喪失・一覧取得失敗はこの結果へ含めない。詳細は[検証記録](e2e/E2E-JOBS-RETRY.md)。
 
 ## 通常ジョブKV保存失敗の確認済み範囲（2026-09-25）
 
 [実行36114926542](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36114926542)（commit `d283b8c`）で、通常3ジョブの共有KV6キーに保存前・保存直後の固定例外を注入し、同一値の3回目保存で回復した。Q&A・リマインド各2通知、別HTTPでの重複抑止、cleanupの期限切れ1件archiveとinterval guard、共有状態の読戻しを確認した。所有Notion5ページ・Discord予定4件・通知4件・共有KV6キーを回収し、全3manifest `passed`・全manifest `dirty=false`。監査58行・29操作、43段階検証、run/version/commit一致、JUnit967件成功を独立照合した。
 
-KV保存だけを最大3回、1秒・2秒待機で再試行する修正を追加した。上限到達時は固定エラーの500を返す。cache未保存のまま次ジョブが走る場合の再通知は残る制限である。固定例外の検証であり、実障害・実Cron・Worker中断・並行書込み・古いKV読取りは含めない。[検証記録](E2E-JOBS-KV-RETRY.md)。
+KV保存だけを最大3回、1秒・2秒待機で再試行する修正を追加した。上限到達時は固定エラーの500を返す。cache未保存のまま次ジョブが走る場合の再通知は残る制限である。固定例外の検証であり、実障害・実Cron・Worker中断・並行書込み・古いKV読取りは含めない。[検証記録](e2e/E2E-JOBS-KV-RETRY.md)。
 
 ## 2026-09-25: E2E完了状況の棚卸し
 
-代表19実行のworkflow成功状態と保存済み証跡を再照合した。watch・実Webhook・解放自動復旧の成功を反映し、旧通知の通常handler検証を追加した。通常コードは現行tokenを持つ旧channelを拒否せず同期対象とするため、E2E入口の所有権ガードと区別する。Google同期の17件・上限5件の境界は[実行36140594316](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36140594316)で全27段階・全件回収が成功した（[検証記録](E2E-GOOGLE-BOUNDARY.md)）。Notion照会・作成・Discord ID書戻しのAPI拒否後復旧も完了した。任意件数・自然発生障害は保証外事項として保持する。詳細は[棚卸し記録](E2E-AUDIT-20260925.md)。
+代表19実行のworkflow成功状態と保存済み証跡を再照合した。watch・実Webhook・解放自動復旧の成功を反映し、旧通知の通常handler検証を追加した。通常コードは現行tokenを持つ旧channelを拒否せず同期対象とするため、E2E入口の所有権ガードと区別する。Google同期の17件・上限5件の境界は[実行36140594316](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36140594316)で全27段階・全件回収が成功した（[検証記録](e2e/E2E-GOOGLE-BOUNDARY.md)）。Notion照会・作成・Discord ID書戻しのAPI拒否後復旧も完了した。任意件数・自然発生障害は保証外事項として保持する。詳細は[棚卸し記録](e2e/E2E-AUDIT-20260925.md)。
 
 ## 2026-09-25: 対象内E2Eの完了
 
-既存19実行と追加5実行のGitHub成功・commit・保存済み回収証跡を再照合した。対象内の有限ケースは完了し、Issue #17の完了条件へ反映して2026-09-25にclosedを読戻し確認した。旧失敗と回収、元のRPC例外の原因未特定、追加対象外5件、保証外事項は保持する。[完了判定](E2E-AUDIT-20260925.md#対象内e2eの完了判定)を参照。正式リリース・本番反映はE2E完了と分けて追跡する。
+既存19実行と追加5実行のGitHub成功・commit・保存済み回収証跡を再照合した。対象内の有限ケースは完了し、Issue #17の完了条件へ反映して2026-09-25にclosedを読戻し確認した。旧失敗と回収、元のRPC例外の原因未特定、追加対象外5件、保証外事項は保持する。[完了判定](e2e/E2E-AUDIT-20260925.md#対象内e2eの完了判定)を参照。正式リリース・本番反映はE2E完了と分けて追跡する。
+
+## 2026-11-09: 同期・CIの6件の完了
+
+[all-sync 42632176251](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42632176251)、[all-http 42633930931](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42633930931)、[watch-shared 42635018615](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42635018615)が同じsource SHAで成功した。各runのclean checkout・Worker version一致、`passed`・全manifest clean、watchの通知キュー・Alarmを含む回収を照合し、2026-11-09 23:36:56 JSTに対象の有限ケースを完了した。
+
+Calendar切替とdedupe期限条件の詳細はローカル回帰の確認であり、同一Calendarの実watch試験の保証範囲を広げない。CPU中断した旧runはすべて回収済みとし、失敗履歴は[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)に保持する。本番デプロイとmergeは行っていない。

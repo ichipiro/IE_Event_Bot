@@ -99,7 +99,7 @@ async def dispatch_notification(env, item):
     if item["run_id"]:
         if str(getattr(env, "E2E_WATCH_SHARED_ENABLED", "false")).lower() != "true":
             return Response("", status=503)
-        from e2e_watch_shared_probe import callback
+        from e2e.e2e_watch_shared_probe import callback
         response = await callback(env, StateStore(env), request, deferred=True,
                                   expected_run=item["run_id"], expected_step=item["step"])
         # 回収済み・旧stepの通知を通常経路へ流さない。

@@ -2,10 +2,10 @@
 
 import pytest
 
-import e2e_entry
-import e2e_qa_normal_probe as qa
-import e2e_reminder_normal_probe as reminder
-import e2e_notion_cleanup_normal as cleanup
+from e2e import e2e_entry
+from e2e import e2e_qa_normal_probe as qa
+from e2e import e2e_reminder_normal_probe as reminder
+from e2e import e2e_notion_cleanup_normal as cleanup
 from state import StateStore
 from tests.test_e2e_qa_normal import setup as qa_setup
 from tests.test_e2e_reminder_normal import setup as reminder_setup

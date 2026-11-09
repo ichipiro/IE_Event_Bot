@@ -82,6 +82,8 @@ watchの43回は想定内の検証待ちであり、外部書込みphaseの再�
 
 `tests/test_discord_sync_lock.py` は手動・Cronと全体同期の共通ロック、競合時の最終結果保護、適用・結果保存の例外とキャンセル後の解放、取得エラー時の停止、明示無効時の互換性を確認する。並行HTTPの検証では、1件が適用中の間にもう1件が409で拒否されることを確認する。
 
+全体同期はロック取得後にもownerと最終成功時刻を確認する。取得前の判定を通過していても、その間に別同期が成功すれば、後続は`cooldown_skip`で同期本体へ進まない。manual・Cronは200、Webhookは503で通知の再試行を維持し、取得したロックは解放する。単独の`/sync/discord-notion`は今回の再判定対象外である。
+
 これらはローカル検証であり、実KVの伝播遅延、ロックTTL超過、実Cron、通常Guild全件への実サービス適用は未検証である。run所有checkpointを使う専用Discord差分E2Eの成功も、通常の共有KVの実動作を証明しない。
 
 
@@ -370,7 +372,11 @@ MCPは `trigger_sync(scenario="sync_faults", sync_phase="prepare" / "advance" / 
 | 段階間のowner確認時点で期限切れ・別owner・確認不能 | 409で停止し、その段階以降のcursor・最終結果保存を拒否する | `test_sync_lock_expiry.py`、実DOの固定TTLケース |
 | owner確認後、結果KV保存の完了前に期限切れ | 新実行が保存した結果を旧実行が上書きし、旧実行も200を返し得る。旧ownerの解放処理は新ownerを解放しない | 追加テスト `test_expiry_during_result_put_can_overwrite_new_result` の手動・Cron分岐・全体同期3ケース |
 
-2026-11-10に `test_cooldown_before_lock_and_stale_snapshot_can_duplicate` の3ケースを追加した。通常の全体同期・実StateStore・同じglobal DOを使い、API成功・TTL未超過・クールダウン300秒の条件でも、判定後からロック取得前の実行順と古いsnapshotの組合せで、内部応答200・エラー0のまま同じイベントURL・同じ本文を2回投稿することを確認した。古くするのはsnapshotだけで、queueとDOの最終成功時刻は最新である。最新snapshotの対照と、前の同期完了後300秒以内に開始する直列の対照は1投稿になる。実行順と古い読取りは固定モデルであり、本番のAlarm配信順・KV遅延・発生頻度の測定ではない。成功したテストは未修正の保証限界を記録している。
+2026-11-10に追加した3ケースでは、通常の全体同期・実StateStore・同じglobal DOを使い、API成功・TTL未超過・クールダウン300秒でも、判定後からロック取得前の実行順と古いsnapshotの組合せで同じイベントへ2回投稿する旧挙動を再現した。古くするのはsnapshotだけで、queueとDOの最終成功時刻は最新である。
+
+取得後の再判定を追加し、3ケースを`test_post_lock_cooldown_prevents_duplicate_notification`へ更新した。修正前のentryでは2件失敗・1件成功、修正後は競合＋古いsnapshot、競合＋最新snapshot、300秒以内の直列起動のすべてでPOST・リアクションが1回となる。後続はsnapshotを読む前に停止し、Cronの200・Webhookの503、取得したロックの解放、先行処理のエラー0も確認する。実行順と古い読取りは固定モデルであり、本番のAlarm配信順・KV遅延・発生頻度の測定ではない。
+
+この修正は全体同期のcooldown区間を対象とする。単独Discord同期、300秒経過後、クールダウン無効時の古い状態や、投稿応答喪失・投稿後の保存失敗による重複は引き続き保証範囲表の制限に含む。今回修正版の通知専用・all-http・all-sync・watch-sharedの実E2Eは準備中で、従来の成功記録を修正版の実績へ流用しない。通知専用E2Eの追加DO保護と、全体同期E2Eの通知無効化という境界も維持する。
 
 外部適用・通知とKV保存を一つのトランザクションにはしていない。DOのowner確認とKV保存も不可分ではない。項目3の「保証範囲確定」はこの表の確定を指し、残件の無損失、一度限りの反映、全書込みの排他を完了条件へ追加したものではない。
 

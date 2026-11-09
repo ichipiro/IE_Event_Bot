@@ -23,7 +23,7 @@ DEVELOPMENT.md
 - 主対象は `workers/` 配下の Cloudflare Python Workers 実装とする。
 - Python の変更では、型ヒント、非同期処理、既存のモジュール分割を尊重する。
 - Worker の挙動を変更するときは、`workers/src/entry.py` の HTTP または Cron の入口と、`workers/wrangler.jsonc` のバインディング・変数・トリガーを併せて確認する。
-- 依存関係を変更するときは、`pyproject.toml`、`workers/requirements.txt`、`README_ENV.md` の整合を確認する。
+- 依存関係を変更するときは、`pyproject.toml`、`workers/requirements.txt`、`docs/REQUIREMENTS.md` の整合を確認する。
 - Wrangler は `npm ci` で導入した `package.json` / `package-lock.json` の固定版を使い、グローバル版を前提にしない。
 - 人間向けの説明、コメント、文書は原則として日本語で書く。API 名、識別子、コマンド、規格名などは原文の表記を保ってよい。
 - TypeScript など他言語のコード例は設計意図の例示であり、Python に存在しない構文を要求するものではない。

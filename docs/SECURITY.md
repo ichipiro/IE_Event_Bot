@@ -64,6 +64,8 @@ Google watch API のエラー時は、外部応答本文を管理 API 応答や 
 - Discord Bot は必要な Guild、チャンネル、Scheduled Event 操作に限定する。
 - API エラーを記録するときも、Authorization ヘッダーやレスポンス中の機密値を残さない。
 
+GoogleサービスアカウントのJWT署名は、Workerで利用可能なWebCryptoのRS256を優先する。PKCS8鍵を非extractable・署名専用としてメモリ上へ取り込み、JWTのclaimsは従来と同じ生成値を使う。未対応環境・鍵・署名失敗時は既存のgoogle-auth経路へ戻り、鍵の永続cacheは追加しない。
+
 ## E2E MCP 境界
 
 - Worker origin は `ie-event-bot-e2e.*.workers.dev` の形だけでなく、別管理値 `E2E_WORKER_URL_SHA256` と完全一致した場合だけ利用する。

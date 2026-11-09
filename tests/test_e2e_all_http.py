@@ -165,7 +165,7 @@ def test_baseline_mapping_cannot_be_added_or_changed_after_prepare(monkeypatch):
 
 
 def test_unknown_baseline_mapping_is_rejected_without_kv_write(monkeypatch):
-    from e2e_google_sync_state import GoogleKV, GoogleStateError
+    from e2e.e2e_google_sync_state import GoogleKV, GoogleStateError
 
     test = prepared(monkeypatch)
     owner = test.owner()

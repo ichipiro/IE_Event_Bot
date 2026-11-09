@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import e2e_cron_entry as cron
+from e2e import e2e_cron_entry as cron
 
 
 START = 1_800_000_000_000

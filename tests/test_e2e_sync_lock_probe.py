@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import e2e_sync_lock_probe as probe
-from e2e_entry import Default
+from e2e import e2e_sync_lock_probe as probe
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace
 

@@ -13,6 +13,7 @@
 - アプリケーション実行基盤: Cloudflare Python Workers
 - Worker の互換日付: `workers/wrangler.jsonc` の `compatibility_date`
 - Python 仮想環境: リポジトリルートの `.venv`
+- 実サービスE2E: Workers Paidを使用する。`workers/wrangler.e2e.jsonc`はCPU上限を30秒へ明示する。FreeのHTTP CPU 10msでは、複数サービス同期のCPU中断を実測した（2026-11-09）。
 
 Windows 専用の環境は必須要件ではない。
 

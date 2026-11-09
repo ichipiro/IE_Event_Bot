@@ -1,5 +1,25 @@
 # 文書変更履歴
 
+## 2026-11-09: 同期・CIの回帰修正
+
+- 同期・認証・検索・watch・dedupe・PR guardの6件と、all-syncの障害再現・E2E成功条件を[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)へ追加した。
+- 内容比較、Calendar変更時のwatch更新、DOの便乗掃除と状態キーを標準文書へ反映した。CPU中断・所有回収・署名と診断の改善、ユーザーが実施したPaid移行とE2E用CPU上限30秒を追記した。
+- 最終all-sync・all-http・watch-sharedの同版成功、全所有資源の回収とローカル検査成功を反映し、6件を対象の有限ケースとして完了にした。旧失敗・回収履歴とローカル/実サービスの検証境界、本番未反映を保持した。
+
+## 2026-11-09: E2E専用Pythonの整理
+
+- E2E専用Python 43件を `workers/src/e2e/` へ集約し、プログラムの参照先と構成案内を更新した。
+
+## 2026-11-09: E2E文書の整理
+
+- E2E専用のMarkdown 14件を `docs/e2e/` へ移動した。
+- 文書間の相対リンク、既存文書からの参照、`AGENTS.md` の目次を更新した。
+
+## 2026-09-26: v0.6.0リリース
+
+対象内E2Eの完了、Issue #17の完了、upstream PR #81〜#83による統合・正式リリースを計画・棚卸し・作業履歴へ反映した。本番反映は別工程として維持する。
+
+
 ## 2026-09-25: 対象内E2Eの完了判定
 
 旧watch通知・17件境界・Notion API拒否後の復旧を含む24実行の証跡を再照合し、計画・棚卸し・課題の完了状態を統一した。任意件数・自然発生障害は保証外事項として保持する。
@@ -7,11 +27,11 @@
 
 ## 2026-09-25
 
-- NotionへのDiscord ID書戻し拒否後の復旧E2Eを追加し、[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)の成功、部分反映IDの再利用、queue復旧・重複なし・全資源回収の独立照合を[書戻し復旧の検証記録](E2E-NOTION-WRITEBACK-RETRY.md)へ保存した。
+- NotionへのDiscord ID書戻し拒否後の復旧E2Eを追加し、[実行36147796164](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36147796164)の成功、部分反映IDの再利用、queue復旧・重複なし・全資源回収の独立照合を[書戻し復旧の検証記録](e2e/E2E-NOTION-WRITEBACK-RETRY.md)へ保存した。
 
-- Notionページ作成拒否後の復旧E2Eを追加し、[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)の成功、queue維持・再試行・重複なし・全資源回収の独立照合を[検証記録](E2E-NOTION-CREATE-RETRY.md)へ保存した。
+- Notionページ作成拒否後の復旧E2Eを追加し、[実行36145925999](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36145925999)の成功、queue維持・再試行・重複なし・全資源回収の独立照合を[検証記録](e2e/E2E-NOTION-CREATE-RETRY.md)へ保存した。
 
-- Google同期の17件・上限5件E2E成功36140594316、初回の応答契約不一致・回収、全27段階・全件回収の独立照合を[検証記録](E2E-GOOGLE-BOUNDARY.md)へ追加。有限の件数境界を完了とし、残るAPI失敗分岐は維持した。
+- Google同期の17件・上限5件E2E成功36140594316、初回の応答契約不一致・回収、全27段階・全件回収の独立照合を[検証記録](e2e/E2E-GOOGLE-BOUNDARY.md)へ追加。有限の件数境界を完了とし、残るAPI失敗分岐は維持した。
 
 - ロック解放失敗の実ログ調査、固定分類・別stub読取り診断、診断版E2E36119459889の成功と回収を記録。元の失敗原因は未確定として区別した。
 
@@ -155,7 +175,7 @@
 
 - 通常KV専用の手動workflow、有限回の読戻し、revision照合、失敗時の回収とローカル検証結果を記録した。
 
-- 通常StateStoreのKV隔離・所有権・別HTTP検証を記録し、`E2E-PLAN.md` に残作業とユーザー指定の追加対象外5件を整理した。
+- 通常StateStoreのKV隔離・所有権・別HTTP検証を記録し、`e2e/E2E-PLAN.md` に残作業とユーザー指定の追加対象外5件を整理した。
 
 - 通常Discord同期のqueue保存失敗による再試行消失と手動・Cronの排他漏れの修正、ローカル回帰結果、残る実KV・TTLの検証境界を記録した。
 
@@ -263,17 +283,17 @@
 
 ## 2026-09-25: 実Cronと手動同期の競合E2E
 
-- 実Cronと別HTTPの両方向のロック競合、解放後の再実行、結果KV読戻し、所有資源回収を検証した。[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)で成功し、[計画](E2E-PLAN.md)項目8と[検証記録](E2E-CRON-CONTENTION.md)を更新した。
+- 実Cronと別HTTPの両方向のロック競合、解放後の再実行、結果KV読戻し、所有資源回収を検証した。[実行36104059809](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/36104059809)で成功し、[計画](e2e/E2E-PLAN.md)項目8と[検証記録](e2e/E2E-CRON-CONTENTION.md)を更新した。
 
 ## 2026-09-25: 通常ジョブ再試行
 
-- Q&Aの通知失敗をcacheで抑止する問題とcleanup失敗後のinterval guardを修正。3ジョブの固定失敗・別HTTP回復・重複抑止・回収を実サービスで確認した（[検証記録](E2E-JOBS-RETRY.md)）。
+- Q&Aの通知失敗をcacheで抑止する問題とcleanup失敗後のinterval guardを修正。3ジョブの固定失敗・別HTTP回復・重複抑止・回収を実サービスで確認した（[検証記録](e2e/E2E-JOBS-RETRY.md)）。
 
 ## 2026-09-25: 通常ジョブのKV保存再試行
 
 - 通常ジョブのKV6キーだけを同じ値で最大3回保存し、上限到達時の失敗応答とCron後続処理を整えた。
-- 固定失敗・回復・重複抑止・共有KV読戻し・全資源回収を専用E2Eで確認した。[検証記録](E2E-JOBS-KV-RETRY.md)。
+- 固定失敗・回復・重複抑止・共有KV読戻し・全資源回収を専用E2Eで確認した。[検証記録](e2e/E2E-JOBS-KV-RETRY.md)。
 
 ## 2026-09-25: E2E棚卸しと旧通知の検証
 
-E2E計画の完了記録を実行証跡へ合わせ、Google同期の残試験と本番作業の開始条件を明記した。旧token・旧channel・重複通知を通常handlerとE2Eガードで区別する検証を追加した。[棚卸し記録](E2E-AUDIT-20260925.md)。
+E2E計画の完了記録を実行証跡へ合わせ、Google同期の残試験と本番作業の開始条件を明記した。旧token・旧channel・重複通知を通常handlerとE2Eガードで区別する検証を追加した。[棚卸し記録](e2e/E2E-AUDIT-20260925.md)。

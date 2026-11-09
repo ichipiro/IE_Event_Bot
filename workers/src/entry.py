@@ -430,7 +430,7 @@ class Default(WorkerEntrypoint):
         同期処理の中核ディスパッチ。
         手順:
         1) KV クールダウン判定
-        2) Durable Object ロック取得（有効時）
+        2) Durable Object ロック取得後、クールダウンを再確認（有効時）
         3) mode に応じて Google fetch/apply + Discord poll sync 実行
         4) 成功時はカーソル/最終時刻/last_result を更新
         5) finally でロック解放
@@ -477,6 +477,20 @@ class Default(WorkerEntrypoint):
                 )
             lock_owner = acquired.get("owner")
         try:
+            # 取得前の判定後に別実行が成功した場合は、同期本体へ進めない。
+            if (lock_owner and state.enabled()
+                    and StateStore.is_kv_sync_cooldown_enabled(run_env)):
+                await self._require_sync_owner(lock_owner)
+                if await state.should_skip_sync_by_cooldown(sync_interval):
+                    return _json_response(
+                        {
+                            "ok": True,
+                            "status": "cooldown_skip",
+                            "interval_seconds": sync_interval,
+                            "source": source,
+                        },
+                        status=503 if source == "webhook" else 200,
+                    )
             mode = self._sync_all_mode()
             # Google 差分取得
             google_result = await (google_fetcher or run_google_delta_fetch)(run_env, state, commit_cursor=False)

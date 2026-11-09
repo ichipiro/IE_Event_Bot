@@ -35,6 +35,8 @@ const WORKER_TIMEOUT_MS = 60_000;
 // Workerの全件phase上限90秒に、制御ロック解放と応答時間を加える。
 const GOOGLE_SYNC_TIMEOUT_MS = 120_000;
 const DEPLOY_TIMEOUT_MS = 300_000;
+const MAX_DEPLOY_OUTPUT_BYTES = 65_536;
+const MAX_DEPLOY_ERROR_CODES = 8;
 const DEPLOY_VERIFY_ATTEMPTS = 20;
 const DEPLOY_VERIFY_INTERVAL_MS = 3_000;
 
@@ -378,6 +380,94 @@ function releaseDiagnosticEvidence(entry) {
 }
 
 
+const DEPLOY_CATEGORIES = Object.freeze({
+  network: /fetch failed|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|network.*(?:error|fail)|connection.*(?:reset|refused|timed out)/i,
+  auth: /authentication|unauthorized|forbidden|invalid (?:api )?token|authorization (?:error|failed)/i,
+  cpu: /exceededCpu|CPU.*(?:limit|exceed)|startup.*CPU/i,
+  python_build: /(?:python|pyodide).*(?:build|error|fail)|(?:build|compil\w*).*(?:python|pyodide)/i,
+  compatibility: /compatibility[ _-]*(?:date|flag)|python_workers.*(?:required|enabled|flag)/i,
+  package: /npm (?:ERR|error)|package.*(?:not found|fail|error)|ModuleNotFoundError|could not resolve|no matching distribution/i,
+  config: /invalid.*(?:wrangler|configuration|config)|(?:configuration|config).*(?:invalid|error)|binding.*(?:missing|invalid)/i,
+});
+
+function deploymentDiagnosticEvidence(entry) {
+  const value = entry.deployment_diagnostic;
+  if ((entry.tool && entry.tool !== "deploy_e2e") ||
+      (entry.ok !== true && !["wrangler_deploy_failed", "wrangler_deploy_timeout", "wrangler_deploy_start_failed",
+        "worker_version_propagation_timeout"].includes(entry.error)) ||
+      !value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const codes = Array.isArray(value.cloudflare_error_codes) ? value.cloudflare_error_codes : [];
+  const categories = Array.isArray(value.categories) ? value.categories : [];
+  const allowed = [...Object.keys(DEPLOY_CATEGORIES), "unknown"];
+  const selected = [...new Set(categories.filter(category => allowed.includes(category)))];
+  const diagnostic = entry.ok === true ? {} : {
+    cloudflare_error_codes: [...new Set(codes.filter(code => Number.isInteger(code) && code >= 1000 && code <= 999999))]
+      .slice(0, MAX_DEPLOY_ERROR_CODES),
+    categories: selected.length ? selected : ["unknown"],
+  };
+  const hash = item => typeof item === "string" && /^[a-f0-9]{64}$/.test(item) ? item : null;
+  const httpStatus = item => Number.isInteger(item) && item >= 100 && item <= 599 ? item : null;
+  const errorCodes = items => [...new Set((Array.isArray(items) ? items : [])
+    .filter(code => Number.isInteger(code) && code >= 1000 && code <= 999999))].slice(0, MAX_DEPLOY_ERROR_CODES);
+  if (value.cli && typeof value.cli === "object" && !Array.isArray(value.cli)) {
+    diagnostic.cli = {
+      worker_url_sha256: hash(value.cli.worker_url_sha256),
+      url_matches_expected: typeof value.cli.url_matches_expected === "boolean" ? value.cli.url_matches_expected : null,
+      version_id_sha256: hash(value.cli.version_id_sha256),
+      cancelled: value.cli.cancelled === true,
+    };
+  }
+  if (entry.ok !== true && value.control_plane && typeof value.control_plane === "object") {
+    const cp = value.control_plane;
+    diagnostic.control_plane = {
+      deployments_status: httpStatus(cp.deployments_status),
+      cloudflare_error_codes: errorCodes(cp.cloudflare_error_codes),
+      active_versions: (Array.isArray(cp.active_versions) ? cp.active_versions : []).slice(0, 2).map(item => ({
+        http_status: httpStatus(item?.http_status),
+        version_id_sha256: hash(item?.version_id_sha256),
+        expected_tag_match: typeof item?.expected_tag_match === "boolean" ? item.expected_tag_match : null,
+        traffic_percent: typeof item?.traffic_percent === "number" && Number.isFinite(item.traffic_percent)
+          && item.traffic_percent > 0 && item.traffic_percent <= 100 ? item.traffic_percent : null,
+      })),
+      complete: cp.complete === true,
+    };
+  }
+  return Object.keys(diagnostic).length ? { deployment_diagnostic: {
+    ...diagnostic, output_truncated: value.output_truncated === true,
+  } } : {};
+}
+
+function deploymentOutputDiagnostic(text, config, truncated, ok = false) {
+  // 資格情報やHTTP headerは分類前にも除く。生出力はメモリ外へ渡さない。
+  for (const value of [config.cloudflareApiToken, config.cloudflareAccountId, config.internalApiToken]) {
+    if (typeof value === "string" && value) {
+      text = text.split(value).join("");
+    }
+  }
+  text = text.replace(/\u001b\[[0-9;]*m/g, "")
+    .replace(/^\s*(?:authorization|proxy-authorization|cookie|set-cookie)\s*[:=].*$/gim, "");
+  // Wranglerが表示するCloudflare APIの[code: N]形式だけを採用する。
+  const codes = [...text.matchAll(/\[code:\s*(\d{4,6})\]/gi)].map(match => Number(match[1]));
+  const categories = Object.entries(DEPLOY_CATEGORIES).filter(([, pattern]) => pattern.test(text)).map(([key]) => key);
+  const urls = [...new Set([...text.matchAll(/^\s*(https:\/\/ie-event-bot-e2e\.[a-z0-9-]+\.workers\.dev)\/?\s*$/gim)]
+    .map(match => new URL(match[1]).origin))];
+  const version = text.match(/Current Version ID:\s*([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\b/i)?.[1];
+  const cancelled = /Aborting deploy|(?:deployment|deploy)\s+(?:was\s+)?cancel(?:led|ed)|Operation cancelled/i.test(text);
+  const digest = item => createHash("sha256").update(item).digest("hex");
+  return deploymentDiagnosticEvidence({ ok, error: ok ? null : "wrangler_deploy_failed", deployment_diagnostic: {
+    cloudflare_error_codes: codes, categories, output_truncated: truncated,
+    ...(urls.length || version || cancelled ? { cli: {
+      worker_url_sha256: urls.length === 1 ? digest(urls[0]) : null,
+      url_matches_expected: urls.length === 1 ? urls[0] === config.workerUrl : null,
+      version_id_sha256: version ? digest(version.toLowerCase()) : null,
+      cancelled,
+    } } : {}),
+  } });
+}
+
+
 export async function appendAuditEntry(entry) {
   if (!RUN_ID_PATTERN.test(String(entry.run_id ?? ""))) {
     throw new Error("audit_run_id_invalid");
@@ -402,6 +492,7 @@ export async function appendAuditEntry(entry) {
     ...versionEvidence(entry),
     ...releaseDiagnosticEvidence(entry),
     ...transportDiagnosticEvidence(entry),
+    ...deploymentDiagnosticEvidence(entry),
     error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
   };
   const options = {
@@ -460,6 +551,7 @@ export async function readAuditEntries(runId) {
           ...versionEvidence(entry),
           ...releaseDiagnosticEvidence(entry),
           ...transportDiagnosticEvidence(entry),
+          ...deploymentDiagnosticEvidence(entry),
           error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
         });
       }
@@ -654,6 +746,13 @@ function sanitizeOperation(response, runId) {
         ? `worker_${executionStatus}`
         : safeErrorCode(payload.error, response.error),
   };
+}
+
+
+export function isGoogleSyncRecoveryStage(owner) {
+  return ["working", "ready", "cleanup"].includes(owner?.stage) ||
+    (owner?.stage === "verified" && owner.stages?.watch_shared_step_0 === 200 &&
+      owner.stages?.watch_shared_step_3 !== 200);
 }
 
 
@@ -867,34 +966,108 @@ export async function deployDedicatedWorker(config, versionTag, spawnImpl = spaw
           ...deploymentEnvironment(),
           CLOUDFLARE_ACCOUNT_ID: config.cloudflareAccountId,
           CLOUDFLARE_API_TOKEN: config.cloudflareApiToken,
+          WRANGLER_WRITE_LOGS: "false",
+          WRANGLER_SEND_METRICS: "false",
         },
         shell: false,
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "pipe"],
       },
     );
     let settled = false;
+    const output = { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+    let truncated = false;
+    const capture = (stream, chunk) => {
+      if (settled || (!Buffer.isBuffer(chunk) && typeof chunk !== "string")) {
+        return;
+      }
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, "utf8");
+      truncated ||= output[stream].length + bytes.length > MAX_DEPLOY_OUTPUT_BYTES;
+      const suffix = bytes.subarray(Math.max(0, bytes.length - MAX_DEPLOY_OUTPUT_BYTES));
+      const keep = MAX_DEPLOY_OUTPUT_BYTES - suffix.length;
+      // concatで上限以下だけをコピーし、大きいchunkのbacking bufferを保持しない。
+      output[stream] = Buffer.concat([
+        keep ? output[stream].subarray(Math.max(0, output[stream].length - keep)) : Buffer.alloc(0), suffix,
+      ]);
+    };
+    child.stdout?.on("data", chunk => capture("stdout", chunk));
+    child.stderr?.on("data", chunk => capture("stderr", chunk));
+    const diagnostic = (ok = false) => deploymentOutputDiagnostic(
+      `${output.stdout.toString("utf8")}\n${output.stderr.toString("utf8")}`, config, truncated, ok,
+    );
     const finish = (result) => {
       if (!settled) {
         settled = true;
         clearTimeout(timeout);
+        output.stdout = output.stderr = Buffer.alloc(0);
         resolveResult(result);
       }
     };
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      finish({ ok: false, status: null, error: "wrangler_deploy_timeout" });
+      finish({ ok: false, status: null, error: "wrangler_deploy_timeout", ...diagnostic() });
     }, DEPLOY_TIMEOUT_MS);
     child.once("error", () => {
-      finish({ ok: false, status: null, error: "wrangler_deploy_start_failed" });
+      finish({ ok: false, status: null, error: "wrangler_deploy_start_failed", ...diagnostic() });
     });
     child.once("close", (code) => {
       finish({
         ok: code === 0,
         status: Number.isInteger(code) ? code : null,
         error: code === 0 ? null : "wrangler_deploy_failed",
+        ...diagnostic(code === 0),
       });
     });
   });
+}
+
+
+async function controlPlaneDeploymentDiagnostic(config, runId, fetchImpl) {
+  const result = { deployments_status: null, cloudflare_error_codes: [], active_versions: [], complete: false };
+  if (!/^[a-f0-9]{32}$/i.test(config.cloudflareAccountId ?? "") || !config.cloudflareApiToken) {
+    return result;
+  }
+  const base = `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/workers/scripts/${WORKER_NAME}`;
+  const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+  const get = async path => {
+    let status = null;
+    try {
+      const response = await fetchImpl(`${base}/${path}`, { method: "GET", redirect: "error",
+        headers: { Authorization: `Bearer ${config.cloudflareApiToken}` }, signal: AbortSignal.timeout(10_000) });
+      status = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+      const text = await response.text();
+      if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
+        return { status, data: null };
+      }
+      const data = JSON.parse(text);
+      const codes = Array.isArray(data?.errors) ? data.errors.map(item => item?.code) : [];
+      result.cloudflare_error_codes = [...new Set([...result.cloudflare_error_codes, ...codes])]
+        .filter(code => Number.isInteger(code) && code >= 1000 && code <= 999999).slice(0, MAX_DEPLOY_ERROR_CODES);
+      return { status, data: status >= 200 && status < 300 && data?.success === true ? data.result : null };
+    } catch {
+      return { status, data: null };
+    }
+  };
+  const deployments = await get("deployments?per_page=1");
+  result.deployments_status = deployments.status;
+  const versions = deployments.data?.deployments?.[0]?.versions;
+  if (!Array.isArray(versions) || !versions.length || versions.length > 2 ||
+      versions.some(item => !uuid.test(item?.version_id ?? "") || typeof item.percentage !== "number" ||
+        !Number.isFinite(item.percentage) || item.percentage < 0 || item.percentage > 100) ||
+      versions.reduce((sum, item) => sum + item.percentage, 0) !== 100) {
+    return result;
+  }
+  let complete = true;
+  for (const item of versions.filter(value => value.percentage > 0)) {
+    const version = await get(`versions/${item.version_id}`);
+    const valid = typeof version.data?.id === "string" && version.data.id.toLowerCase() === item.version_id.toLowerCase();
+    complete &&= valid;
+    result.active_versions.push({ http_status: version.status,
+      version_id_sha256: createHash("sha256").update(item.version_id.toLowerCase()).digest("hex"),
+      expected_tag_match: valid ? version.data.annotations?.["workers/tag"] === runId : null,
+      traffic_percent: item.percentage });
+  }
+  result.complete = complete;
+  return result;
 }
 
 
@@ -1062,6 +1235,7 @@ function buildRunManifest(runId, status, audit, repository, config) {
       ...versionEvidence(entry),
       ...releaseDiagnosticEvidence(entry),
       ...transportDiagnosticEvidence(entry),
+      ...deploymentDiagnosticEvidence(entry),
       error: entry.error ? safeErrorCode(entry.error, "operation_failed") : null,
     }));
   const allTimestamps = audit
@@ -1134,6 +1308,7 @@ async function runAudited(auditImpl, entry, operation) {
       ...versionEvidence({ ...entry, ...result }),
       ...releaseDiagnosticEvidence(result),
       ...transportDiagnosticEvidence(result),
+      ...deploymentDiagnosticEvidence({ ...entry, ...result }),
       error: result.error,
     });
   } catch {
@@ -1258,7 +1433,7 @@ export function createE2eMcpServer(options = {}) {
             const status = sanitizeStatus(response);
             const googleOwner = status.scenarios.google_sync;
             const googleRecovery = googleOwner?.dirty && googleOwner.run_id === runId &&
-              ["working", "ready", "cleanup"].includes(googleOwner.stage);
+              isGoogleSyncRecoveryStage(googleOwner);
             const target = googleRecovery ? "google_sync" : "discord_delta";
             const manifest = status.scenarios[target];
             if (!status.ok || status.mode !== "e2e" || !status.e2e_manifest_enabled ||
@@ -1271,7 +1446,13 @@ export function createE2eMcpServer(options = {}) {
               return { ok: false, status: 409, error: "redeploy_checkpoint_mismatch" };
             }
           }
-          const deployed = await deployImpl(config, runId);
+          const attempt = await deployImpl(config, runId);
+          const deployed = {
+            ok: attempt.ok === true,
+            status: Number.isInteger(attempt.status) ? attempt.status : null,
+            error: attempt.ok === true ? null : safeErrorCode(attempt.error, "wrangler_deploy_failed"),
+            ...deploymentDiagnosticEvidence(attempt),
+          };
           if (deployed.ok !== true) {
             return deployed;
           }
@@ -1283,12 +1464,15 @@ export function createE2eMcpServer(options = {}) {
             previousVersion,
           );
           if (!verified.ok) {
+            const controlPlane = await controlPlaneDeploymentDiagnostic(config, runId, fetchImpl);
             return {
               ok: false,
               status: deployed.status ?? null,
               error: "worker_version_propagation_timeout",
               version_verified: false,
               verification_attempts: verified.attempts,
+              ...deploymentDiagnosticEvidence({ ok: false, error: "worker_version_propagation_timeout",
+                deployment_diagnostic: { ...deployed.deployment_diagnostic, control_plane: controlPlane } }),
             };
           }
           return {

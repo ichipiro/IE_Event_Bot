@@ -7,8 +7,8 @@ from hashlib import sha256
 
 import pytest
 
-import e2e_discord_delta_probe as probe
-import e2e_entry
+from e2e import e2e_discord_delta_probe as probe
+from e2e import e2e_entry
 from state import StateStore
 from sync_lock_do import SyncCoordinator
 from tests.fakes import Request

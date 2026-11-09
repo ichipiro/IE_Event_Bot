@@ -5,9 +5,9 @@ from copy import deepcopy
 
 import pytest
 
-from e2e_discord_batch_state import SERVICE, BatchDiscordKV, key_prefix
-from e2e_discord_kv_state import KEYS
-from e2e_entry import Default
+from e2e.e2e_discord_batch_state import SERVICE, BatchDiscordKV, key_prefix
+from e2e.e2e_discord_kv_state import KEYS
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_discord_kv_probe import environment

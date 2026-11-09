@@ -3,7 +3,7 @@
   "scope": {
     "root": ".",
     "included": [
-      "workers/src/*.py",
+      "workers/src/**/*.py",
       "tools/*.py",
       "tools/*.ps1",
       "typings/**/*.pyi",
@@ -381,11 +381,11 @@
     {
       "id": "P017",
       "kind": "component",
-      "name": "e2e_discord_probe",
-      "technical_name": "workers/src/e2e_discord_probe.py",
+      "name": "e2e.e2e_discord_probe",
+      "technical_name": "workers/src/e2e/e2e_discord_probe.py",
       "role": "隔離された E2E Worker から Discord の作成・検証・更新・削除と残存資源の回収を実行する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:1-1130"
+        "workers/src/e2e/e2e_discord_probe.py:1-1130"
       ],
       "diagram_refs": [
         "modules/e2e-dependencies.puml",
@@ -401,11 +401,11 @@
     {
       "id": "P018",
       "kind": "component",
-      "name": "e2e_entry",
-      "technical_name": "workers/src/e2e_entry.py",
+      "name": "e2e.e2e_entry",
+      "technical_name": "workers/src/e2e/e2e_entry.py",
       "role": "通常 Worker の公開面を制限し、E2E 状態確認と明示的な CRUD プローブだけを提供する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:1-376"
+        "workers/src/e2e/e2e_entry.py:1-376"
       ],
       "diagram_refs": [
         "modules/e2e-dependencies.puml",
@@ -421,11 +421,11 @@
     {
       "id": "P019",
       "kind": "component",
-      "name": "e2e_google_probe",
-      "technical_name": "workers/src/e2e_google_probe.py",
+      "name": "e2e.e2e_google_probe",
+      "technical_name": "workers/src/e2e/e2e_google_probe.py",
       "role": "隔離された E2E Worker から Google Calendar の作成・検証・更新・削除と残存資源の回収を実行する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:1-469"
+        "workers/src/e2e/e2e_google_probe.py:1-469"
       ],
       "diagram_refs": [
         "modules/e2e-dependencies.puml",
@@ -440,11 +440,11 @@
     {
       "id": "P020",
       "kind": "component",
-      "name": "e2e_notion_probe",
-      "technical_name": "workers/src/e2e_notion_probe.py",
+      "name": "e2e.e2e_notion_probe",
+      "technical_name": "workers/src/e2e/e2e_notion_probe.py",
       "role": "隔離された E2E Worker から Notion の作成・検証・更新・アーカイブと残存資源の回収を実行する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:1-1185"
+        "workers/src/e2e/e2e_notion_probe.py:1-1185"
       ],
       "diagram_refs": [
         "modules/e2e-dependencies.puml",
@@ -870,11 +870,11 @@
     {
       "id": "C008",
       "kind": "class",
-      "name": "e2e_entry.Default",
-      "technical_name": "e2e_entry.Default",
+      "name": "e2e.e2e_entry.Default",
+      "technical_name": "e2e.e2e_entry.Default",
       "role": "通常 Worker を継承し、E2E 専用ルート、認可、排他、CRUD プローブ、Cron 無効化を調整する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:197-376"
+        "workers/src/e2e/e2e_entry.py:197-376"
       ],
       "diagram_refs": [
         "classes/00-class-index.puml",
@@ -883,7 +883,7 @@
       ],
       "evidence": "code",
       "certainty": "confirmed",
-      "owner_module": "e2e_entry"
+      "owner_module": "e2e.e2e_entry"
     },
     {
       "id": "M001",
@@ -2354,11 +2354,11 @@
     {
       "id": "M061",
       "kind": "method",
-      "name": "e2e_entry.Default.fetch",
-      "technical_name": "e2e_entry.Default.fetch",
+      "name": "e2e.e2e_entry.Default.fetch",
+      "technical_name": "e2e.e2e_entry.Default.fetch",
       "role": "E2E 専用状態・CRUD ルートを認可し、通常 Worker の許可済みルートへ委譲する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:200-372"
+        "workers/src/e2e/e2e_entry.py:200-372"
       ],
       "diagram_refs": [
         "methods/e2e-entry-02.puml"
@@ -2379,11 +2379,11 @@
     {
       "id": "M062",
       "kind": "method",
-      "name": "e2e_entry.Default.scheduled",
-      "technical_name": "e2e_entry.Default.scheduled",
+      "name": "e2e.e2e_entry.Default.scheduled",
+      "technical_name": "e2e.e2e_entry.Default.scheduled",
       "role": "E2E Worker の Cron 実行を常に無効化する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:374-376"
+        "workers/src/e2e/e2e_entry.py:374-376"
       ],
       "diagram_refs": [
         "methods/e2e-entry-02.puml"
@@ -6392,11 +6392,11 @@
     {
       "id": "F157",
       "kind": "function",
-      "name": "e2e_discord_probe.fetch",
-      "technical_name": "e2e_discord_probe.fetch",
+      "name": "e2e.e2e_discord_probe.fetch",
+      "technical_name": "e2e.e2e_discord_probe.fetch",
       "role": "Workers fetch の呼び出し形式差を吸収する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:21-32"
+        "workers/src/e2e/e2e_discord_probe.py:21-32"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6418,11 +6418,11 @@
     {
       "id": "F158",
       "kind": "function",
-      "name": "e2e_discord_probe._env_text",
-      "technical_name": "e2e_discord_probe._env_text",
+      "name": "e2e.e2e_discord_probe._env_text",
+      "technical_name": "e2e.e2e_discord_probe._env_text",
       "role": "Worker 環境変数から文字列設定を安全に取得する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:35-39"
+        "workers/src/e2e/e2e_discord_probe.py:35-39"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6443,11 +6443,11 @@
     {
       "id": "F159",
       "kind": "function",
-      "name": "e2e_discord_probe._fingerprint",
-      "technical_name": "e2e_discord_probe._fingerprint",
+      "name": "e2e.e2e_discord_probe._fingerprint",
+      "technical_name": "e2e.e2e_discord_probe._fingerprint",
       "role": "正規化した検証対象を SHA-256 指紋へ変換する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:42-43"
+        "workers/src/e2e/e2e_discord_probe.py:42-43"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6467,11 +6467,11 @@
     {
       "id": "F160",
       "kind": "function",
-      "name": "e2e_discord_probe._int_value",
-      "technical_name": "e2e_discord_probe._int_value",
+      "name": "e2e.e2e_discord_probe._int_value",
+      "technical_name": "e2e.e2e_discord_probe._int_value",
       "role": "入力値を既定値付きの整数へ変換する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:46-50"
+        "workers/src/e2e/e2e_discord_probe.py:46-50"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6492,11 +6492,11 @@
     {
       "id": "F161",
       "kind": "function",
-      "name": "e2e_discord_probe._new_run_id",
-      "technical_name": "e2e_discord_probe._new_run_id",
+      "name": "e2e.e2e_discord_probe._new_run_id",
+      "technical_name": "e2e.e2e_discord_probe._new_run_id",
       "role": "時刻と乱数から形式制約を満たす E2E run ID を生成する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:53-55"
+        "workers/src/e2e/e2e_discord_probe.py:53-55"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6516,11 +6516,11 @@
     {
       "id": "F162",
       "kind": "function",
-      "name": "e2e_discord_probe._run_marker",
-      "technical_name": "e2e_discord_probe._run_marker",
+      "name": "e2e.e2e_discord_probe._run_marker",
+      "technical_name": "e2e.e2e_discord_probe._run_marker",
       "role": "E2E 資源を run ID に結び付ける識別マーカーを生成する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:58-59"
+        "workers/src/e2e/e2e_discord_probe.py:58-59"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6540,11 +6540,11 @@
     {
       "id": "F163",
       "kind": "function",
-      "name": "e2e_discord_probe._discord_iso",
-      "technical_name": "e2e_discord_probe._discord_iso",
+      "name": "e2e.e2e_discord_probe._discord_iso",
+      "technical_name": "e2e.e2e_discord_probe._discord_iso",
       "role": "日時を Discord API 用 ISO 8601 文字列へ変換する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:62-71"
+        "workers/src/e2e/e2e_discord_probe.py:62-71"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6564,11 +6564,11 @@
     {
       "id": "F164",
       "kind": "function",
-      "name": "e2e_discord_probe._event_payload",
-      "technical_name": "e2e_discord_probe._event_payload",
+      "name": "e2e.e2e_discord_probe._event_payload",
+      "technical_name": "e2e.e2e_discord_probe._event_payload",
       "role": "Discord Scheduled Event の作成 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:74-89"
+        "workers/src/e2e/e2e_discord_probe.py:74-89"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6588,11 +6588,11 @@
     {
       "id": "F165",
       "kind": "function",
-      "name": "e2e_discord_probe._event_update_payload",
-      "technical_name": "e2e_discord_probe._event_update_payload",
+      "name": "e2e.e2e_discord_probe._event_update_payload",
+      "technical_name": "e2e.e2e_discord_probe._event_update_payload",
       "role": "Discord Scheduled Event の更新 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:92-100"
+        "workers/src/e2e/e2e_discord_probe.py:92-100"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6612,11 +6612,11 @@
     {
       "id": "F166",
       "kind": "function",
-      "name": "e2e_discord_probe._allowed_mentions",
-      "technical_name": "e2e_discord_probe._allowed_mentions",
+      "name": "e2e.e2e_discord_probe._allowed_mentions",
+      "technical_name": "e2e.e2e_discord_probe._allowed_mentions",
       "role": "Discord 通知で許可する role mention を最小範囲で組み立てる。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:103-108"
+        "workers/src/e2e/e2e_discord_probe.py:103-108"
       ],
       "diagram_refs": [
         "methods/e2e-discord-01.puml"
@@ -6636,11 +6636,11 @@
     {
       "id": "F167",
       "kind": "function",
-      "name": "e2e_discord_probe._message_payload",
-      "technical_name": "e2e_discord_probe._message_payload",
+      "name": "e2e.e2e_discord_probe._message_payload",
+      "technical_name": "e2e.e2e_discord_probe._message_payload",
       "role": "Discord 検証メッセージの payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:111-116"
+        "workers/src/e2e/e2e_discord_probe.py:111-116"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6662,11 +6662,11 @@
     {
       "id": "F168",
       "kind": "function",
-      "name": "e2e_discord_probe._header_text",
-      "technical_name": "e2e_discord_probe._header_text",
+      "name": "e2e.e2e_discord_probe._header_text",
+      "technical_name": "e2e.e2e_discord_probe._header_text",
       "role": "HTTP 応答ヘッダから正規化済み文字列を取得する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:119-127"
+        "workers/src/e2e/e2e_discord_probe.py:119-127"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6687,11 +6687,11 @@
     {
       "id": "F169",
       "kind": "function",
-      "name": "e2e_discord_probe._retry_after_seconds",
-      "technical_name": "e2e_discord_probe._retry_after_seconds",
+      "name": "e2e.e2e_discord_probe._retry_after_seconds",
+      "technical_name": "e2e.e2e_discord_probe._retry_after_seconds",
       "role": "rate limit 応答から再試行待機秒数を安全に算出する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:130-137"
+        "workers/src/e2e/e2e_discord_probe.py:130-137"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6712,11 +6712,11 @@
     {
       "id": "F170",
       "kind": "function",
-      "name": "e2e_discord_probe._discord_request",
-      "technical_name": "e2e_discord_probe._discord_request",
+      "name": "e2e.e2e_discord_probe._discord_request",
+      "technical_name": "e2e.e2e_discord_probe._discord_request",
       "role": "小さなDiscord JSON APIを呼び、429だけ公式待機値で再試行する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:140-188"
+        "workers/src/e2e/e2e_discord_probe.py:140-188"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6740,11 +6740,11 @@
     {
       "id": "F171",
       "kind": "function",
-      "name": "e2e_discord_probe._request_stage",
-      "technical_name": "e2e_discord_probe._request_stage",
+      "name": "e2e.e2e_discord_probe._request_stage",
+      "technical_name": "e2e.e2e_discord_probe._request_stage",
       "role": "E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:191-209"
+        "workers/src/e2e/e2e_discord_probe.py:191-209"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6771,11 +6771,11 @@
     {
       "id": "F172",
       "kind": "function",
-      "name": "e2e_discord_probe._event_matches",
-      "technical_name": "e2e_discord_probe._event_matches",
+      "name": "e2e.e2e_discord_probe._event_matches",
+      "technical_name": "e2e.e2e_discord_probe._event_matches",
       "role": "取得したイベントが E2E の期待値と一致するか判定する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:212-232"
+        "workers/src/e2e/e2e_discord_probe.py:212-232"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6800,11 +6800,11 @@
     {
       "id": "F173",
       "kind": "function",
-      "name": "e2e_discord_probe._event_has_run",
-      "technical_name": "e2e_discord_probe._event_has_run",
+      "name": "e2e.e2e_discord_probe._event_has_run",
+      "technical_name": "e2e.e2e_discord_probe._event_has_run",
       "role": "イベントが指定 run ID の所有資源か判定する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:235-246"
+        "workers/src/e2e/e2e_discord_probe.py:235-246"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6827,11 +6827,11 @@
     {
       "id": "F174",
       "kind": "function",
-      "name": "e2e_discord_probe._message_matches",
-      "technical_name": "e2e_discord_probe._message_matches",
+      "name": "e2e.e2e_discord_probe._message_matches",
+      "technical_name": "e2e.e2e_discord_probe._message_matches",
       "role": "取得した Discord メッセージが E2E の期待値と一致するか判定する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:249-268"
+        "workers/src/e2e/e2e_discord_probe.py:249-268"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6856,11 +6856,11 @@
     {
       "id": "F175",
       "kind": "function",
-      "name": "e2e_discord_probe._message_has_run",
-      "technical_name": "e2e_discord_probe._message_has_run",
+      "name": "e2e.e2e_discord_probe._message_has_run",
+      "technical_name": "e2e.e2e_discord_probe._message_has_run",
       "role": "Discord メッセージが指定 run ID の所有資源か判定する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:271-282"
+        "workers/src/e2e/e2e_discord_probe.py:271-282"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6883,11 +6883,11 @@
     {
       "id": "F176",
       "kind": "function",
-      "name": "e2e_discord_probe._has_own_check_reaction",
-      "technical_name": "e2e_discord_probe._has_own_check_reaction",
+      "name": "e2e.e2e_discord_probe._has_own_check_reaction",
+      "technical_name": "e2e.e2e_discord_probe._has_own_check_reaction",
       "role": "検証メッセージに Bot 自身の確認リアクションがあるか判定する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:285-297"
+        "workers/src/e2e/e2e_discord_probe.py:285-297"
       ],
       "diagram_refs": [
         "methods/e2e-discord-02.puml"
@@ -6907,11 +6907,11 @@
     {
       "id": "F177",
       "kind": "function",
-      "name": "e2e_discord_probe._verify_targets",
-      "technical_name": "e2e_discord_probe._verify_targets",
+      "name": "e2e.e2e_discord_probe._verify_targets",
+      "technical_name": "e2e.e2e_discord_probe._verify_targets",
       "role": "E2E 操作対象の設定値を検査し、安全な識別指紋を返す。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:300-362"
+        "workers/src/e2e/e2e_discord_probe.py:300-362"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -6933,11 +6933,11 @@
     {
       "id": "F178",
       "kind": "function",
-      "name": "e2e_discord_probe._find_event_by_run",
-      "technical_name": "e2e_discord_probe._find_event_by_run",
+      "name": "e2e.e2e_discord_probe._find_event_by_run",
+      "technical_name": "e2e.e2e_discord_probe._find_event_by_run",
       "role": "指定 run ID の E2E イベントを検索する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:365-397"
+        "workers/src/e2e/e2e_discord_probe.py:365-397"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -6963,11 +6963,11 @@
     {
       "id": "F179",
       "kind": "function",
-      "name": "e2e_discord_probe._find_message_by_run",
-      "technical_name": "e2e_discord_probe._find_message_by_run",
+      "name": "e2e.e2e_discord_probe._find_message_by_run",
+      "technical_name": "e2e.e2e_discord_probe._find_message_by_run",
       "role": "指定 run ID の E2E メッセージを検索する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:400-432"
+        "workers/src/e2e/e2e_discord_probe.py:400-432"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -6993,11 +6993,11 @@
     {
       "id": "F180",
       "kind": "function",
-      "name": "e2e_discord_probe._delete_event",
-      "technical_name": "e2e_discord_probe._delete_event",
+      "name": "e2e.e2e_discord_probe._delete_event",
+      "technical_name": "e2e.e2e_discord_probe._delete_event",
       "role": "E2E が所有する外部イベントを削除する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:435-480"
+        "workers/src/e2e/e2e_discord_probe.py:435-480"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7023,11 +7023,11 @@
     {
       "id": "F181",
       "kind": "function",
-      "name": "e2e_discord_probe._delete_message",
-      "technical_name": "e2e_discord_probe._delete_message",
+      "name": "e2e.e2e_discord_probe._delete_message",
+      "technical_name": "e2e.e2e_discord_probe._delete_message",
       "role": "E2E が所有する Discord メッセージを削除する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:483-527"
+        "workers/src/e2e/e2e_discord_probe.py:483-527"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7053,11 +7053,11 @@
     {
       "id": "F182",
       "kind": "function",
-      "name": "e2e_discord_probe._cleanup_resources",
-      "technical_name": "e2e_discord_probe._cleanup_resources",
+      "name": "e2e.e2e_discord_probe._cleanup_resources",
+      "technical_name": "e2e.e2e_discord_probe._cleanup_resources",
       "role": "manifest に記録された E2E 所有資源を回収する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:530-607"
+        "workers/src/e2e/e2e_discord_probe.py:530-607"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7079,11 +7079,11 @@
     {
       "id": "F183",
       "kind": "function",
-      "name": "e2e_discord_probe._target_fingerprints",
-      "technical_name": "e2e_discord_probe._target_fingerprints",
+      "name": "e2e.e2e_discord_probe._target_fingerprints",
+      "technical_name": "e2e.e2e_discord_probe._target_fingerprints",
       "role": "操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:610-614"
+        "workers/src/e2e/e2e_discord_probe.py:610-614"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7104,11 +7104,11 @@
     {
       "id": "F184",
       "kind": "function",
-      "name": "e2e_discord_probe._clean_manifest",
-      "technical_name": "e2e_discord_probe._clean_manifest",
+      "name": "e2e.e2e_discord_probe._clean_manifest",
+      "technical_name": "e2e.e2e_discord_probe._clean_manifest",
       "role": "成功済み E2E manifest を秘密値のない確定状態へ整形する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:617-649"
+        "workers/src/e2e/e2e_discord_probe.py:617-649"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7137,11 +7137,11 @@
     {
       "id": "F185",
       "kind": "function",
-      "name": "e2e_discord_probe.run_discord_crud_probe",
-      "technical_name": "e2e_discord_probe.run_discord_crud_probe",
+      "name": "e2e.e2e_discord_probe.run_discord_crud_probe",
+      "technical_name": "e2e.e2e_discord_probe.run_discord_crud_probe",
       "role": "Discord の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:652-1032"
+        "workers/src/e2e/e2e_discord_probe.py:652-1032"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7164,11 +7164,11 @@
     {
       "id": "F186",
       "kind": "function",
-      "name": "e2e_discord_probe.cleanup_discord_crud_probe",
-      "technical_name": "e2e_discord_probe.cleanup_discord_crud_probe",
+      "name": "e2e.e2e_discord_probe.cleanup_discord_crud_probe",
+      "technical_name": "e2e.e2e_discord_probe.cleanup_discord_crud_probe",
       "role": "Discord E2E manifest が所有する残存イベントとメッセージを回収する。",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:1035-1130"
+        "workers/src/e2e/e2e_discord_probe.py:1035-1130"
       ],
       "diagram_refs": [
         "methods/e2e-discord-03.puml"
@@ -7191,11 +7191,11 @@
     {
       "id": "F187",
       "kind": "function",
-      "name": "e2e_entry._request_run_id",
-      "technical_name": "e2e_entry._request_run_id",
+      "name": "e2e.e2e_entry._request_run_id",
+      "technical_name": "e2e.e2e_entry._request_run_id",
       "role": "要求ヘッダから形式検証済みの E2E run ID を取得する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:63-66"
+        "workers/src/e2e/e2e_entry.py:63-66"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7215,11 +7215,11 @@
     {
       "id": "F188",
       "kind": "function",
-      "name": "e2e_entry._manifest_summary",
-      "technical_name": "e2e_entry._manifest_summary",
+      "name": "e2e.e2e_entry._manifest_summary",
+      "technical_name": "e2e.e2e_entry._manifest_summary",
       "role": "E2E manifest を秘密値を含まない状態応答へ要約する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:69-100"
+        "workers/src/e2e/e2e_entry.py:69-100"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7239,11 +7239,11 @@
     {
       "id": "F189",
       "kind": "function",
-      "name": "e2e_entry._binding_value",
-      "technical_name": "e2e_entry._binding_value",
+      "name": "e2e.e2e_entry._binding_value",
+      "technical_name": "e2e.e2e_entry._binding_value",
       "role": "Workers binding の辞書・属性形式を安全な文字列へ正規化する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:103-110"
+        "workers/src/e2e/e2e_entry.py:103-110"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7264,11 +7264,11 @@
     {
       "id": "F190",
       "kind": "function",
-      "name": "e2e_entry._worker_version_summary",
-      "technical_name": "e2e_entry._worker_version_summary",
+      "name": "e2e.e2e_entry._worker_version_summary",
+      "technical_name": "e2e.e2e_entry._worker_version_summary",
       "role": "Worker version metadata を存在状態と SHA-256 指紋へ要約する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:113-123"
+        "workers/src/e2e/e2e_entry.py:113-123"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7288,11 +7288,11 @@
     {
       "id": "F191",
       "kind": "function",
-      "name": "e2e_entry._watch_summary",
-      "technical_name": "e2e_entry._watch_summary",
+      "name": "e2e.e2e_entry._watch_summary",
+      "technical_name": "e2e.e2e_entry._watch_summary",
       "role": "Google watch 状態を値そのものではなく SHA-256 指紋へ要約する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:126-134"
+        "workers/src/e2e/e2e_entry.py:126-134"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7312,11 +7312,11 @@
     {
       "id": "F192",
       "kind": "function",
-      "name": "e2e_entry._required_env_summary",
-      "technical_name": "e2e_entry._required_env_summary",
+      "name": "e2e.e2e_entry._required_env_summary",
+      "technical_name": "e2e.e2e_entry._required_env_summary",
       "role": "E2E 公開操作に必要な環境設定の有無だけを要約する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:137-155"
+        "workers/src/e2e/e2e_entry.py:137-155"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7336,11 +7336,11 @@
     {
       "id": "F193",
       "kind": "function",
-      "name": "e2e_entry._google_auth_summary",
-      "technical_name": "e2e_entry._google_auth_summary",
+      "name": "e2e.e2e_entry._google_auth_summary",
+      "technical_name": "e2e.e2e_entry._google_auth_summary",
       "role": "Google 認証源の設定・キャッシュ状態を真偽値だけで要約する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:158-170"
+        "workers/src/e2e/e2e_entry.py:158-170"
       ],
       "diagram_refs": [
         "methods/e2e-entry-01.puml"
@@ -7360,11 +7360,11 @@
     {
       "id": "F194",
       "kind": "function",
-      "name": "e2e_entry._sync_lock_summary",
-      "technical_name": "e2e_entry._sync_lock_summary",
+      "name": "e2e.e2e_entry._sync_lock_summary",
+      "technical_name": "e2e.e2e_entry._sync_lock_summary",
       "role": "SyncCoordinator の利用可否と応答状態を要約する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:173-179"
+        "workers/src/e2e/e2e_entry.py:173-179"
       ],
       "diagram_refs": [
         "methods/e2e-entry-02.puml"
@@ -7384,11 +7384,11 @@
     {
       "id": "F195",
       "kind": "function",
-      "name": "e2e_entry._e2e_google_crud_enabled",
-      "technical_name": "e2e_entry._e2e_google_crud_enabled",
+      "name": "e2e.e2e_entry._e2e_google_crud_enabled",
+      "technical_name": "e2e.e2e_entry._e2e_google_crud_enabled",
       "role": "Google Calendar E2E CRUD ルートの有効設定を判定する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:182-184"
+        "workers/src/e2e/e2e_entry.py:182-184"
       ],
       "diagram_refs": [
         "methods/e2e-entry-02.puml"
@@ -7408,11 +7408,11 @@
     {
       "id": "F196",
       "kind": "function",
-      "name": "e2e_entry._e2e_discord_crud_enabled",
-      "technical_name": "e2e_entry._e2e_discord_crud_enabled",
+      "name": "e2e.e2e_entry._e2e_discord_crud_enabled",
+      "technical_name": "e2e.e2e_entry._e2e_discord_crud_enabled",
       "role": "Discord E2E CRUD ルートの有効設定を判定する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:187-189"
+        "workers/src/e2e/e2e_entry.py:187-189"
       ],
       "diagram_refs": [
         "methods/e2e-entry-02.puml"
@@ -7432,11 +7432,11 @@
     {
       "id": "F197",
       "kind": "function",
-      "name": "e2e_entry._e2e_notion_crud_enabled",
-      "technical_name": "e2e_entry._e2e_notion_crud_enabled",
+      "name": "e2e.e2e_entry._e2e_notion_crud_enabled",
+      "technical_name": "e2e.e2e_entry._e2e_notion_crud_enabled",
       "role": "Notion E2E CRUD ルートの有効設定を判定する。",
       "source_refs": [
-        "workers/src/e2e_entry.py:192-194"
+        "workers/src/e2e/e2e_entry.py:192-194"
       ],
       "diagram_refs": [
         "methods/e2e-entry-02.puml"
@@ -7456,11 +7456,11 @@
     {
       "id": "F198",
       "kind": "function",
-      "name": "e2e_google_probe.fetch",
-      "technical_name": "e2e_google_probe.fetch",
+      "name": "e2e.e2e_google_probe.fetch",
+      "technical_name": "e2e.e2e_google_probe.fetch",
       "role": "Workers fetch の呼び出し形式差を吸収する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:20-31"
+        "workers/src/e2e/e2e_google_probe.py:20-31"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7482,11 +7482,11 @@
     {
       "id": "F199",
       "kind": "function",
-      "name": "e2e_google_probe._env_text",
-      "technical_name": "e2e_google_probe._env_text",
+      "name": "e2e.e2e_google_probe._env_text",
+      "technical_name": "e2e.e2e_google_probe._env_text",
       "role": "Worker 環境変数から文字列設定を安全に取得する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:34-38"
+        "workers/src/e2e/e2e_google_probe.py:34-38"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7507,11 +7507,11 @@
     {
       "id": "F200",
       "kind": "function",
-      "name": "e2e_google_probe._event_collection_url",
-      "technical_name": "e2e_google_probe._event_collection_url",
+      "name": "e2e.e2e_google_probe._event_collection_url",
+      "technical_name": "e2e.e2e_google_probe._event_collection_url",
       "role": "Google Calendar event 一覧 API の URL を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:41-42"
+        "workers/src/e2e/e2e_google_probe.py:41-42"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7531,11 +7531,11 @@
     {
       "id": "F201",
       "kind": "function",
-      "name": "e2e_google_probe._event_item_url",
-      "technical_name": "e2e_google_probe._event_item_url",
+      "name": "e2e.e2e_google_probe._event_item_url",
+      "technical_name": "e2e.e2e_google_probe._event_item_url",
       "role": "Google Calendar event 単体 API の URL を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:45-49"
+        "workers/src/e2e/e2e_google_probe.py:45-49"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7556,11 +7556,11 @@
     {
       "id": "F202",
       "kind": "function",
-      "name": "e2e_google_probe._calendar_fingerprint",
-      "technical_name": "e2e_google_probe._calendar_fingerprint",
+      "name": "e2e.e2e_google_probe._calendar_fingerprint",
+      "technical_name": "e2e.e2e_google_probe._calendar_fingerprint",
       "role": "Google Calendar ID を SHA-256 指紋へ変換する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:52-53"
+        "workers/src/e2e/e2e_google_probe.py:52-53"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7580,11 +7580,11 @@
     {
       "id": "F203",
       "kind": "function",
-      "name": "e2e_google_probe._google_request",
-      "technical_name": "e2e_google_probe._google_request",
+      "name": "e2e.e2e_google_probe._google_request",
+      "technical_name": "e2e.e2e_google_probe._google_request",
       "role": "Google Calendar APIへ小さなJSONリクエストを送り、statusと辞書を返す。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:56-86"
+        "workers/src/e2e/e2e_google_probe.py:56-86"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7608,11 +7608,11 @@
     {
       "id": "F204",
       "kind": "function",
-      "name": "e2e_google_probe._event_payload",
-      "technical_name": "e2e_google_probe._event_payload",
+      "name": "e2e.e2e_google_probe._event_payload",
+      "technical_name": "e2e.e2e_google_probe._event_payload",
       "role": "Google Calendar event の作成・更新 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:89-116"
+        "workers/src/e2e/e2e_google_probe.py:89-116"
       ],
       "diagram_refs": [
         "methods/e2e-google-01.puml"
@@ -7633,11 +7633,11 @@
     {
       "id": "F205",
       "kind": "function",
-      "name": "e2e_google_probe._new_run_id",
-      "technical_name": "e2e_google_probe._new_run_id",
+      "name": "e2e.e2e_google_probe._new_run_id",
+      "technical_name": "e2e.e2e_google_probe._new_run_id",
       "role": "時刻と乱数から形式制約を満たす E2E run ID を生成する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:119-121"
+        "workers/src/e2e/e2e_google_probe.py:119-121"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7657,11 +7657,11 @@
     {
       "id": "F206",
       "kind": "function",
-      "name": "e2e_google_probe._event_has_run",
-      "technical_name": "e2e_google_probe._event_has_run",
+      "name": "e2e.e2e_google_probe._event_has_run",
+      "technical_name": "e2e.e2e_google_probe._event_has_run",
       "role": "イベントが指定 run ID の所有資源か判定する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:124-129"
+        "workers/src/e2e/e2e_google_probe.py:124-129"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7683,11 +7683,11 @@
     {
       "id": "F207",
       "kind": "function",
-      "name": "e2e_google_probe._event_matches",
-      "technical_name": "e2e_google_probe._event_matches",
+      "name": "e2e.e2e_google_probe._event_matches",
+      "technical_name": "e2e.e2e_google_probe._event_matches",
       "role": "取得したイベントが E2E の期待値と一致するか判定する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:132-136"
+        "workers/src/e2e/e2e_google_probe.py:132-136"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7710,11 +7710,11 @@
     {
       "id": "F208",
       "kind": "function",
-      "name": "e2e_google_probe._delete_event",
-      "technical_name": "e2e_google_probe._delete_event",
+      "name": "e2e.e2e_google_probe._delete_event",
+      "technical_name": "e2e.e2e_google_probe._delete_event",
       "role": "run ID一致を確認してから削除し、失敗時は3回まで再試行する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:139-164"
+        "workers/src/e2e/e2e_google_probe.py:139-164"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7738,11 +7738,11 @@
     {
       "id": "F209",
       "kind": "function",
-      "name": "e2e_google_probe._clean_manifest",
-      "technical_name": "e2e_google_probe._clean_manifest",
+      "name": "e2e.e2e_google_probe._clean_manifest",
+      "technical_name": "e2e.e2e_google_probe._clean_manifest",
       "role": "成功済み E2E manifest を秘密値のない確定状態へ整形する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:167-191"
+        "workers/src/e2e/e2e_google_probe.py:167-191"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7768,11 +7768,11 @@
     {
       "id": "F210",
       "kind": "function",
-      "name": "e2e_google_probe.run_google_calendar_crud_probe",
-      "technical_name": "e2e_google_probe.run_google_calendar_crud_probe",
+      "name": "e2e.e2e_google_probe.run_google_calendar_crud_probe",
+      "technical_name": "e2e.e2e_google_probe.run_google_calendar_crud_probe",
       "role": "Google Calendar の作成・検証・更新・削除を実行し、cleanup manifest と段階結果を返す。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:194-372"
+        "workers/src/e2e/e2e_google_probe.py:194-372"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7795,11 +7795,11 @@
     {
       "id": "F211",
       "kind": "function",
-      "name": "e2e_google_probe.cleanup_google_calendar_crud_probe",
-      "technical_name": "e2e_google_probe.cleanup_google_calendar_crud_probe",
+      "name": "e2e.e2e_google_probe.cleanup_google_calendar_crud_probe",
+      "technical_name": "e2e.e2e_google_probe.cleanup_google_calendar_crud_probe",
       "role": "Google Calendar E2E manifest が所有する残存イベントを回収する。",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:375-469"
+        "workers/src/e2e/e2e_google_probe.py:375-469"
       ],
       "diagram_refs": [
         "methods/e2e-google-02.puml"
@@ -7822,11 +7822,11 @@
     {
       "id": "F212",
       "kind": "function",
-      "name": "e2e_notion_probe.fetch",
-      "technical_name": "e2e_notion_probe.fetch",
+      "name": "e2e.e2e_notion_probe.fetch",
+      "technical_name": "e2e.e2e_notion_probe.fetch",
       "role": "Workers fetch の呼び出し形式差を吸収する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:39-50"
+        "workers/src/e2e/e2e_notion_probe.py:39-50"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7848,11 +7848,11 @@
     {
       "id": "F213",
       "kind": "function",
-      "name": "e2e_notion_probe._env_text",
-      "technical_name": "e2e_notion_probe._env_text",
+      "name": "e2e.e2e_notion_probe._env_text",
+      "technical_name": "e2e.e2e_notion_probe._env_text",
       "role": "Worker 環境変数から文字列設定を安全に取得する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:53-57"
+        "workers/src/e2e/e2e_notion_probe.py:53-57"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7873,11 +7873,11 @@
     {
       "id": "F214",
       "kind": "function",
-      "name": "e2e_notion_probe._canonical_id",
-      "technical_name": "e2e_notion_probe._canonical_id",
+      "name": "e2e.e2e_notion_probe._canonical_id",
+      "technical_name": "e2e.e2e_notion_probe._canonical_id",
       "role": "Notion ID を区切りなしの標準形式へ正規化する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:60-64"
+        "workers/src/e2e/e2e_notion_probe.py:60-64"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7897,11 +7897,11 @@
     {
       "id": "F215",
       "kind": "function",
-      "name": "e2e_notion_probe._fingerprint",
-      "technical_name": "e2e_notion_probe._fingerprint",
+      "name": "e2e.e2e_notion_probe._fingerprint",
+      "technical_name": "e2e.e2e_notion_probe._fingerprint",
       "role": "正規化した検証対象を SHA-256 指紋へ変換する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:67-68"
+        "workers/src/e2e/e2e_notion_probe.py:67-68"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7921,11 +7921,11 @@
     {
       "id": "F216",
       "kind": "function",
-      "name": "e2e_notion_probe._new_run_id",
-      "technical_name": "e2e_notion_probe._new_run_id",
+      "name": "e2e.e2e_notion_probe._new_run_id",
+      "technical_name": "e2e.e2e_notion_probe._new_run_id",
       "role": "時刻と乱数から形式制約を満たす E2E run ID を生成する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:71-73"
+        "workers/src/e2e/e2e_notion_probe.py:71-73"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7945,11 +7945,11 @@
     {
       "id": "F217",
       "kind": "function",
-      "name": "e2e_notion_probe._run_marker",
-      "technical_name": "e2e_notion_probe._run_marker",
+      "name": "e2e.e2e_notion_probe._run_marker",
+      "technical_name": "e2e.e2e_notion_probe._run_marker",
       "role": "E2E 資源を run ID に結び付ける識別マーカーを生成する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:76-77"
+        "workers/src/e2e/e2e_notion_probe.py:76-77"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7969,11 +7969,11 @@
     {
       "id": "F218",
       "kind": "function",
-      "name": "e2e_notion_probe._rich_text",
-      "technical_name": "e2e_notion_probe._rich_text",
+      "name": "e2e.e2e_notion_probe._rich_text",
+      "technical_name": "e2e.e2e_notion_probe._rich_text",
       "role": "文字列を Notion rich_text 要素へ変換する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:80-81"
+        "workers/src/e2e/e2e_notion_probe.py:80-81"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -7993,11 +7993,11 @@
     {
       "id": "F219",
       "kind": "function",
-      "name": "e2e_notion_probe._title",
-      "technical_name": "e2e_notion_probe._title",
+      "name": "e2e.e2e_notion_probe._title",
+      "technical_name": "e2e.e2e_notion_probe._title",
       "role": "文字列を Notion title 要素へ変換する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:84-85"
+        "workers/src/e2e/e2e_notion_probe.py:84-85"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -8017,11 +8017,11 @@
     {
       "id": "F220",
       "kind": "function",
-      "name": "e2e_notion_probe._header_text",
-      "technical_name": "e2e_notion_probe._header_text",
+      "name": "e2e.e2e_notion_probe._header_text",
+      "technical_name": "e2e.e2e_notion_probe._header_text",
       "role": "HTTP 応答ヘッダから正規化済み文字列を取得する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:88-96"
+        "workers/src/e2e/e2e_notion_probe.py:88-96"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -8042,11 +8042,11 @@
     {
       "id": "F221",
       "kind": "function",
-      "name": "e2e_notion_probe._retry_after_seconds",
-      "technical_name": "e2e_notion_probe._retry_after_seconds",
+      "name": "e2e.e2e_notion_probe._retry_after_seconds",
+      "technical_name": "e2e.e2e_notion_probe._retry_after_seconds",
       "role": "rate limit 応答から再試行待機秒数を安全に算出する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:99-104"
+        "workers/src/e2e/e2e_notion_probe.py:99-104"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -8066,11 +8066,11 @@
     {
       "id": "F222",
       "kind": "function",
-      "name": "e2e_notion_probe._notion_request",
-      "technical_name": "e2e_notion_probe._notion_request",
+      "name": "e2e.e2e_notion_probe._notion_request",
+      "technical_name": "e2e.e2e_notion_probe._notion_request",
       "role": "小さなNotion JSON APIを呼び、429だけ公式待機値で再試行する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:107-155"
+        "workers/src/e2e/e2e_notion_probe.py:107-155"
       ],
       "diagram_refs": [
         "methods/e2e-notion-01.puml"
@@ -8094,11 +8094,11 @@
     {
       "id": "F223",
       "kind": "function",
-      "name": "e2e_notion_probe._request_stage",
-      "technical_name": "e2e_notion_probe._request_stage",
+      "name": "e2e.e2e_notion_probe._request_stage",
+      "technical_name": "e2e.e2e_notion_probe._request_stage",
       "role": "E2E API 操作を実行し、manifest の段階状態と失敗情報を更新する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:158-171"
+        "workers/src/e2e/e2e_notion_probe.py:158-171"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8125,11 +8125,11 @@
     {
       "id": "F224",
       "kind": "function",
-      "name": "e2e_notion_probe._schema_matches",
-      "technical_name": "e2e_notion_probe._schema_matches",
+      "name": "e2e.e2e_notion_probe._schema_matches",
+      "technical_name": "e2e.e2e_notion_probe._schema_matches",
       "role": "Notion database schema が E2E の必須プロパティを満たすか判定する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:174-182"
+        "workers/src/e2e/e2e_notion_probe.py:174-182"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8150,11 +8150,11 @@
     {
       "id": "F225",
       "kind": "function",
-      "name": "e2e_notion_probe._verify_database",
-      "technical_name": "e2e_notion_probe._verify_database",
+      "name": "e2e.e2e_notion_probe._verify_database",
+      "technical_name": "e2e.e2e_notion_probe._verify_database",
       "role": "Notion database を取得し、対象 ID と schema を検証する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:185-211"
+        "workers/src/e2e/e2e_notion_probe.py:185-211"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8180,11 +8180,11 @@
     {
       "id": "F226",
       "kind": "function",
-      "name": "e2e_notion_probe._verify_targets",
-      "technical_name": "e2e_notion_probe._verify_targets",
+      "name": "e2e.e2e_notion_probe._verify_targets",
+      "technical_name": "e2e.e2e_notion_probe._verify_targets",
       "role": "E2E 操作対象の設定値を検査し、安全な識別指紋を返す。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:214-249"
+        "workers/src/e2e/e2e_notion_probe.py:214-249"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8206,11 +8206,11 @@
     {
       "id": "F227",
       "kind": "function",
-      "name": "e2e_notion_probe._property_text",
-      "technical_name": "e2e_notion_probe._property_text",
+      "name": "e2e.e2e_notion_probe._property_text",
+      "technical_name": "e2e.e2e_notion_probe._property_text",
       "role": "Notion page property から文字列値を取り出す。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:252-271"
+        "workers/src/e2e/e2e_notion_probe.py:252-271"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8232,11 +8232,11 @@
     {
       "id": "F228",
       "kind": "function",
-      "name": "e2e_notion_probe._property_number",
-      "technical_name": "e2e_notion_probe._property_number",
+      "name": "e2e.e2e_notion_probe._property_number",
+      "technical_name": "e2e.e2e_notion_probe._property_number",
       "role": "Notion page property から数値を取り出す。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:274-284"
+        "workers/src/e2e/e2e_notion_probe.py:274-284"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8257,11 +8257,11 @@
     {
       "id": "F229",
       "kind": "function",
-      "name": "e2e_notion_probe._page_database_id",
-      "technical_name": "e2e_notion_probe._page_database_id",
+      "name": "e2e.e2e_notion_probe._page_database_id",
+      "technical_name": "e2e.e2e_notion_probe._page_database_id",
       "role": "Notion page の親 database ID を標準形式で取得する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:287-291"
+        "workers/src/e2e/e2e_notion_probe.py:287-291"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8281,11 +8281,11 @@
     {
       "id": "F230",
       "kind": "function",
-      "name": "e2e_notion_probe._page_archived",
-      "technical_name": "e2e_notion_probe._page_archived",
+      "name": "e2e.e2e_notion_probe._page_archived",
+      "technical_name": "e2e.e2e_notion_probe._page_archived",
       "role": "Notion page がアーカイブ済みか判定する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:294-295"
+        "workers/src/e2e/e2e_notion_probe.py:294-295"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8305,11 +8305,11 @@
     {
       "id": "F231",
       "kind": "function",
-      "name": "e2e_notion_probe._page_has_marker",
-      "technical_name": "e2e_notion_probe._page_has_marker",
+      "name": "e2e.e2e_notion_probe._page_has_marker",
+      "technical_name": "e2e.e2e_notion_probe._page_has_marker",
       "role": "Notion page が指定 E2E マーカーを持つか判定する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:298-310"
+        "workers/src/e2e/e2e_notion_probe.py:298-310"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8333,11 +8333,11 @@
     {
       "id": "F232",
       "kind": "function",
-      "name": "e2e_notion_probe._event_page_matches",
-      "technical_name": "e2e_notion_probe._event_page_matches",
+      "name": "e2e.e2e_notion_probe._event_page_matches",
+      "technical_name": "e2e.e2e_notion_probe._event_page_matches",
       "role": "Notion event ページが E2E の期待値と一致するか判定する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:313-344"
+        "workers/src/e2e/e2e_notion_probe.py:313-344"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8364,11 +8364,11 @@
     {
       "id": "F233",
       "kind": "function",
-      "name": "e2e_notion_probe._qa_page_matches",
-      "technical_name": "e2e_notion_probe._qa_page_matches",
+      "name": "e2e.e2e_notion_probe._qa_page_matches",
+      "technical_name": "e2e.e2e_notion_probe._qa_page_matches",
       "role": "Notion Q&A ページが E2E の期待値と一致するか判定する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:347-369"
+        "workers/src/e2e/e2e_notion_probe.py:347-369"
       ],
       "diagram_refs": [
         "methods/e2e-notion-02.puml"
@@ -8394,11 +8394,11 @@
     {
       "id": "F234",
       "kind": "function",
-      "name": "e2e_notion_probe._event_create_payload",
-      "technical_name": "e2e_notion_probe._event_create_payload",
+      "name": "e2e.e2e_notion_probe._event_create_payload",
+      "technical_name": "e2e.e2e_notion_probe._event_create_payload",
       "role": "Notion event 検証ページの作成 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:372-403"
+        "workers/src/e2e/e2e_notion_probe.py:372-403"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8419,11 +8419,11 @@
     {
       "id": "F235",
       "kind": "function",
-      "name": "e2e_notion_probe._event_update_payload",
-      "technical_name": "e2e_notion_probe._event_update_payload",
+      "name": "e2e.e2e_notion_probe._event_update_payload",
+      "technical_name": "e2e.e2e_notion_probe._event_update_payload",
       "role": "Notion event 検証ページの更新 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:406-423"
+        "workers/src/e2e/e2e_notion_probe.py:406-423"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8444,11 +8444,11 @@
     {
       "id": "F236",
       "kind": "function",
-      "name": "e2e_notion_probe._qa_create_payload",
-      "technical_name": "e2e_notion_probe._qa_create_payload",
+      "name": "e2e.e2e_notion_probe._qa_create_payload",
+      "technical_name": "e2e.e2e_notion_probe._qa_create_payload",
       "role": "Notion Q&A 検証ページの作成 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:426-443"
+        "workers/src/e2e/e2e_notion_probe.py:426-443"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8469,11 +8469,11 @@
     {
       "id": "F237",
       "kind": "function",
-      "name": "e2e_notion_probe._qa_update_payload",
-      "technical_name": "e2e_notion_probe._qa_update_payload",
+      "name": "e2e.e2e_notion_probe._qa_update_payload",
+      "technical_name": "e2e.e2e_notion_probe._qa_update_payload",
       "role": "Notion Q&A 検証ページの更新 payload を組み立てる。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:446-462"
+        "workers/src/e2e/e2e_notion_probe.py:446-462"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8493,11 +8493,11 @@
     {
       "id": "F238",
       "kind": "function",
-      "name": "e2e_notion_probe._find_page_by_marker",
-      "technical_name": "e2e_notion_probe._find_page_by_marker",
+      "name": "e2e.e2e_notion_probe._find_page_by_marker",
+      "technical_name": "e2e.e2e_notion_probe._find_page_by_marker",
       "role": "指定マーカーの Notion E2E ページを検索する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:465-510"
+        "workers/src/e2e/e2e_notion_probe.py:465-510"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8525,11 +8525,11 @@
     {
       "id": "F239",
       "kind": "function",
-      "name": "e2e_notion_probe._archive_page",
-      "technical_name": "e2e_notion_probe._archive_page",
+      "name": "e2e.e2e_notion_probe._archive_page",
+      "technical_name": "e2e.e2e_notion_probe._archive_page",
       "role": "E2E が所有する Notion ページをアーカイブする。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:513-573"
+        "workers/src/e2e/e2e_notion_probe.py:513-573"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8557,11 +8557,11 @@
     {
       "id": "F240",
       "kind": "function",
-      "name": "e2e_notion_probe._cleanup_resources",
-      "technical_name": "e2e_notion_probe._cleanup_resources",
+      "name": "e2e.e2e_notion_probe._cleanup_resources",
+      "technical_name": "e2e.e2e_notion_probe._cleanup_resources",
       "role": "manifest に記録された E2E 所有資源を回収する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:576-665"
+        "workers/src/e2e/e2e_notion_probe.py:576-665"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8583,11 +8583,11 @@
     {
       "id": "F241",
       "kind": "function",
-      "name": "e2e_notion_probe._target_fingerprints",
-      "technical_name": "e2e_notion_probe._target_fingerprints",
+      "name": "e2e.e2e_notion_probe._target_fingerprints",
+      "technical_name": "e2e.e2e_notion_probe._target_fingerprints",
       "role": "操作対象 ID を値そのものではなく SHA-256 指紋へ変換する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:668-672"
+        "workers/src/e2e/e2e_notion_probe.py:668-672"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8608,11 +8608,11 @@
     {
       "id": "F242",
       "kind": "function",
-      "name": "e2e_notion_probe._clean_manifest",
-      "technical_name": "e2e_notion_probe._clean_manifest",
+      "name": "e2e.e2e_notion_probe._clean_manifest",
+      "technical_name": "e2e.e2e_notion_probe._clean_manifest",
       "role": "成功済み E2E manifest を秘密値のない確定状態へ整形する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:675-703"
+        "workers/src/e2e/e2e_notion_probe.py:675-703"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8640,11 +8640,11 @@
     {
       "id": "F243",
       "kind": "function",
-      "name": "e2e_notion_probe.run_notion_crud_probe",
-      "technical_name": "e2e_notion_probe.run_notion_crud_probe",
+      "name": "e2e.e2e_notion_probe.run_notion_crud_probe",
+      "technical_name": "e2e.e2e_notion_probe.run_notion_crud_probe",
       "role": "Notion の作成・検証・更新・アーカイブを実行し、cleanup manifest と段階結果を返す。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:706-1089"
+        "workers/src/e2e/e2e_notion_probe.py:706-1089"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -8667,11 +8667,11 @@
     {
       "id": "F244",
       "kind": "function",
-      "name": "e2e_notion_probe.cleanup_notion_crud_probe",
-      "technical_name": "e2e_notion_probe.cleanup_notion_crud_probe",
+      "name": "e2e.e2e_notion_probe.cleanup_notion_crud_probe",
+      "technical_name": "e2e.e2e_notion_probe.cleanup_notion_crud_probe",
       "role": "Notion E2E manifest が所有する残存ページを回収する。",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:1092-1185"
+        "workers/src/e2e/e2e_notion_probe.py:1092-1185"
       ],
       "diagram_refs": [
         "methods/e2e-notion-03.puml"
@@ -13761,7 +13761,7 @@
       "relation": "defines",
       "purpose": "所有モジュールがクラスを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:197-376"
+        "workers/src/e2e/e2e_entry.py:197-376"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13857,7 +13857,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:21-32"
+        "workers/src/e2e/e2e_discord_probe.py:21-32"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13869,7 +13869,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:35-39"
+        "workers/src/e2e/e2e_discord_probe.py:35-39"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13881,7 +13881,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:42-43"
+        "workers/src/e2e/e2e_discord_probe.py:42-43"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13893,7 +13893,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:46-50"
+        "workers/src/e2e/e2e_discord_probe.py:46-50"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13905,7 +13905,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:53-55"
+        "workers/src/e2e/e2e_discord_probe.py:53-55"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13917,7 +13917,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:58-59"
+        "workers/src/e2e/e2e_discord_probe.py:58-59"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13929,7 +13929,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:62-71"
+        "workers/src/e2e/e2e_discord_probe.py:62-71"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13941,7 +13941,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:74-89"
+        "workers/src/e2e/e2e_discord_probe.py:74-89"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13953,7 +13953,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:92-100"
+        "workers/src/e2e/e2e_discord_probe.py:92-100"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13965,7 +13965,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:103-108"
+        "workers/src/e2e/e2e_discord_probe.py:103-108"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13977,7 +13977,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:111-116"
+        "workers/src/e2e/e2e_discord_probe.py:111-116"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -13989,7 +13989,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:119-127"
+        "workers/src/e2e/e2e_discord_probe.py:119-127"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14001,7 +14001,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:130-137"
+        "workers/src/e2e/e2e_discord_probe.py:130-137"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14013,7 +14013,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:140-188"
+        "workers/src/e2e/e2e_discord_probe.py:140-188"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14025,7 +14025,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:191-209"
+        "workers/src/e2e/e2e_discord_probe.py:191-209"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14037,7 +14037,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:212-232"
+        "workers/src/e2e/e2e_discord_probe.py:212-232"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14049,7 +14049,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:235-246"
+        "workers/src/e2e/e2e_discord_probe.py:235-246"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14061,7 +14061,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:249-268"
+        "workers/src/e2e/e2e_discord_probe.py:249-268"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14073,7 +14073,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:271-282"
+        "workers/src/e2e/e2e_discord_probe.py:271-282"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14085,7 +14085,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:285-297"
+        "workers/src/e2e/e2e_discord_probe.py:285-297"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14097,7 +14097,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:300-362"
+        "workers/src/e2e/e2e_discord_probe.py:300-362"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14109,7 +14109,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:365-397"
+        "workers/src/e2e/e2e_discord_probe.py:365-397"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14121,7 +14121,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:400-432"
+        "workers/src/e2e/e2e_discord_probe.py:400-432"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14133,7 +14133,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:435-480"
+        "workers/src/e2e/e2e_discord_probe.py:435-480"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14145,7 +14145,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:483-527"
+        "workers/src/e2e/e2e_discord_probe.py:483-527"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14157,7 +14157,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:530-607"
+        "workers/src/e2e/e2e_discord_probe.py:530-607"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14169,7 +14169,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:610-614"
+        "workers/src/e2e/e2e_discord_probe.py:610-614"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14181,7 +14181,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:617-649"
+        "workers/src/e2e/e2e_discord_probe.py:617-649"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14193,7 +14193,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:652-1032"
+        "workers/src/e2e/e2e_discord_probe.py:652-1032"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14205,7 +14205,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:1035-1130"
+        "workers/src/e2e/e2e_discord_probe.py:1035-1130"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14217,7 +14217,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:63-66"
+        "workers/src/e2e/e2e_entry.py:63-66"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14229,7 +14229,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:69-100"
+        "workers/src/e2e/e2e_entry.py:69-100"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14241,7 +14241,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:103-110"
+        "workers/src/e2e/e2e_entry.py:103-110"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14253,7 +14253,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:113-123"
+        "workers/src/e2e/e2e_entry.py:113-123"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14265,7 +14265,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:126-134"
+        "workers/src/e2e/e2e_entry.py:126-134"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14277,7 +14277,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:137-155"
+        "workers/src/e2e/e2e_entry.py:137-155"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14289,7 +14289,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:158-170"
+        "workers/src/e2e/e2e_entry.py:158-170"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14301,7 +14301,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:173-179"
+        "workers/src/e2e/e2e_entry.py:173-179"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14313,7 +14313,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:182-184"
+        "workers/src/e2e/e2e_entry.py:182-184"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14325,7 +14325,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:187-189"
+        "workers/src/e2e/e2e_entry.py:187-189"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14337,7 +14337,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:192-194"
+        "workers/src/e2e/e2e_entry.py:192-194"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14349,7 +14349,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:200-372"
+        "workers/src/e2e/e2e_entry.py:200-372"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14361,7 +14361,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_entry.py:374-376"
+        "workers/src/e2e/e2e_entry.py:374-376"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14373,7 +14373,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:20-31"
+        "workers/src/e2e/e2e_google_probe.py:20-31"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14385,7 +14385,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:34-38"
+        "workers/src/e2e/e2e_google_probe.py:34-38"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14397,7 +14397,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:41-42"
+        "workers/src/e2e/e2e_google_probe.py:41-42"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14409,7 +14409,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:45-49"
+        "workers/src/e2e/e2e_google_probe.py:45-49"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14421,7 +14421,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:52-53"
+        "workers/src/e2e/e2e_google_probe.py:52-53"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14433,7 +14433,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:56-86"
+        "workers/src/e2e/e2e_google_probe.py:56-86"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14445,7 +14445,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:89-116"
+        "workers/src/e2e/e2e_google_probe.py:89-116"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14457,7 +14457,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:119-121"
+        "workers/src/e2e/e2e_google_probe.py:119-121"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14469,7 +14469,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:124-129"
+        "workers/src/e2e/e2e_google_probe.py:124-129"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14481,7 +14481,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:132-136"
+        "workers/src/e2e/e2e_google_probe.py:132-136"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14493,7 +14493,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:139-164"
+        "workers/src/e2e/e2e_google_probe.py:139-164"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14505,7 +14505,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:167-191"
+        "workers/src/e2e/e2e_google_probe.py:167-191"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14517,7 +14517,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:194-372"
+        "workers/src/e2e/e2e_google_probe.py:194-372"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14529,7 +14529,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:375-469"
+        "workers/src/e2e/e2e_google_probe.py:375-469"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14541,7 +14541,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:39-50"
+        "workers/src/e2e/e2e_notion_probe.py:39-50"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14553,7 +14553,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:53-57"
+        "workers/src/e2e/e2e_notion_probe.py:53-57"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14565,7 +14565,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:60-64"
+        "workers/src/e2e/e2e_notion_probe.py:60-64"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14577,7 +14577,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:67-68"
+        "workers/src/e2e/e2e_notion_probe.py:67-68"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14589,7 +14589,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:71-73"
+        "workers/src/e2e/e2e_notion_probe.py:71-73"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14601,7 +14601,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:76-77"
+        "workers/src/e2e/e2e_notion_probe.py:76-77"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14613,7 +14613,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:80-81"
+        "workers/src/e2e/e2e_notion_probe.py:80-81"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14625,7 +14625,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:84-85"
+        "workers/src/e2e/e2e_notion_probe.py:84-85"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14637,7 +14637,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:88-96"
+        "workers/src/e2e/e2e_notion_probe.py:88-96"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14649,7 +14649,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:99-104"
+        "workers/src/e2e/e2e_notion_probe.py:99-104"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14661,7 +14661,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:107-155"
+        "workers/src/e2e/e2e_notion_probe.py:107-155"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14673,7 +14673,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:158-171"
+        "workers/src/e2e/e2e_notion_probe.py:158-171"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14685,7 +14685,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:174-182"
+        "workers/src/e2e/e2e_notion_probe.py:174-182"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14697,7 +14697,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:185-211"
+        "workers/src/e2e/e2e_notion_probe.py:185-211"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14709,7 +14709,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:214-249"
+        "workers/src/e2e/e2e_notion_probe.py:214-249"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14721,7 +14721,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:252-271"
+        "workers/src/e2e/e2e_notion_probe.py:252-271"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14733,7 +14733,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:274-284"
+        "workers/src/e2e/e2e_notion_probe.py:274-284"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14745,7 +14745,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:287-291"
+        "workers/src/e2e/e2e_notion_probe.py:287-291"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14757,7 +14757,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:294-295"
+        "workers/src/e2e/e2e_notion_probe.py:294-295"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14769,7 +14769,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:298-310"
+        "workers/src/e2e/e2e_notion_probe.py:298-310"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14781,7 +14781,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:313-344"
+        "workers/src/e2e/e2e_notion_probe.py:313-344"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14793,7 +14793,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:347-369"
+        "workers/src/e2e/e2e_notion_probe.py:347-369"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14805,7 +14805,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:372-403"
+        "workers/src/e2e/e2e_notion_probe.py:372-403"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14817,7 +14817,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:406-423"
+        "workers/src/e2e/e2e_notion_probe.py:406-423"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14829,7 +14829,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:426-443"
+        "workers/src/e2e/e2e_notion_probe.py:426-443"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14841,7 +14841,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:446-462"
+        "workers/src/e2e/e2e_notion_probe.py:446-462"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14853,7 +14853,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:465-510"
+        "workers/src/e2e/e2e_notion_probe.py:465-510"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14865,7 +14865,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:513-573"
+        "workers/src/e2e/e2e_notion_probe.py:513-573"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14877,7 +14877,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:576-665"
+        "workers/src/e2e/e2e_notion_probe.py:576-665"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14889,7 +14889,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:668-672"
+        "workers/src/e2e/e2e_notion_probe.py:668-672"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14901,7 +14901,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:675-703"
+        "workers/src/e2e/e2e_notion_probe.py:675-703"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14913,7 +14913,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:706-1089"
+        "workers/src/e2e/e2e_notion_probe.py:706-1089"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -14925,7 +14925,7 @@
       "relation": "defines",
       "purpose": "所有クラスまたはモジュールがシンボルを定義する",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:1092-1185"
+        "workers/src/e2e/e2e_notion_probe.py:1092-1185"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15141,7 +15141,7 @@
       "relation": "imports",
       "purpose": "Discord E2E CRUD を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:7-7"
+        "workers/src/e2e/e2e_entry.py:7-7"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15153,7 +15153,7 @@
       "relation": "imports",
       "purpose": "Google E2E CRUD を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:12-12"
+        "workers/src/e2e/e2e_entry.py:12-12"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15165,7 +15165,7 @@
       "relation": "imports",
       "purpose": "Notion E2E CRUD を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:17-17"
+        "workers/src/e2e/e2e_entry.py:17-17"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15177,7 +15177,7 @@
       "relation": "imports",
       "purpose": "通常 Worker の制限済み機能を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:23-23"
+        "workers/src/e2e/e2e_entry.py:23-23"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15189,7 +15189,7 @@
       "relation": "imports",
       "purpose": "認証状態の要約を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:24-24"
+        "workers/src/e2e/e2e_entry.py:24-24"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15201,7 +15201,7 @@
       "relation": "imports",
       "purpose": "状態管理を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:25-25"
+        "workers/src/e2e/e2e_entry.py:25-25"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15213,7 +15213,7 @@
       "relation": "imports",
       "purpose": "Durable Object 公開を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:26-26"
+        "workers/src/e2e/e2e_entry.py:26-26"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15225,7 +15225,7 @@
       "relation": "imports",
       "purpose": "Workers 実行時 API を import",
       "source_refs": [
-        "workers/src/e2e_entry.py:5-5"
+        "workers/src/e2e/e2e_entry.py:5-5"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15237,7 +15237,7 @@
       "relation": "imports",
       "purpose": "Workers 実行時 API を import",
       "source_refs": [
-        "workers/src/e2e_discord_probe.py:9-9"
+        "workers/src/e2e/e2e_discord_probe.py:9-9"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15249,7 +15249,7 @@
       "relation": "imports",
       "purpose": "Google token 解決を import",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:10-10"
+        "workers/src/e2e/e2e_google_probe.py:10-10"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15261,7 +15261,7 @@
       "relation": "imports",
       "purpose": "Workers 実行時 API を import",
       "source_refs": [
-        "workers/src/e2e_google_probe.py:8-8"
+        "workers/src/e2e/e2e_google_probe.py:8-8"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15273,7 +15273,7 @@
       "relation": "imports",
       "purpose": "Workers 実行時 API を import",
       "source_refs": [
-        "workers/src/e2e_notion_probe.py:9-9"
+        "workers/src/e2e/e2e_notion_probe.py:9-9"
       ],
       "evidence": "code",
       "certainty": "confirmed"
@@ -15285,7 +15285,7 @@
       "relation": "inherits",
       "purpose": "通常 Worker の実装を継承し E2E 公開面を制限する",
       "source_refs": [
-        "workers/src/e2e_entry.py:197-376"
+        "workers/src/e2e/e2e_entry.py:197-376"
       ],
       "evidence": "code",
       "certainty": "confirmed"

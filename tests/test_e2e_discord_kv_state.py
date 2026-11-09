@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from e2e_discord_kv_state import KEYS, SERVICE, OwnedDiscordKV
-from e2e_entry import Default
+from e2e.e2e_discord_kv_state import KEYS, SERVICE, OwnedDiscordKV
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace
 

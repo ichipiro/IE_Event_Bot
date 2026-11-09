@@ -1,5 +1,10 @@
 # 文書変更履歴
 
+## 2026-11-09: 同期・CIの回帰修正
+
+- 同期・認証・検索・watch・dedupe・PR guardの6件と、all-syncの障害再現・E2E成功条件を[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)へ追加した。
+- 内容比較、Calendar変更時のwatch更新、DOの便乗掃除と状態キーを標準文書へ反映した。実E2Eは実行準備中。
+
 ## 2026-11-09: E2E専用Pythonの整理
 
 - E2E専用Python 43件を `workers/src/e2e/` へ集約し、プログラムの参照先と構成案内を更新した。

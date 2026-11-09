@@ -9,7 +9,10 @@ import pytest
 from workers import Response
 
 import discord_notion_sync as discord_sync
+import google_apply_sync
 from e2e import e2e_google_sync_probe as google
+from e2e import e2e_all_sync_probe as all_sync
+from e2e import e2e_notion_probe
 from e2e.e2e_google_sync_state import ALL_KEYS, ALL_STEPS, GoogleKV
 from tests.test_e2e_google_sync_probe import Scenario
 from tests.test_e2e_sync_lock_probe import RUN, OTHER
@@ -24,16 +27,21 @@ class AllScenario(Scenario):
         async def fetch(url, options=None):
             options = options or {}
             if "googleapis" not in url:
+                payload = json.loads(options.get("body") or "{}")
+                prop = str(payload.get("filter", {}).get("property", ""))
+                if "api.notion.com" in url and prop.startswith("__e2e_missing_property_"):
+                    return Response('{"code":"validation_error"}', status=400)
                 return await api(url, options)
             method = options.get("method", "GET")
             payload = json.loads(options.get("body") or "{}")
             event_id = urlparse(url).path.rsplit("/", 1)[-1]
             assert method == "PATCH"  # 往復でGoogle予定を新規作成しない。
             assert event_id in self.google
-            payload["extendedProperties"]["private"] = {
-                **self.google[event_id].get("extendedProperties", {}).get("private", {}),
-                **payload["extendedProperties"]["private"],
-            }
+            if "extendedProperties" in payload:
+                payload["extendedProperties"]["private"] = {
+                    **self.google[event_id].get("extendedProperties", {}).get("private", {}),
+                    **payload["extendedProperties"]["private"],
+                }
             status, result = await google._google_request(method, url, "test-google-token", payload)
             return Response(json.dumps(result), status=status)
 
@@ -41,6 +49,8 @@ class AllScenario(Scenario):
             return "test-google-token"
 
         monkeypatch.setattr(discord_sync, "fetch", fetch)
+        monkeypatch.setattr(google_apply_sync, "fetch", fetch)
+        monkeypatch.setattr(e2e_notion_probe, "fetch", fetch)
         monkeypatch.setattr(discord_sync, "get_google_access_token", token)
 
     def reach(self, step):
@@ -63,6 +73,8 @@ def test_full_roundtrip_failure_recovery_controls_and_cleanup(monkeypatch):
     assert len(test.google) == len(test.pages) == len(test.discord) == 2
     assert owner["stages"]["all_sync_failure_4"] == 200
     assert owner["stages"]["all_sync_failure_6"] == 200
+    assert owner["stages"]["all_sync_token_missing"] == 200
+    assert owner["stages"]["all_sync_query_rejection"] == 400
     assert owner["stages"]["all_sync_cooldown"] == 200
     assert owner["stages"]["all_sync_contention"] == 200
     assert len(owner["hashes"]) == len(ALL_KEYS)
@@ -70,6 +82,90 @@ def test_full_roundtrip_failure_recovery_controls_and_cleanup(monkeypatch):
     assert test.owner()["outcome"] == "passed"
     assert test.env.STATE_KV.data == before
     assert not test.discord and all(p.get("archived") for p in test.pages.values())
+    assert test.call("cleanup")[0] == 200
+
+
+def test_verify_rejects_old_discord_expectation_after_google_change(monkeypatch):
+    test = AllScenario(monkeypatch)
+    test.reach(1)
+    owner = test.owner()
+    owner["step"] = 5
+    slot = owner["fixtures"][0]
+    slot["source"]["description"] += "\nGoogleで編集した本文"
+    slot["page_description"] = slot["source"]["description"]
+    test.google[slot["google_event_id"]]["description"] = slot["source"]["description"]
+    test.pages[slot["notion_page_id"]]["properties"]["内容"] = {
+        "rich_text": [{"text": {"content": slot["page_description"]}}],
+    }
+
+    with pytest.raises(all_sync.GoogleStateError, match="discord_source_mismatch"):
+        asyncio.run(all_sync._read(test.env, owner, "test-google-token"))
+
+
+def test_google_update_after_roundtrip_reaches_discord(monkeypatch):
+    test = AllScenario(monkeypatch)
+    test.reach(5)
+    slot = test.owner()["fixtures"][0]
+    assert "E2E all sync Google failure" in test.discord[slot["discord_event_id"]]["description"]
+    assert test.google[slot["google_event_id"]]["description"] == test.discord[slot["discord_event_id"]]["description"]
+    assert test.call("cleanup")[0] == 200
+
+
+def test_e2e_rejects_swallowed_google_auth_failure(monkeypatch):
+    test = AllScenario(monkeypatch)
+    test.reach(5)
+    original = discord_sync._sync_discord_event_upsert
+
+    async def swallow_auth(env, event, token, **kwargs):
+        if token is None:
+            return True
+        return await original(env, event, token, **kwargs)
+
+    monkeypatch.setattr(discord_sync, "_sync_discord_event_upsert", swallow_auth)
+    status, payload = test.call("advance")
+    assert status == 409 and payload["error"] == "all_sync_failure_evidence_missing"
+    assert test.call("cleanup")[0] == 200
+
+
+def test_e2e_stops_create_fallback_after_query_failure(monkeypatch):
+    test = AllScenario(monkeypatch)
+    test.reach(5)
+    original = discord_sync._notion_query_by_message_id
+
+    async def swallow_query(env, db_id, message_id, **kwargs):
+        if str(getattr(env, "NOTION_PROP_MESSAGE_ID", "")).startswith("__e2e_missing_property_"):
+            return None
+        return await original(env, db_id, message_id, **kwargs)
+
+    monkeypatch.setattr(discord_sync, "_notion_query_by_message_id", swallow_query)
+    status, payload = test.call("advance")
+    assert status == 409 and payload["error"] == "all_sync_unexpected_create"
+    assert len(test.google) == len(test.pages) == len(test.discord) == 2
+    assert test.call("cleanup")[0] == 200
+
+
+def test_reverse_lookup_cannot_update_another_owned_page(monkeypatch):
+    test = AllScenario(monkeypatch)
+    test.reach(1)
+    first, second = test.owner()["fixtures"]
+    original = discord_sync._notion_query_by_message_id
+    writes = []
+
+    async def wrong_page(env, db_id, message_id, **kwargs):
+        if message_id == first["discord_event_id"]:
+            return test.pages[second["notion_page_id"]]
+        return await original(env, db_id, message_id, **kwargs)
+
+    async def forbidden_write(*args, **kwargs):
+        writes.append(True)
+        raise AssertionError("別ページへの更新を拒否する")
+
+    monkeypatch.setattr(discord_sync, "_notion_query_by_message_id", wrong_page)
+    monkeypatch.setattr(discord_sync, "_google_update_event", forbidden_write)
+    monkeypatch.setattr(discord_sync, "_notion_update_event", forbidden_write)
+    status, payload = test.call("advance")
+    assert status == 409 and payload["error"] == "all_sync_dispatch_failed"
+    assert not writes
     assert test.call("cleanup")[0] == 200
 
 

@@ -29,6 +29,7 @@ StateStore
 | `workers/src/google_calendar_sync.py` | `updatedMin` を使う Google Calendar 差分取得 |
 | `workers/src/google_apply_sync.py` | Google イベントの Notion / Discord 反映 |
 | `workers/src/discord_notion_sync.py` | Discord の差分検出、Notion / Google 反映 |
+| `workers/src/google_event_content.py` | 往復同期の内容比較 |
 | `workers/src/google_auth.py` | Google アクセストークンの優先順位、取得、KV キャッシュ |
 | `workers/src/google_watch.py` | Google Calendar watch の登録・更新・期限確認 |
 | `workers/src/jobs.py` | Q&A 通知、前日リマインド、Notion クリーンアップ |
@@ -77,6 +78,8 @@ StateStore
 
 通常の差分処理は、失敗・上限超過の操作を `sync:discord_notion_queue` に保存してから `discord:snapshot` を進める。queue保存が失敗した場合は旧snapshotから差分を再検出でき、snapshot保存が失敗した場合は保存済みqueueから再試行できる。外部反映後の保存失敗では成功済み操作が再実行され得る。
 
+Google同期が有効なときの認証欠落と、Notion検索のHTTP失敗・不正応答は成功や0件と扱わず、未処理操作をqueueへ残す。既存Google予定の由来情報を保持し、内容を照合して重複反映を抑止する。Googleの実編集は反映し、既存の誤ったorigin属性は自動移行しない。Calendar設定が保存済みwatchと異なる場合もwatchを更新する。今回の検証範囲は[回帰記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)を参照する。
+
 作成通知が有効な新規イベントは、通知先をqueueの `notification` に保持する。上限超過や同期失敗で繰り越しても、同期成功後に通知する。通知だけが失敗した場合は `op=notify` として保存し、イベントに新しい変更がなければGoogle・Notionを再適用しない。投稿済みのmessage IDがあれば、そのメッセージへの✅リアクションだけを再試行する。通知操作も通常の処理件数上限に含める。イベントが一覧から消えた場合は既存の削除処理へ切り替え、保留通知を送らない。通知待ちの完了イベントが一覧から消えた場合は、同期先を削除せず保留通知だけを取り除く。
 
 通知先チャンネルの変更・無効化時は、保留通知を別チャンネルへ転送せず失敗として保持する。元の設定を復元すれば再試行できる。投稿結果を取得できない場合やKVの保存失敗・古い値の参照では重複投稿があり得るため、一度だけの配信は保証しない。
@@ -91,6 +94,8 @@ StateStore
 4. 同期中・クールダウン・失敗時は通知を保持してAlarmを再予約する。成功した通知だけ永続キューから除去する。
 
 通知キューは最大128件、失敗時の通常再試行は60秒後。送信元のHTTP接続終了に依存せず継続する。[CloudflareのAlarm仕様](https://developers.cloudflare.com/durable-objects/api/alarms/)は少なくとも一度の実行であり、外部API反映とDO保存の間の応答喪失を含め、厳密に一度だけの外部書込みは保証しない。DOなしの旧構成は従来の同期HTTP処理とKV重複記録を維持し、通知の永続キューと強整合leaseは利用できない。
+
+重複抑止レコードは通知操作時に最大100件ずつ掃除する。有効claimとE2E所有値を保護し、巡回位置は`gcal_gc:cursor`へ保存する。50msはループ内予算で、処理全体の厳密な時間上限ではない。既存Alarmは変更せず、無通信中の期限切れ値は次の通知操作まで残る。
 
 ### Cron
 

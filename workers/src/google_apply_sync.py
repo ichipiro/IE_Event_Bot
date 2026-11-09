@@ -1,8 +1,14 @@
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 from workers import fetch as _runtime_fetch
+
+from google_event_content import DISCORD_CONTENT_HASH, google_content_hash
+from google_auth import get_google_access_token
+
+_DISCORD_ACK_PENDING = "_ie_discord_ack_pending"
 
 
 async def fetch(url: str, options: dict[str, Any] | None = None) -> Any:
@@ -177,6 +183,25 @@ def _google_private_props(event: dict) -> dict:
     """Google event.extendedProperties.private を辞書で返す。"""
     props = (((event or {}).get("extendedProperties") or {}).get("private") or {})
     return props if isinstance(props, dict) else {}
+
+
+async def _ack_discord_content(env, state, event: dict, content_hash: str) -> bool:
+    """Discordへ適用済みのGoogle内容を記録し、古いhashの再一致を防ぐ。"""
+    calendar_id = _env_text(env, "GOOGLE_CALENDAR_ID")
+    token = await get_google_access_token(env, state)
+    if not calendar_id or not token:
+        return False
+    event_id = str(event.get("id") or "")
+    response = await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/"
+        f"{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
+        {
+            "method": "PATCH",
+            "headers": {"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            "body": json.dumps({"extendedProperties": {"private": {DISCORD_CONTENT_HASH: content_hash}}}),
+        },
+    )
+    return int(response.status) == 200
 
 
 def _google_origin_discord_event_id(event: dict) -> str | None:
@@ -645,12 +670,22 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
     incoming_events = list(events or [])
     # キュー内イベント
     known_ids = {str((e or {}).get("id") or "") for e in queued_events} 
+    queue_positions = {str((e or {}).get("id") or ""): index for index, e in enumerate(queued_events)}
     # 処理するイベント
     merged_queue = list(queued_events)
     for event in incoming_events:
         event_id = str((event or {}).get("id") or "")
-        if not event_id or event_id in known_ids:
+        if not event_id:
             continue
+        if event_id in known_ids:
+            queued = merged_queue[queue_positions[event_id]]
+            pending_hash = (queued or {}).get(_DISCORD_ACK_PENDING)
+            # ack待ちの間に届いた実編集・取消だけは、古い適用済み内容より優先する。
+            if pending_hash and (event.get("status") == "cancelled"
+                                 or google_content_hash(event) != pending_hash):
+                merged_queue[queue_positions[event_id]] = event
+            continue
+        queue_positions[event_id] = len(merged_queue)
         merged_queue.append(event)
         known_ids.add(event_id)
 
@@ -850,9 +885,16 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
 
             # Google -> Discord 同期.
             # 元が Discord 由来なら元 Discord イベントIDをそのまま使う
+            content_hash = google_content_hash(event)
+            private = _google_private_props(event)
+            ack_pending = event.get(_DISCORD_ACK_PENDING) == content_hash
             if origin_discord_event_id:
                 discord_event_id = origin_discord_event_id
                 gcal_discord_map[google_event_id] = origin_discord_event_id
+            elif (gcal_discord_map.get(google_event_id)
+                  and (ack_pending or private.get(DISCORD_CONTENT_HASH) == content_hash)):
+                # Discordへ反映済みの内容だけを省略し、Googleの実編集は通常適用する。
+                discord_event_id = str(gcal_discord_map[google_event_id])
             # そうでなければ Googleイベントを Discord 側へ作成または更新
             else:
                 # 所有資源E2Eでは、この呼出しだけ固定失敗を注入できる。
@@ -867,6 +909,16 @@ async def apply_google_events(env, state, events: list[dict], *, discord_syncer=
                     had_error = True
                     event_failed = True
                     errors.append(f"discord_sync_failed:{google_event_id}")
+
+            if (discord_event_id and not origin_discord_event_id
+                    and (ack_pending or (private.get(DISCORD_CONTENT_HASH)
+                                         and private[DISCORD_CONTENT_HASH] != content_hash))):
+                # 応答失敗後も適用済みのDiscordへ再送せず、queueから記録だけを再試行する。
+                event[_DISCORD_ACK_PENDING] = content_hash
+                if not await _ack_discord_content(env, state, event, content_hash):
+                    raise RuntimeError("google_discord_ack_failed")
+                private[DISCORD_CONTENT_HASH] = content_hash
+                event.pop(_DISCORD_ACK_PENDING, None)
 
             # Notionページに Discord ID を書き戻す
             if page and discord_event_id:

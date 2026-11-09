@@ -1,5 +1,10 @@
 # 作業履歴
 
+## 2026-11-09: 同期・CIの回帰修正
+
+- 認証・Notion検索失敗のqueue保持、由来情報の保持と内容比較、PR guard、Calendar変更時のwatch更新、期限切れdedupeの掃除を修正し、旧コードの再現テストと回帰を追加した。
+- all-syncの期待本文を修正し、step 6でtoken欠落・実Notion400を通常upsertへ通して残件2件の復旧を検証する。all-http・watch-sharedを含む実E2Eは実行準備中。最終結果は[検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)へ追記する。
+
 ## 2026-11-09: E2E専用Pythonの整理
 
 - `workers/src/e2e_*.py` の43件を `workers/src/e2e/` へ集約し、import、入口設定、検証用の参照を更新した。

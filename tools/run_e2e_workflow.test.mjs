@@ -1576,7 +1576,7 @@ test("読み取り専用Calendar診断は回収対象へ追加しない", () => 
   ], RUN_ID), []);
 });
 
-for (const failure of [null, "stage", "google_failure", "discord_failure", "cooldown", "contention", "version", "outcome"]) {
+for (const failure of [null, "stage", "google_failure", "discord_failure", "token_evidence", "query_evidence", "cooldown", "contention", "version", "outcome"]) {
   test(`全体同期workflow: ${failure ?? "success"}`, async () => {
     const steps = ["prepared", "drained", "updated", "drained", "retry_pending", "retried", "retry_pending", "retried", "drained"];
     let index = 0;
@@ -1590,6 +1590,8 @@ for (const failure of [null, "stage", "google_failure", "discord_failure", "cool
           stages: { [`all_sync_step_${index}`]: failure === "stage" ? undefined : 200,
             all_sync_failure_4: failure === "google_failure" ? undefined : 200,
             all_sync_failure_6: failure === "discord_failure" ? undefined : 200,
+            all_sync_token_missing: failure === "token_evidence" ? undefined : 200,
+            all_sync_query_rejection: failure === "query_evidence" ? undefined : 400,
             all_sync_cooldown: failure === "cooldown" ? undefined : 200,
             all_sync_contention: failure === "contention" ? undefined : 200,
           } } } }),

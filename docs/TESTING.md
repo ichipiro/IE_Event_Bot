@@ -54,6 +54,10 @@ bash -n tools/configure_github_e2e_environment.sh
 
 これらも通信先をテスト代替へ差し替えるか、設定ファイルだけを読む。実 Worker や外部サービスへは接続しない。
 
+## 2026-11-09の同期・CI回帰
+
+認証欠落、Notion検索失敗、往復同期の由来、PR branchのシェル展開、Calendar変更時のwatch、DOの期限切れdedupeを回帰対象へ追加した。再現テスト、all-sync step 6の通常upsertでのtoken欠落・実Notion400と残件2件の復旧、all-http・watch-sharedの実E2E成功条件は[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)を参照する。実E2Eは実行準備中であり、ローカル成功とは分けて記録する。
+
 ## 通常Discord同期の状態保存と排他
 
 `tests/test_discord_state_recovery.py` は通常の `StateStore` と差分処理を使い、KV・外部APIを代替する。作成・更新・削除の再試行、queue / snapshotの保存失敗、件数上限による残件を、新しいStateStoreで読み直して確認する。保存失敗後の成功済み操作の再実行は許容し、未処理操作が消えないことを確認する。

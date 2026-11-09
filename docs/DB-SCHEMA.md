@@ -49,7 +49,7 @@ E2Eの通常KV検証では `e2e:discord_state:<run_id>:<scope_id>:discord:snapsh
 | `sync:discord_notion_queue` | JSON 配列 | Discord 同期の繰り越し |
 | `google:access_token` | 文字列 | Google アクセストークン |
 | `google:expires_at` | Epoch 秒 | Google トークン期限 |
-| `gcal_watch_state` | JSON | Google watch の channel、resource、期限、Webhook token の SHA-256 fingerprint |
+| `gcal_watch_state` | JSON | Google watch の channel、resource、Calendar、期限、Webhook token の SHA-256 fingerprint |
 | `qa_cache` | JSON | Q&A 通知済み状態 |
 | `reminder_cache` | JSON | リマインド送信済み状態 |
 | `cleanup:last_epoch` | Epoch 秒 | クリーンアップ最終実行時刻 |
@@ -58,6 +58,8 @@ E2Eの通常KV検証では `e2e:discord_state:<run_id>:<scope_id>:discord:snapsh
 Durable Object がない場合、`gcal_msg:<channel_id>:<message_number>` を KV の Webhook 重複抑止キーとして使用する。
 
 KV の JSON は安定した文字列表現で保存し、同じ内容の不要な再書き込みを避ける。KV は最終的整合性であり、厳密な一意制約や複数キーのトランザクションを提供する前提ではない。
+
+Google予定のprivate属性 `ie_discord_content_hash` は、最後にDiscordへ反映した内容の指紋を保持する。Google側への指紋更新が失敗した場合は、`sync:google_apply_queue` の当該予定に内部項目 `_ie_discord_ack_pending` を付け、Discordへ再適用せず指紋更新だけを再試行する。待機中に届いた別内容・取消は優先し、完了時に内部項目を取り除く。
 
 `sync:discord_notion_queue` の各要素は `id` と `op`（`upsert` / `delete` / `notify`）を持つ。新規イベントの通知が未完了なら `notification: {channel_id, message_id?}` を付加する。`message_id` は投稿結果を取得した後だけ記録し、リアクションの再試行に使う。同期未完了は `upsert`、同期成功後の通知未完了は `notify` として保存する。完了後はqueueから取り除く。通知なしの従来の `upsert` / `delete` 要素も読み込めるが、旧queueに失われた通知の要否は復元できない。旧実装は `notify` を理解しないため、保留通知がある状態での旧版への切戻しは再同期・通知消失の可能性がある。
 
@@ -74,6 +76,7 @@ KV の JSON は安定した文字列表現で保存し、同じ内容の不要�
 | `lock` | 所有者と期限の JSON | 同期の排他 |
 | `sync:last_epoch` | 最終時刻の JSON | クールダウン |
 | `gcal_msg:<channel_id>:<message_number>` | 期限、処理中のclaim所有者、任意のE2E所有run IDのJSON | 処理中leaseと成功済み通知を区別する。成功後はclaimを除去し、従来の期限形式と互換を保つ |
+| `gcal_gc:cursor` | 最後に走査した`gcal_msg:`キー | 通知操作に便乗する期限切れレコード掃除の巡回位置 |
 | `e2e:manifest:google` | E2E cleanup manifest の JSON | Google fixture の所有権と復旧 |
 | `e2e:manifest:discord` | E2E cleanup manifest の JSON | Discord fixture の所有権と復旧 |
 | `e2e:manifest:notion` | E2E cleanup manifest の JSON | Notion fixture の所有権と復旧 |
@@ -89,6 +92,8 @@ KV の JSON は安定した文字列表現で保存し、同じ内容の不要�
 | `e2e:manifest:webhook_change` | E2E cleanup manifest の JSON | Google event更新、短命watch、最初のexists通知、Notion page、重複状態の所有権と復旧 |
 
 E2E manifest は cleanup が必要な間だけ実 ID を保持し、clean 化後は SHA-256 fingerprint へ置き換える。`google_notion`、`webhook_dispatch`、`webhook_change` は Google event ID と Notion page ID、`google_discord` と `discord_google` は Google event ID と Discord Scheduled Event ID、`discord_notion` は Discord Scheduled Event ID と Notion page ID、`qa_notification` は Notion Q&A page ID と Discord message ID、`reminder` は Discord Scheduled Event ID と message ID、`notion_cleanup` は期限到来 page ID と将来日時 page ID を同じ run ID で保持し、片方でも cleanup または所有権確認に失敗すれば dirty を維持する。`webhook_dispatch` はさらにrun専用channel IDとmessage numberを保持し、同じrun IDが所有するDurable Object重複状態だけを削除する。`webhook_delivery`は外部request前にrun専用channel IDを保持し、watch応答と初回通知のどちらが先でも同一resource IDだけを原子的に紐付ける。`webhook_change`はさらにevent更新前cursor、最初の`exists` message number、dispatch要約を保持し、後続の`exists`通知は新たなdispatchへ進めない。watch停止とrun所有重複状態の削除が成功してからeventとpageを回収し、channel / resource / message numberと外部資源IDをfingerprintへ置き換える。run ID、service、kind、サイズを Durable Object 側でも検証し、`SYNC_COORDINATOR` がない場合は KV へフォールバックせず失敗させる。
+
+`mark_google_message_seen`・`claim_google_message`・`finish_google_message`は、当該DOの`gcal_msg:`を最大100件ずつ走査する。期限切れの通常値だけを削除し、有効claim・E2E所有値・判定不能な形式を保持する。50msは一覧取得後のループ内予算で、I/Oを含む全処理の時間上限ではない。cursorで次回へ続行し、既存WebhookキューのAlarmは変更しない。通知操作がなければ期限切れ値は残る。詳細は[今回の検証記録](e2e/E2E-SYNC-REGRESSIONS-20261109.md)を参照する。
 
 Durable Object は高頻度かつ整合性が必要な状態に限定し、イベント本文や大きな対応表は KV または外部サービスへ置く。Workers KV は結果整合で同一キーの短時間連続更新にも不向きなため、E2E の cleanup 所有権には使わない。
 

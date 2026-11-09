@@ -26,6 +26,15 @@ class AllEnv(google.GoogleEnv):
     SYNC_INTERVAL_SECONDS = "300"
 
 
+class _QueryFailureEnv:
+    def __init__(self, env, run_id):
+        self._settings = env
+        self.NOTION_PROP_MESSAGE_ID = f"__e2e_missing_property_{run_id}"
+
+    def __getattr__(self, name):
+        return getattr(self._settings, name)
+
+
 def _require(condition, code):
     if not condition:
         raise GoogleStateError("all_sync_" + code)
@@ -41,6 +50,9 @@ async def _read(env, owner, token):
                  and event.get("description") == slot["source"]["description"], "google_content_mismatch")
         if owner["step"] == 0:
             continue
+        if owner["step"] in (4, 5) and slot is owner["fixtures"][0]:
+            _require(slot["discord_description"] == slot["source"]["description"],
+                     "discord_source_mismatch")
         status, event = await google.discord_request(
             env, owner["stages"], {}, "all_sync_discord_read", "GET",
             google._discord_path(env, slot["discord_event_id"]),
@@ -65,7 +77,7 @@ async def _verify(env, store, owner, token):
     if owner["step"]:
         slots = owner["fixtures"]
         expected_google = [slots[0]["google_event_id"]] if owner["step"] == 4 else []
-        expected_discord = [slots[0]["discord_event_id"]] if owner["step"] == 6 else []
+        expected_discord = [slot["discord_event_id"] for slot in slots] if owner["step"] == 6 else []
         queue = json.loads(values["sync:google_apply_queue"] or "[]")
         pending = json.loads(values["sync:discord_notion_queue"] or "[]")
         snapshot, snapshot_pending = split_snapshot(json.loads(values["discord:snapshot"] or "{}"))
@@ -94,16 +106,20 @@ async def _verify(env, store, owner, token):
 async def _change(env, store, owner, token):
     slot, step = owner["fixtures"][0], owner["step"]
     if step in (2, 6):
-        slot["discord_description"] += f"\nE2E all sync Discord {step}"
-        await google._save(store, owner)
-        status, event = await google.discord_request(
-            env, owner["stages"], {}, "all_sync_discord_change", "PATCH",
-            google._discord_path(env, slot["discord_event_id"]),
-            {"description": slot["discord_description"]},
-        )
-        _require(status == 200 and google._discord_owned(env, event, owner, slot), "change_failed")
+        for changed in owner["fixtures"] if step == 6 else [slot]:
+            changed["discord_description"] += f"\nE2E all sync Discord {step}"
+            await google._save(store, owner)
+            status, event = await google.discord_request(
+                env, owner["stages"], {}, "all_sync_discord_change", "PATCH",
+                google._discord_path(env, changed["discord_event_id"]),
+                {"description": changed["discord_description"]},
+            )
+            _require(status == 200 and google._discord_owned(env, event, owner, changed), "change_failed")
     if step == 4:
         slot["source"]["description"] += "\nE2E all sync Google failure"
+        slot["discord_description"] = _build_discord_description(
+            env, slot["source"]["description"], slot["google_event_id"],
+        )
         await google._save(store, owner)
         status, event = await google._google_request(
             "PATCH", google._event_item_url(env.GOOGLE_CALENDAR_ID, slot["google_event_id"]) + "?sendUpdates=none",
@@ -118,7 +134,7 @@ async def _dispatch(env, store, owner, token, invoke):
     before_cursor = await state.get_text("sync:updated_min")
     before_epoch = await state.get_text("sync:last_epoch")
     step = owner["step"]
-    injected, reverse_applied = [], []
+    injected, reverse_applied, unexpected_creates = [], [], []
 
     async def fetcher(_env, state, *, commit_cursor):
         result = await run_google_delta_fetch(probe_env, state, commit_cursor=False)
@@ -153,13 +169,33 @@ async def _dispatch(env, store, owner, token, invoke):
 
     async def upsert(call_env, event, google_token):
         slot = next(s for s in owner["fixtures"] if s["discord_event_id"] == event["id"])
+
+        async def forbid_create():
+            unexpected_creates.append(slot["google_event_id"])
+            raise GoogleStateError("all_sync_unexpected_create")
+
         if step == 6 and slot is owner["fixtures"][0]:
-            injected.append("discord")
-            return False
-        # Notion照会失敗を新規資源作成へ切り替えず、所有済みページだけを更新する。
+            injected.append("discord-token")
+            google_token = None
+        elif step == 6:
+            injected.append("discord-query")
+            call_env = _QueryFailureEnv(call_env, owner["run_id"])
+            status, _ = await google.notion_request(
+                call_env, owner["stages"], {}, "all_sync_query_rejection", "POST",
+                f"/databases/{quote(call_env.NOTION_EVENT_INTERNAL_ID, safe='')}/query",
+                {"filter": {"property": call_env.NOTION_PROP_MESSAGE_ID,
+                            "rich_text": {"equals": event["id"]}}},
+            )
+            _require(status == 400, "query_rejection_missing")
+        # 通常の検索経路を通し、誤った新規作成の試みは外部APIへ送る前に止める。
         ok = await discord_sync._sync_discord_event_upsert(
-            call_env, event, google_token, expected_internal_page_id=slot["notion_page_id"],
+            call_env, event, google_token,
+            expected_internal_page_id=(None if step == 6 and slot is not owner["fixtures"][0]
+                                       else slot["notion_page_id"]),
+            before_google_create=forbid_create, before_internal_create=forbid_create,
         )
+        if step == 6 and slot is owner["fixtures"][0] and not ok:
+            owner["stages"]["all_sync_token_missing"] = 200
         if ok:
             reverse_applied.append(slot["google_event_id"])
         return ok
@@ -188,7 +224,11 @@ async def _dispatch(env, store, owner, token, invoke):
              and result.get("google", {}).get("ok") is True
              and result.get("google_apply", {}).get("ok") is (step != 4)
              and result.get("discord_notion", {}).get("ok") is (step != 6), "dispatch_failed")
-    _require(injected == (["google"] if step == 4 else ["discord"] if step == 6 else []), "injection_missing")
+    _require(injected == (["google"] if step == 4 else ["discord-token", "discord-query"] if step == 6 else []), "injection_missing")
+    _require(not unexpected_creates, "unexpected_create")
+    if step == 6:
+        _require(owner["stages"].get("all_sync_token_missing") == 200
+                 and owner["stages"].get("all_sync_query_rejection") == 400, "failure_evidence_missing")
     if expected_failure:
         _require(await state.get_text("sync:last_epoch") == before_epoch, "last_success_changed")
         if step == 4:

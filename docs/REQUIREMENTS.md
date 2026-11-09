@@ -9,7 +9,8 @@
 - 開発環境: Linux / WSL
 - Python: `3.10` 以上
 - CI の Python: `3.12`
-- Node.js: `22.0.0` 以上
+- Node.js: `.node-version`で指定する`22.23.4`（最低要件は`package.json`の`22.0.0`以上）
+- npm: `package.json`の`packageManager`で指定する`10.9.9`（最低要件は`10.0.0`以上）
 - アプリケーション実行基盤: Cloudflare Python Workers
 - Worker の互換日付: `workers/wrangler.jsonc` の `compatibility_date`
 - Python 仮想環境: リポジトリルートの `.venv`
@@ -40,13 +41,18 @@ Windows 専用の環境は必須要件ではない。
 
 ## Node.js 依存関係
 
+Node.jsとnpmの本体は、WSL共通環境へ一度導入する。`.venv/node`やリポジトリ内に本体を置かず、Python仮想環境とは独立して使用する。`.node-version`と`package.json`は使用版を宣言するファイルであり、本体のインストールは行わない。CIは`actions/setup-node`で`.node-version`を参照する。
+
 Node.js 開発依存:
 
 | パッケージ | バージョン | 用途 |
 | --- | --- | --- |
 | `wrangler` | `4.127.1` | Worker 設定検証、開発、デプロイ |
+| `@modelcontextprotocol/sdk` | `1.30.0` | E2E用MCPサーバー |
+| `@playwright/mcp` | `0.0.80` | ブラウザー検証用MCPサーバー |
+| `zod` | `4.5.4` | MCPツールの入力検証 |
 
-Wrangler の正本は `package.json` と `package-lock.json` であり、グローバル版は前提にしない。
+依存パッケージの正本は`package.json`と`package-lock.json`であり、`npm ci`でリポジトリの`node_modules/`へ導入する。Wranglerのグローバル版は前提にしない。
 
 ## Cloudflare バインディング
 
@@ -88,6 +94,18 @@ Wrangler の正本は `package.json` と `package-lock.json` であり、グロ�
 全設定は `README.md`、`workers/wrangler.jsonc`、`docs/SECURITY.md` を参照する。値を文書へ複製するより、正本となる設定を確認する。
 
 ## ローカルセットアップ
+
+### WSL共通のNode.js・npmを確認する
+
+WSLへ`.node-version`で指定したNode.jsと、同梱のnpmを導入しておく。この端末では公式Linux x64配布物を`/opt/nodejs/`へ配置し、`/usr/local/bin/node`・`npm`・`npx`から実行する。導入・更新はWSL側の管理作業であり、リポジトリのセットアップでは繰り返さない。
+
+```bash
+node --version
+npm --version
+node -p 'process.execPath'
+```
+
+`node`・`npm`が見つからない場合はWSL側の導入・PATHを直してから進む。Pythonの`nodeenv`で代替のNode.jsをリポジトリ内へ導入しない。PyrightもPATH上の共通Node.jsを使う。
 
 ### 仮想環境を有効化する場合
 

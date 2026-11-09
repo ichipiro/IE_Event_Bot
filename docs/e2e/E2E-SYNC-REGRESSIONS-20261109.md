@@ -1,6 +1,6 @@
 # 同期・CIの回帰修正（2026-11-09）
 
-状態: ローカル回帰確認済み、実E2Eは実行準備中。
+状態: 前版の実all-sync・all-httpは成功。watch-sharedのCPU中断2回は回収済み。認証署名と診断の追加修正後、最終版の全3モードを再試験する。
 
 ## 修正対象6件
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 1 | Discord→Google同期が有効でもGoogle認証を解決できないと、Googleへの反映を省略したまま成功扱いになる | 作成・更新・削除を失敗としてqueueへ残し、認証回復後に再試行する |
 | 2 | Notion検索の失敗を0件と扱い、重複作成や削除の取りこぼしが起きる | HTTP失敗・不正応答を0件と区別し、変更をqueueへ残す。検索例外も差分処理で失敗として扱う |
-| 3 | 往復同期で既存Google予定の由来がDiscordへ変わり、その後のGoogle編集が届かない | 既存予定の由来情報を保持する。内容を照合して重複反映を抑止し、Googleの実編集は反映する |
+| 3 | 往復同期で既存Google予定の由来がDiscordへ変わり、その後のGoogle編集が届かない | 既存予定の由来情報を保持する。内容を照合して重複反映を抑止し、Google由来予定の実編集は反映する |
 | 4 | PRブランチ名がworkflowのシェル本文へ直接展開される | `HEAD`・`BASE`をstepの`env`から受け取り、branchの文字列を命令として実行しない |
 | 5 | Calendar設定を変えても、有効期限内の旧watchが維持される | 保存済みCalendarと現設定が違う、または保存値が欠落する場合にwatchを更新する |
 | 6 | DOの期限切れWebhook重複抑止レコードが残り続ける | 通知操作時に期限切れの通常レコードを有限件ずつ巡回して掃除する |
@@ -28,7 +28,7 @@
 | 4 | [PR Target Guard](../../tests/test_pr_target_guard.py) | Gitで有効な命令置換・引用符入りbranch、未対応prefix、正しいbaseと誤ったbase |
 | 5 | [Google watch](../../tests/test_google_watch.py) | Calendar変更・保存値欠落の更新と、同じCalendarの維持 |
 | 6 | [dedupe掃除](../../tests/test_google_dedupe_cleanup.py) | 有効claim・E2E所有・他prefix・別DO・Alarmの保護、巡回、再起動、削除前再読込、JS境界 |
-| E2Eの判定 | [all-sync](../../tests/test_e2e_all_sync.py)、[Node workflow](../../tools/run_e2e_workflow.test.mjs) | 障害証跡や残件数が欠けた実行を成功にしない |
+| E2Eの判定・回収 | [all-sync](../../tests/test_e2e_all_sync.py)、[Node workflow](../../tools/run_e2e_workflow.test.mjs)、[MCP回収](../../tools/e2e_mcp_server.test.mjs) | 障害証跡や残件数が欠けた実行を成功にしない。未完了watchの検証済みcheckpointから所有runだけを回収する |
 
 PR guardは修正前に命令実行を再現する4ケースが失敗し、修正後は通常ルールを含む15ケースが成功した。これはworkflowの式展開とシェル処理をローカルで再現した結果であり、GitHub上の実行結果ではない。最終コード全体の検査結果は実行結果欄へ追記する。
 
@@ -51,13 +51,13 @@ Google変更がDiscordへ届く修正に合わせて、step 4・5の期待本文
 
 | mode | 主な範囲 | 状態 |
 | --- | --- | --- |
-| `deploy-and-all-sync-smoke` | 上記9段階、両方向の障害とqueue復旧、source別のクールダウン・競合 | 実行準備中 |
-| `deploy-and-all-http-smoke` | 全4段階。入力全件の所有確認後、runnerを差し替えず通常`Application.fetch`の`/sync/all`と共有KVを使う | 実行準備中 |
-| `deploy-and-watch-shared-smoke` | 通常watch維持、実Google通知からDO Alarm・共有状態同期、通知の再試行、ロック解放復旧と回収 | 実行準備中 |
+| `deploy-and-all-sync-smoke` | 上記9段階、両方向の障害とqueue復旧、source別のクールダウン・競合 | [42622408262](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42622408262)で成功、回収済み |
+| `deploy-and-all-http-smoke` | 全4段階。初期窓の全入力の所有確認後、runnerを差し替えず通常`Application.fetch`の`/sync/all`と共有KVを使う | [42623925488](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42623925488)で成功、回収済み |
+| `deploy-and-watch-shared-smoke` | 通常watch維持、実Google通知からDO Alarm・共有状態同期、通知の再試行、ロック解放復旧と回収 | CPU中断2回は回収済み、修正後の再試験待ち |
 
 今回runのcommit・clean checkout、run ID、deploy時と最終読戻しのWorker version、各段階の必須証跡を照合する。途中の失敗はcleanup成功で上書きしない。対象manifestの`outcome=passed`と`dirty=false`、全所有資源・状態の回収、監査の開始・終了を確認する。watch試験では所有通知キューとAlarmも回収する。過去runの`passed`は今回の成功へ数えない。
 
-これらは専用Worker・専用資源の有限ケースであり、本番稼働、任意件数、自然発生障害、厳密に一度だけの反映、全地域KV整合性は保証しない。dedupe削除条件の詳細はローカル回帰で確認し、watch実E2Eの成功だけで期限切れ通常レコードの全条件を実環境検証済みとは扱わない。
+これらは専用Worker・専用資源の有限ケースであり、本番稼働、任意件数、自然発生障害、厳密に一度だけの反映、全地域KV整合性は保証しない。Calendar切替・保存Calendar欠落とdedupe削除条件の詳細はローカル回帰で確認する。watch実E2Eは同じCalendarでのwatch維持・実通知・共有状態同期・回収が対象であり、これらの条件別回帰をすべて実環境検証済みとは扱わない。
 
 ## E2E準備時のCalendar取得範囲
 
@@ -69,6 +69,14 @@ fixtureの将来の開催日時はcursorに使わない。cursorはprepare時の
 
 [初期cursorの回帰](../../tests/test_e2e_initial_cursor.py)では、古い削除履歴150件で旧実装の3モードが`google_sync_baseline_limit`となることを再現した。修正後は同じ履歴を保持した準備・dispatch・回収、古いactiveの拒否、100件上限、不変cursor、保存応答喪失、旧manifest回収とページ異常を確認する。
 
+## CPU中断後の署名経路と待機診断
+
+従来のJWT生成はgoogle-authを先に使い、WebCryptoはPython署名が使えない場合の最後の候補だった。CPU中断の具体的な消費源はログだけでは断定できないが、WorkerでPythonのRSA計算を避けるため、利用可能なWebCryptoをPKCS8・RS256のときだけ優先する。失敗・未対応鍵・CPythonでは従来経路へ戻す。JWTのclaims、SHA-256、nonce、鍵の保存方針は維持し、プラン・CPU上限は変更しない。
+
+[署名回帰](../../tests/test_google_webcrypto_auth.py)では旧コードの優先経路が失敗することを確認し、Node標準WebCryptoの実署名を別実装の`rsa.verify`で検証する。JWT内容、JS object・Array・Uint8Array境界、署名専用・非extractable、import・sign・機能探索の失敗、CPythonとPKCS1のフォールバックを確認する。これはPyodide実FFIや実環境CPU値の証明ではなく、最終実E2Eの結果と区別する。
+
+E2Eの待機理由は`kv_digest_pending`と`watch_sync_pending`の固定分類だけを出す。前者はKVの値と所有hashの不一致、後者は最終watchの初回sync未観測であり、値・識別子・鍵をログへ含めない。エラー名・HTTP応答・再試行・状態書込みは変えない。[診断回帰](../../tests/test_e2e_verify_diagnostics.py)とNodeの分類検査では、旧`google_sync_not_ready`だけから理由を推定しないことも確認する。
+
 ## 状態掃除の境界
 
 `gcal_msg:`の通常レコードだけを対象に、1操作あたり最大100件を読み、`gcal_gc:cursor`で次の範囲へ進む。50msは一覧取得後のループ内予算であり、storage I/Oを含む処理全体の厳密な時間上限ではない。
@@ -77,8 +85,13 @@ fixtureの将来の開催日時はcursorに使わない。cursorはprepare時の
 
 ## 実行結果
 
-- ローカル最終回帰: Ruff・Pyright成功、Python 1,212件、Node 383件・Cron契約13件、E2E設定・機密情報混入・workflow検査、通常WorkerとE2E Workerのdry-runが成功。
+- ローカル最終回帰: Ruff・Pyright成功、Python 1,222件（Nodeによる署名実検証を含みskipなし）、Node 400件・Cron契約13件、E2E設定・機密情報混入・workflow検査、通常WorkerとE2E Workerのdry-runが成功。watch回収ガードと固定待機診断も含む。
 - 初回実E2E: [all-sync実行42620421858](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42620421858)は、commit `18f2d76` のdeploy後、既存Calendarの削除履歴が100件を超え、`prepare_all`で`google_sync_baseline_limit`となった。今回runのowner保存・fixture作成前の停止であり、成功に数えない。全manifestはcleanで、artifact内の過去runの`passed`も今回の実績へ数えない。cleanupは`google_sync_run_mismatch`で旧runを保護した。マスク済み証跡は`test-results/sync-fixes-42620421858/verification.json`へ保存した。
-- 修正後の実E2E: 実行準備中。完了後に各run・commit・監査・回収結果を追記する。
+- 修正後の実all-sync: [42622408262](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42622408262)、commit `31473c463bd2b31dc03eaeb6866ebef9136ad8b4`、run `E2E-20261109T130736Z-b78c2db6`で成功した。全9段階、`all_sync_token_missing=200`、`all_sync_query_rejection=400`、両障害のqueue復旧、クールダウン・競合を確認した。最終`passed`・全manifest `dirty=false`、deploy時と最終Worker version、checkout clean、監査42行・21操作の開始終了と全操作成功を照合した。完了は2026-11-09 22:15 JST、証跡は`test-results/sync-fixes-42622408262/verification.json`。
+- 実all-http: [42623925488](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42623925488)、同じcommit、run `E2E-20261109T131808Z-47612ab0`で成功した。全4段階、通常HTTP dispatch 3回、共有KVと全所有資源の回収、最終`passed`・全manifest `dirty=false`を確認した。監査22行・11操作、checkout clean、run・Worker version・URL fingerprintを照合した。完了は2026-11-09 22:22 JST、証跡は`test-results/sync-fixes-42623925488/verification.json`。
+- 実watch-shared初回: [42624879921](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42624879921)、同じcommit、run `E2E-20261109T132423Z-a8e72b43`。watch維持・解放復旧・step 0の検証は成功したが、最初の`webhook_trigger`が13:25:52 UTCに503となった。同時刻のCloudflare診断は`exceededCpu`、CPU 47ms・wall 1,381msを記録した。適用されているCPU上限の値とプランは未確定であり、これらは変更しない。通知同期・Alarmの成功証跡はない。制御ロックのTTL 300秒以内のcleanup 8回はbusyで拒否され、当初artifactは`dirty=true`・watch残存、監査24行・12操作だった。成功とは扱わず、同runの所有確認付き回収と再試験を行う。証跡は`test-results/sync-fixes-42624879921/verification.json`と同配下の`lock-diagnostics/report.json`。
+- 回収経路: commit `b9bf17c3db19e36e851fe92c00027a17a8dd669a`で、workflowとMCP再deployの両方に未完了watchの`verified` checkpointを追加した。`watch_shared_step_0=200`・最終step 3未完了に限定し、同run・版・所有権・他のdirty資源の拒否を維持する。追加テストは修正前2件失敗・修正後成功。Worker本体と設定のtree `92a4853660f300ceb8a736deef64c8eb29c2c7ea`は先の実試験commitと同一であり、CPU上限は変更していない。
+- 初回watch失敗の回収: [42626111655](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42626111655)は同runで成功し、2026-11-09 22:33 JSTに`failed_clean`・全manifest clean・watchなしとなった。watch、通知キュー／Alarm、共有KV、所有予定を回収し、回収4項目の200、監査4行・2操作、元版を指定した再deployから最終版までのfingerprintを照合した。失敗した試験を`passed`へ変えていない。証跡は`test-results/sync-fixes-42626111655/verification.json`。
+- 実watch再試験: [42626702336](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42626702336)、run `E2E-20261109T133656Z-9aa1b6a8`は同じWorker本体で再びCPU中断した。今回はprepare成功後のstep 0別HTTP検証で`google_sync_not_ready`が11回、12回目の13:39:24 UTCに503となり、同時刻に`exceededCpu`（CPU 62ms・wall 2,892ms）を記録した。自動cleanup 2回は成功し、`failed_clean`・全manifest clean・watchなしを確認した。通知同期の成功には数えない。証跡は`test-results/sync-fixes-42626702336/verification.json`と同配下の`lock-diagnostics/report.json`。署名のWorkerネイティブ経路を優先する修正後、全3モードを再実行する。
 
 関連: [検証方法](../TESTING.md)、[バックエンド](../BACKEND.md)、[状態設計](../DB-SCHEMA.md)、[従来のE2E計画](E2E-PLAN.md)。

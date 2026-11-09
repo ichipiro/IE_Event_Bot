@@ -43,6 +43,8 @@
 - Cloudflare Wrangler の導入: <https://developers.cloudflare.com/workers/wrangler/install-and-update/>
 - Cloudflare Workers KV: <https://developers.cloudflare.com/kv/>
 - Cloudflare Durable Objects: <https://developers.cloudflare.com/durable-objects/>
+- Cloudflare Workers WebCrypto: <https://developers.cloudflare.com/workers/runtime-apis/web-crypto/>
+- Cloudflare Workers CPU上限と`exceededCpu`: <https://developers.cloudflare.com/workers/platform/limits/>
 - Google Calendar API: <https://developers.google.com/calendar/api/guides/overview>
 - Google Calendar push notifications: <https://developers.google.com/calendar/api/guides/push>
 - Google Calendar Events watch: <https://developers.google.com/workspace/calendar/api/v3/reference/events/watch>

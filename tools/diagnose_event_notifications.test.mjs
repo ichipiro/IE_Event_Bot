@@ -4,6 +4,7 @@ import test from "node:test";
 import * as diagnostic from "./diagnose_event_notifications.mjs";
 
 const NOW = Date.parse("2026-11-09T15:00:00Z");
+const ACCOUNT = "19fc1347cce15e26c18cd792616f737c";
 const ENV = { CLOUDFLARE_ACCOUNT_ID: "a".repeat(32), CLOUDFLARE_API_TOKEN: "private-token",
   START_UTC: "2026-11-09T04:25:00Z", END_UTC: "2026-11-09T04:50:00Z" };
 const VERSION = "11111111-2222-4333-8444-555555555555";
@@ -13,8 +14,8 @@ const response = (result, extra = {}) => ({ ok: true, status: 200,
   json: async () => ({ success: true, result, ...extra }) });
 
 function event(timestamp = Date.parse("2026-11-09T04:36:00Z")) {
-  return { timestamp, $metadata: { service: "e-event-bot", statusCode: 500, error: "private-message" },
-    $workers: { scriptName: "e-event-bot", eventType: "fetch", outcome: "exception", cpuTimeMs: 12,
+  return { timestamp, $metadata: { service: "ie-event-bot", statusCode: 500, error: "private-message" },
+    $workers: { scriptName: "ie-event-bot", eventType: "fetch", outcome: "exception", cpuTimeMs: 12,
       wallTimeMs: 300, event: { request: { url: "https://private-host/sync/all?token=private-query" } } },
     source: { message: "private-body", authorization: "private-token", author: "private-author" } };
 }
@@ -80,11 +81,11 @@ test("UTC入力を暦・過去・順序・60分上限で検証し、不正入力
 test("固定prodだけにmetadata GETと保存しないtelemetry POSTを行う", async () => {
   const calls = [];
   const report = await diagnostic.diagnoseNotifications({ ...ENV, SCRIPT_NAME: "private-foreign" }, requestStub(calls), NOW);
-  assert.equal(report.script, "e-event-bot");
+  assert.equal(report.script, "ie-event-bot");
   assert.equal(report.ok, true);
   assert.equal(calls.length, 4);
   for (const { url, options } of calls) {
-    assert.match(url, /^https:\/\/api\.cloudflare\.com\/client\/v4\/accounts\/a{32}\/workers\//);
+    assert.ok(url.startsWith(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/`));
     assert.equal(options.redirect, "error");
     assert.equal(options.headers.Authorization, "Bearer private-token");
     if (url.endsWith("/telemetry/query")) {
@@ -92,15 +93,15 @@ test("固定prodだけにmetadata GETと保存しないtelemetry POSTを行う",
       const body = JSON.parse(options.body);
       assert.equal(body.dry, true);
       assert.deepEqual(body.timeframe, { from: Date.parse(ENV.START_UTC), to: Date.parse(ENV.END_UTC) });
-      assert.deepEqual(body.parameters.filters, [{ key: "$metadata.service", operation: "eq", type: "string", value: "e-event-bot" }]);
+      assert.deepEqual(body.parameters.filters, [{ key: "$metadata.service", operation: "eq", type: "string", value: "ie-event-bot" }]);
     } else {
       assert.equal(options.method, "GET");
       assert.equal(options.body, undefined);
-      assert.match(url, /\/scripts\/e-event-bot\/(settings|deployments\?per_page=100|versions\/[a-f0-9-]{36})$/);
+      assert.match(url, /\/scripts\/ie-event-bot\/(settings|deployments\?per_page=100|versions\/[a-f0-9-]{36})$/);
     }
   }
   const saved = JSON.stringify(report);
-  for (const forbidden of ["private-", ENV.CLOUDFLARE_ACCOUNT_ID, VERSION, DEPLOYMENT, "b".repeat(32), "c".repeat(32)]) {
+  for (const forbidden of ["private-", ACCOUNT, ENV.CLOUDFLARE_ACCOUNT_ID, VERSION, DEPLOYMENT, "b".repeat(32), "c".repeat(32)]) {
     assert.ok(!saved.includes(forbidden));
   }
   assert.equal(report.settings.state_kv_sha256, hash("b".repeat(32)));
@@ -112,6 +113,17 @@ test("固定prodだけにmetadata GETと保存しないtelemetry POSTを行う",
   assert.equal(report.active_versions[0].git_sha, "d".repeat(40));
   assert.equal(report.active_versions[0].version_sha256, hash(VERSION));
   assert.equal(report.telemetry.complete, true);
+});
+
+test("account環境変数の欠落・不正値・別accountで固定照会先を変えない", async () => {
+  for (const account of [undefined, "private-account", "f".repeat(32)]) {
+    const calls = [];
+    const report = await diagnostic.diagnoseNotifications({ ...ENV, CLOUDFLARE_ACCOUNT_ID: account }, requestStub(calls), NOW);
+    assert.equal(report.ok, true);
+    assert.equal(calls.length, 4);
+    assert.ok(calls.every(({ url }) => url.startsWith(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/`)));
+    assert.ok(!JSON.stringify(report).includes(ACCOUNT));
+  }
 });
 
 test("prodイベントは数値・固定route・有限分類だけを返す", () => {
@@ -131,7 +143,7 @@ test("prodイベントは数値・固定route・有限分類だけを返す", ()
 });
 
 test("別scriptのログを拒否する", () => {
-  for (const name of ["ie-event-bot", "ie-event-bot-e2e"]) {
+  for (const name of ["e-event-bot", "ie-event-bot-e2e"]) {
     const foreign = event();
     foreign.$metadata.service = foreign.$workers.scriptName = name;
     assert.throws(() => diagnostic.redactProductionEvent(foreign), /event_diagnostic_scope_mismatch/);
@@ -293,8 +305,10 @@ test("cursor欠落・循環は固定エラーになり、部分結果をcomplete
 
 test("資格情報不足と任意例外の本文を出さない", async () => {
   let calls = 0;
-  await assert.rejects(diagnostic.diagnoseNotifications({ ...ENV, CLOUDFLARE_ACCOUNT_ID: "private-id" }, async () => { calls++; }, NOW),
-    /event_diagnostic_credentials_missing/);
+  for (const token of [undefined, "", " ", 123]) {
+    await assert.rejects(diagnostic.diagnoseNotifications({ ...ENV, CLOUDFLARE_API_TOKEN: token }, async () => { calls++; }, NOW),
+      /event_diagnostic_credentials_missing/);
+  }
   assert.equal(calls, 0);
   assert.deepEqual(diagnostic.failureReport(new Error("private-token")), { error: "event_diagnostic_request_failed" });
   const report = await diagnostic.diagnoseNotifications(ENV, async () => { throw new Error("private-network-url"); }, NOW);

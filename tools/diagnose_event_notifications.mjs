@@ -4,7 +4,9 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { redactApiError } from "./diagnose_google_lock.mjs";
 
-const SCRIPT = "e-event-bot";
+// workers/wrangler.jsoncの追跡設定を採用する。実環境の所有・稼働確認とは区別する。
+const ACCOUNT = "19fc1347cce15e26c18cd792616f737c";
+const SCRIPT = "ie-event-bot";
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const SOURCES = ["api", "wrangler", "terraform", "dash", "cf_cli", "dash_template", "integration",
   "quick_editor", "playground", "workersci"];
@@ -201,12 +203,11 @@ async function collectTelemetry(base, headers, window, request) {
 
 export async function diagnoseNotifications(env, request = fetch, now = Date.now()) {
   const window = diagnosticWindow(env, now);
-  const account = env.CLOUDFLARE_ACCOUNT_ID;
   const token = env.CLOUDFLARE_API_TOKEN;
-  if (!/^[a-f0-9]{32}$/.test(account ?? "") || typeof token !== "string" || !token.trim()) {
+  if (typeof token !== "string" || !token.trim()) {
     throw new Error("event_diagnostic_credentials_missing");
   }
-  const base = `https://api.cloudflare.com/client/v4/accounts/${account}`;
+  const base = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}`;
   const scriptBase = `${base}/workers/scripts/${SCRIPT}`;
   const headers = { Authorization: `Bearer ${token}` };
   const get = path => readApi(`${scriptBase}/${path}`, { method: "GET", headers }, request);

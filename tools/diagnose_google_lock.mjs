@@ -1,4 +1,4 @@
-// 2026-09-25のwatch準備・回収だけを調べる。生ログ・URL・例外本文は保存しない。
+// 固定E2E Workerの設定と限定時間帯のログを調べる。生ログ・URL・例外本文は保存しない。
 import { mkdir, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
@@ -95,6 +95,60 @@ export function failureReport(error) {
   return { error: code, ...(error instanceof DiagnosticHttpError ? { api_failure: error.detail } : {}) };
 }
 
+async function runtimePart(account, token, path, redact, request) {
+  let http_status = null;
+  try {
+    const response = await request(`https://api.cloudflare.com/client/v4/accounts/${account}/${path}`, {
+      method: "GET", redirect: "error", signal: AbortSignal.timeout(15000),
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    http_status = number(response.status);
+    const data = await readJson(response);
+    if (!response.ok) throw new DiagnosticHttpError(response.status, redactApiError(data));
+    if (data?.success !== true) throw new Error("diagnostic_response_invalid");
+    return { http_status, ...redact(data.result) };
+  } catch (error) { return { http_status, ...failureReport(error) }; }
+}
+
+function redactSettings(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("diagnostic_response_invalid");
+  const cpu = result.limits?.cpu_ms;
+  // 未設定をプラン既定値で補わない。bindings等の設定本体は返さない。
+  return { cpu_ms: Number.isSafeInteger(cpu) && cpu >= 0 ? cpu : null,
+    usage_model: pick(result.usage_model, ["standard", "bundled", "unbound"]) };
+}
+
+function redactSubscriptions(result) {
+  if (!Array.isArray(result)) throw new Error("diagnostic_response_invalid");
+  const kinds = { WORKERS_PAID: "paid", PARTNERS_WORKERS_ENT: "enterprise",
+    PARTNERS_WORKERS_SS: "partner", PARTNERS_WORKERS_BASIC: "partner" };
+  const matches = result.flatMap(item => {
+    const kind = Object.hasOwn(kinds, item?.rate_plan?.id) ? kinds[item.rate_plan.id] : null;
+    return kind ? [{ kind, state: pick(item.state,
+      ["Trial", "Provisioned", "Paid", "AwaitingPayment", "Cancelled", "Failed", "Expired"]) }] : [];
+  });
+  const active = matches.filter(item => ["Paid", "Provisioned"].includes(item.state));
+  // 公式のID一覧は網羅的でないため、不在や権限拒否からFreeとは断定しない。
+  const workers_plan = ["enterprise", "paid", "partner"].find(kind => active.some(item => item.kind === kind)) ?? "unknown";
+  return { workers_plan, matches };
+}
+
+export async function diagnoseRuntime(env, request = fetch) {
+  const account = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_API_TOKEN;
+  if (!/^[a-f0-9]{32}$/.test(account ?? "") || !token) throw new Error("diagnostic_credentials_missing");
+  return {
+    settings: await runtimePart(account, token, `workers/scripts/${SCRIPT}/settings`, redactSettings, request),
+    subscriptions: await runtimePart(account, token, "subscriptions", redactSubscriptions, request),
+  };
+}
+
+export async function collectDiagnostics(env, request = fetch) {
+  const runtime = await diagnoseRuntime(env, request);
+  try { return { ...await diagnose(env, request), runtime }; }
+  catch (error) { return { ...failureReport(error), runtime }; }
+}
+
 export function queryBody(label, from, to, offset) {
   return {
     queryId: `google-lock-${label}`, dry: true, view: "events", limit: 2000,
@@ -114,7 +168,17 @@ export function redactEvent(event) {
   // 本文は分類器への入力にだけ使い、任意文字列を出力へコピーしない。
   const text = JSON.stringify(event);
   const messages = [meta.message, meta.error, event.message, event.error, event.source?.message]
-    .filter((value) => typeof value === "string").join("\n");
+    .filter((value) => typeof value === "string");
+  const signerCategories = new Set();
+  for (const message of messages) {
+    try {
+      const log = JSON.parse(message);
+      if (log?.event === "google_auth_signer" && ["webcrypto", "python"].includes(log.backend)) {
+        signerCategories.add(`google_auth_${log.backend}`);
+      }
+    } catch { /* JSON以外の本文から署名backendを推測しない。 */ }
+  }
+  const messageText = messages.join("\n");
   return {
     timestamp: number(event.timestamp), status: number(meta.statusCode),
     duration_ms: number(meta.duration), cpu_ms: number(worker.cpuTimeMs),
@@ -124,9 +188,10 @@ export function redactEvent(event) {
     execution: pick(worker.executionModel, ["durableObject", "stateless"]),
     outcome: pick(worker.outcome, ["ok", "exception", "exceededCpu", "exceededMemory", "canceled", "unknown"]),
     error_present: typeof meta.error === "string" && meta.error.length > 0,
-    message_present: messages.length > 0,
-    message_terms: MESSAGE_TERMS.filter((term) => new RegExp(`\\b${term}\\b`, "i").test(messages)),
-    categories: Object.entries(CLASSIFIERS).filter(([, pattern]) => pattern.test(text)).map(([key]) => key),
+    message_present: messageText.length > 0,
+    message_terms: MESSAGE_TERMS.filter((term) => new RegExp(`\\b${term}\\b`, "i").test(messageText)),
+    categories: [...Object.entries(CLASSIFIERS).filter(([, pattern]) => pattern.test(text)).map(([key]) => key),
+      ...signerCategories],
   };
 }
 
@@ -183,7 +248,10 @@ export async function diagnose(env, request = fetch) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let report;
-  try { report = await diagnose(process.env); }
+  try {
+    report = await collectDiagnostics(process.env);
+    if (report.error) process.exitCode = 1;
+  }
   catch (error) {
     report = failureReport(error);
     process.exitCode = 1;

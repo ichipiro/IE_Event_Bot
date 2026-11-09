@@ -219,6 +219,7 @@ jobs:
       - name: Read-only Google lock diagnostics
         if: ${{ inputs.mode == 'read-only-google-lock-diagnostics' }}
         env:
+          E2E_DIAGNOSTIC_RUN_ID: ${{ inputs.recovery_run_id }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node tools/diagnose_google_lock.mjs

@@ -1,7 +1,8 @@
 {
 	"$schema": "../node_modules/wrangler/config-schema.json",
 	"name": "ie-event-bot-e2e",
-	"main": "src/e2e_entry.py",
+	"main": "src/e2e/e2e_entry.py",
+	"base_dir": "src",
 	// 本番 Worker と同じランタイム条件で挙動を比較する。
 	"compatibility_date": "2026-03-07",
 	"compatibility_flags": [

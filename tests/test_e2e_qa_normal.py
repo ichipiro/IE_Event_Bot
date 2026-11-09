@@ -6,8 +6,8 @@ from urllib.parse import urlparse
 import pytest
 from workers import Response
 
-import e2e_entry
-import e2e_qa_normal_probe as normal
+from e2e import e2e_entry
+from e2e import e2e_qa_normal_probe as normal
 import jobs
 from state import StateStore
 from tests.fakes import Request
@@ -77,8 +77,8 @@ def install(monkeypatch):
         return Response(json.dumps(result), status=status)
 
     monkeypatch.setattr(jobs, "fetch", fetch)
-    import e2e_notion_probe
-    import e2e_discord_probe
+    from e2e import e2e_notion_probe
+    from e2e import e2e_discord_probe
     monkeypatch.setattr(e2e_notion_probe, "fetch", fetch)
     monkeypatch.setattr(e2e_discord_probe, "fetch", fetch)
     return pages, messages, calls

@@ -5,13 +5,13 @@ from uuid import uuid4
 
 from workers import DurableObject, Response
 
-from e2e_discord_batch_state import valid_batch_transition
-from e2e_discord_fixture_state import valid_fixture_transition
-from e2e_discord_delta_state import delta_owner_matches, delta_ready_to_resume, valid_delta_checkpoint
-from e2e_discord_kv_state import valid_transition
-from e2e_sync_lock_probe import valid_lock_transition
-from e2e_sync_fault_probe import valid_fault_transition
-from e2e_google_sync_state import valid_google_transition
+from e2e.e2e_discord_batch_state import valid_batch_transition
+from e2e.e2e_discord_fixture_state import valid_fixture_transition
+from e2e.e2e_discord_delta_state import delta_owner_matches, delta_ready_to_resume, valid_delta_checkpoint
+from e2e.e2e_discord_kv_state import valid_transition
+from e2e.e2e_sync_lock_probe import valid_lock_transition
+from e2e.e2e_sync_fault_probe import valid_fault_transition
+from e2e.e2e_google_sync_state import valid_google_transition
 
 
 _E2E_MANIFEST_KINDS = {
@@ -200,7 +200,7 @@ class SyncCoordinator(DurableObject):
             return {"ok": True, "last_epoch": last_epoch}, 200
 
         if action == "e2e_watch_shared":
-            from e2e_watch_shared_probe import watch_rpc
+            from e2e.e2e_watch_shared_probe import watch_rpc
             return await watch_rpc(self.ctx.storage, payload)
 
         if action in ("mark_google_message_seen", "claim_google_message", "finish_google_message"):

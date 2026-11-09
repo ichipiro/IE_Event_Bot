@@ -16,10 +16,10 @@ package "Worker アプリケーション" {
   component "<b>P010 sync_lock_do</b>\n3 メソッド / 2 関数\n詳細: sync-lock.puml" as P010
 }
 package "隔離 E2E Worker" {
-  component "<b>P017 e2e_discord_probe</b>\n0 メソッド / 30 関数\n詳細: e2e-discord-01.puml、e2e-discord-02.puml、e2e-discord-03.puml" as P017
-  component "<b>P018 e2e_entry</b>\n2 メソッド / 11 関数\n詳細: e2e-entry-01.puml、e2e-entry-02.puml" as P018
-  component "<b>P019 e2e_google_probe</b>\n0 メソッド / 14 関数\n詳細: e2e-google-01.puml、e2e-google-02.puml" as P019
-  component "<b>P020 e2e_notion_probe</b>\n0 メソッド / 33 関数\n詳細: e2e-notion-01.puml、e2e-notion-02.puml、e2e-notion-03.puml" as P020
+  component "<b>P017 e2e.e2e_discord_probe</b>\n0 メソッド / 30 関数\n詳細: e2e-discord-01.puml、e2e-discord-02.puml、e2e-discord-03.puml" as P017
+  component "<b>P018 e2e.e2e_entry</b>\n2 メソッド / 11 関数\n詳細: e2e-entry-01.puml、e2e-entry-02.puml" as P018
+  component "<b>P019 e2e.e2e_google_probe</b>\n0 メソッド / 14 関数\n詳細: e2e-google-01.puml、e2e-google-02.puml" as P019
+  component "<b>P020 e2e.e2e_notion_probe</b>\n0 メソッド / 33 関数\n詳細: e2e-notion-01.puml、e2e-notion-02.puml、e2e-notion-03.puml" as P020
 }
 package "開発ツール" {
   component "<b>P011 validate_plantuml</b>\n3 メソッド / 16 関数\n詳細: validator-01.puml、validator-02.puml" as P011

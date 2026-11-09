@@ -186,7 +186,8 @@ export class CronE2E {
       requireThat((await this.keys(report)).length === 0, "keys_already_exist");
       const config = JSON.parse(await readFile(resolve(ROOT, "workers/wrangler.cron-e2e.jsonc"), "utf8"));
       config.name = owned.worker;
-      config.main = resolve(ROOT, "workers/src/e2e_cron_entry.py");
+      config.main = resolve(ROOT, "workers/src/e2e/e2e_cron_entry.py");
+      config.base_dir = resolve(ROOT, "workers/src");
       config.vars = { ...config.vars, E2E_CRON_RUN_ID: runId, E2E_CRON_COMMIT: commit,
         E2E_CRON_START_MS: String(report.start_ms), E2E_CRON_DEADLINE_MS: String(report.deadline_ms) };
       const configPath = resolve(OUTPUT, `${runId}-config.json`);

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import sync_lock_release as recovery
-from e2e_google_sync_probe import _release_control
+from e2e.e2e_google_sync_probe import _release_control
 from entry import Default
 from state import StateStore
 from tests.fakes import make_sync_coordinator_namespace
@@ -185,7 +185,7 @@ def test_initial_release_timeout_recovers(monkeypatch, scope):
     namespace = make_sync_coordinator_namespace()
     backing = namespace.getByName(scope)
     monkeypatch.setattr("entry._RPC_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr("e2e_google_sync_probe._RPC_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr("e2e.e2e_google_sync_probe._RPC_TIMEOUT_SECONDS", 0.01)
     first = [True]
 
     def fresh(name):
@@ -253,7 +253,7 @@ def test_recovery_never_calls_do_without_owner_or_when_blocked(owner, blocked):
 
 @pytest.mark.parametrize("persistent", [False, True])
 def test_e2e_cleanup_is_saved_only_after_confirmed_release(monkeypatch, persistent):
-    import e2e_google_sync_probe as probe
+    from e2e import e2e_google_sync_probe as probe
     from tests.test_e2e_google_sync_probe import Scenario
     from tests.test_e2e_sync_lock_probe import RUN
 

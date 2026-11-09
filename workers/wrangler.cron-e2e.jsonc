@@ -1,7 +1,8 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "ie-event-bot-cron-e2e-template",
-  "main": "src/e2e_cron_entry.py",
+  "main": "src/e2e/e2e_cron_entry.py",
+  "base_dir": "src",
   "compatibility_date": "2026-03-07",
   "compatibility_flags": ["python_workers"],
   "workers_dev": false,

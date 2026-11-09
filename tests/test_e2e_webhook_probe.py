@@ -8,9 +8,9 @@ from urllib.parse import urlparse
 
 from workers import Response
 
-import e2e_entry
-import e2e_google_notion_probe
-import e2e_webhook_probe
+from e2e import e2e_entry
+from e2e import e2e_google_notion_probe
+from e2e import e2e_webhook_probe
 import google_calendar_sync
 from state import StateStore
 from tests.fakes import MemoryKV, Request

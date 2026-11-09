@@ -9,8 +9,8 @@ import pytest
 from workers import Response
 
 import discord_notion_sync as discord_sync
-import e2e_google_sync_probe as google
-from e2e_google_sync_state import ALL_KEYS, ALL_STEPS, GoogleKV
+from e2e import e2e_google_sync_probe as google
+from e2e.e2e_google_sync_state import ALL_KEYS, ALL_STEPS, GoogleKV
 from tests.test_e2e_google_sync_probe import Scenario
 from tests.test_e2e_sync_lock_probe import RUN, OTHER
 

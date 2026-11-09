@@ -6,10 +6,10 @@ from copy import deepcopy
 
 import pytest
 
-import e2e_google_boundary_probe as boundary
-import e2e_google_sync_probe as probe
-from e2e_google_boundary_state import STATUSES, pending_count
-from e2e_google_sync_state import KEYS
+from e2e import e2e_google_boundary_probe as boundary
+from e2e import e2e_google_sync_probe as probe
+from e2e.e2e_google_boundary_state import STATUSES, pending_count
+from e2e.e2e_google_sync_state import KEYS
 from tests.test_e2e_google_sync_probe import Scenario
 
 

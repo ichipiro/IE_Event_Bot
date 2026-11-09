@@ -7,11 +7,11 @@ from urllib.parse import unquote, urlparse
 
 from workers import Response
 
-import e2e_entry
-import e2e_google_notion_probe
-import e2e_google_probe
-import e2e_google_webhook_change_probe as probe
-import e2e_google_webhook_delivery_probe
+from e2e import e2e_entry
+from e2e import e2e_google_notion_probe
+from e2e import e2e_google_probe
+from e2e import e2e_google_webhook_change_probe as probe
+from e2e import e2e_google_webhook_delivery_probe
 import google_calendar_sync
 from state import StateStore
 from tests.fakes import Request

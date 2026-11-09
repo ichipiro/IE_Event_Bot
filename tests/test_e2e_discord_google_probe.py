@@ -8,10 +8,10 @@ from urllib.parse import parse_qs, quote, urlparse
 from workers import Response
 
 import discord_notion_sync
-import e2e_discord_google_probe
-import e2e_discord_probe
-import e2e_entry
-import e2e_google_probe
+from e2e import e2e_discord_google_probe
+from e2e import e2e_discord_probe
+from e2e import e2e_entry
+from e2e import e2e_google_probe
 from state import StateStore
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace
 

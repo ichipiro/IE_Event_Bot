@@ -35,8 +35,8 @@ StateStore
 | `workers/src/health_checks.py` | Notion、Discord、Google の疎通診断 |
 | `workers/src/state.py` | 状態ストアの抽象化 |
 | `workers/src/sync_lock_do.py` | `SyncCoordinator` Durable Object |
-| `workers/src/e2e_entry.py` | E2E 専用 route allowlist、run ID、status、Cron 無効化 |
-| `workers/src/e2e_*_probe.py` | 専用外部資源の CRUD、所有権確認、cleanup |
+| `workers/src/e2e/e2e_entry.py` | E2E 専用 route allowlist、run ID、status、Cron 無効化 |
+| `workers/src/e2e/e2e_*_probe.py` | 専用外部資源の CRUD、所有権確認、cleanup |
 
 ## HTTP ルート
 
@@ -146,7 +146,7 @@ E2Eは復旧成功なら元の段階の結果を返してclean管理記録の保
 外部へのアラート通知は追加していない。
 実環境でのログ収集は、変更をデプロイした後に確認する。
 
-`deploy-and-watch-shared-smoke` は `e2e_lock_release_probe.py` でrun専用DOを使い、
+`deploy-and-watch-shared-smoke` は `workers/src/e2e/e2e_lock_release_probe.py` でrun専用DOを使い、
 通常解放・E2E制御解放それぞれの「解放前の失敗」「解放後の応答喪失」「再試行上限」「所有者交代」を検証する。
 通常コードの呼出先を専用DOへ限定し、実際のRPC前後で固定例外を注入する。実際の回線障害を起こす検証ではない。
 別接続から所有者・解放結果を読み戻し、RPC回数と接続取得回数を照合する。
@@ -157,7 +157,7 @@ E2Eは復旧成功なら元の段階の結果を返してclean管理記録の保
 
 通常StateStoreの検証用 `discord_state` は、`E2E_STATE_SCOPE` 設定時だけ専用の保存・検証・回収routeを公開する。KV bindingをrun ID・一意なscope・snapshot / queueの固定キーへ制限し、読書きのたびにDO manifestの所有権を確認する。snapshot / queueは通常どおり別々のKV書込みであり、DOには所有メタデータだけを保存する。外部イベントの同期は行わず、通常経路と接続する前段の基盤として扱う。
 
-`workers/wrangler.e2e.jsonc` は `workers/src/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
+`workers/wrangler.e2e.jsonc` は `workers/src/e2e/e2e_entry.py` を入口にする。E2E CRUD、Google→Notion / Discord、Discord→Notion / Google、QA通知、前日リマインド、Notion期限cleanup、Webhook simulation、Google Webhook初回実配信、Google変更起因Webhookの専用 scenario、cleanup、status の route だけを明示的に公開する。管理用の書き込みrouteには Bearer 認証、`POST`、所定形式の `X-E2E-Run-ID` を要求する。Googleが呼ぶ実配信callbackだけはBearerとrun IDを受け取れないため、`X-Goog-Channel-Token`とrun所有channel / resourceのDurable Object照合で認証・認可する。
 
 Google→Notion scenario は、専用 Calendar の event を `apply_google_events` へ渡し、専用 Notion 内部 DB の page を確認後に両方を cleanup する。外部 Notion DB と Discord 反映を事前に拒否し、一時状態により通常の同期対応表と queue を変更しない。Google event ID、Notion page ID、対象 fingerprint は `google_notion` の Durable Object manifest で管理する。
 
@@ -204,16 +204,16 @@ Google変更起因Webhook scenario は、専用Calendarにrun marker付きevent�
 
 ### 通常同期ロックの専用E2E
 
-`e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。
+`workers/src/e2e/e2e_sync_lock_probe.py` はE2E入口から通常の `_run_discord_sync` / `_run_sync_dispatch` を呼び、globalロックと結果保存の処理を通す。省略可能なrunner引数で同期本体だけを検査処理へ差し替える。通常HTTP・Cronは引数を省略し、従来の外部同期を実行する。結果StateStoreはrun別KVへ限定し、最終同期時刻も通常DOへ保存しない。制御用DOはE2E自身の直列化だけを担う。検証範囲は [TESTING.md](TESTING.md) を参照する。
 
 
 ### 状態障害と期限切れの検査
 
 通常の単独同期・全体同期は、同期の段階間でDOのownerと期限を再確認し、失効・確認不能なら409 `sync_lock_lost` として後続の結果保存を止める。確認とKV書込みは原子的ではなく、同期本体内の状態保存や既に開始した外部処理の排他を保証しない。
 
-`e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
+`workers/src/e2e/e2e_sync_fault_probe.py` は通常差分処理に古いsnapshot / queueと保存前後の固定失敗を注入し、実KVへ書いた証拠を別HTTPで照合・回収する。TTLケースは同一HTTP内で共通処理の旧実行を待機させ、期限切れ後の新実行と競合させる。外部同期は代替runnerであり、実Cronは含めない。操作経路と保証境界は [TESTING.md](TESTING.md) に記載する。
 
-`e2e_google_sync_probe.py` は通常 `_run_sync_dispatch` → `run_google_delta_fetch` → `apply_google_events` を接続する。取得後に所有2件へ限定し、通常StateStoreをrun別の6つのKVキーへ向ける。初回上限1件、残件消化・更新・削除は上限2件で、各段階の別HTTP読戻しを必須とする。共有状態の形式と共通同期ロックを使うが、通常Google認証cache・Notion外部DB・Discord通常ポーリングへは接続しない。
+`workers/src/e2e/e2e_google_sync_probe.py` は通常 `_run_sync_dispatch` → `run_google_delta_fetch` → `apply_google_events` を接続する。取得後に所有2件へ限定し、通常StateStoreをrun別の6つのKVキーへ向ける。初回上限1件、残件消化・更新・削除は上限2件で、各段階の別HTTP読戻しを必須とする。共有状態の形式と共通同期ロックを使うが、通常Google認証cache・Notion外部DB・Discord通常ポーリングへは接続しない。
 
 
 通常Discord差分同期は `discord_retry_state.py` でsnapshot内の未処理操作とqueueを統合する。指紋には観測内容と残件情報を同時保存し、比較時は両者を分離する。これにより最新snapshotと古い空queueの組合せでも残件を復元する。通知のmessage IDを保持し、矛盾した通知先は拒否する。KVの両キーが古い場合と旧形式の境界は [TESTING.md](TESTING.md) を参照する。

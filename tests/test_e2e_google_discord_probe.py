@@ -7,10 +7,10 @@ from urllib.parse import unquote, urlparse
 
 from workers import Response
 
-import e2e_discord_probe
-import e2e_entry
-import e2e_google_discord_probe
-import e2e_google_probe
+from e2e import e2e_discord_probe
+from e2e import e2e_entry
+from e2e import e2e_google_discord_probe
+from e2e import e2e_google_probe
 import google_apply_sync
 from state import StateStore
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace

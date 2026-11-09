@@ -6,9 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from e2e_discord_fixture_state import SERVICE, FixtureDiscordKV
-from e2e_discord_kv_state import KEYS
-from e2e_entry import Default
+from e2e.e2e_discord_fixture_state import SERVICE, FixtureDiscordKV
+from e2e.e2e_discord_kv_state import KEYS
+from e2e.e2e_entry import Default
 from state import StateStore
 from tests.fakes import Request
 from tests.test_e2e_discord_kv_state import KV

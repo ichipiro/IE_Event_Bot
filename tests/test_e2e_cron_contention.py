@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import e2e_cron_contention as probe
+from e2e import e2e_cron_contention as probe
 from tests.fakes import MemoryKV, Request, make_sync_coordinator_namespace
 from tests.test_e2e_real_cron import RUN, START, worker
 

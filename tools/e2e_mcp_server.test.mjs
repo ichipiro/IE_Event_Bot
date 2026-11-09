@@ -478,7 +478,195 @@ test("Wrangler deployへ検証対象run IDだけをversion tagとして渡す", 
   assert.equal(invocation.options.env.CLOUDFLARE_ACCOUNT_ID, ENV.CLOUDFLARE_ACCOUNT_ID);
   assert.equal(invocation.options.env.CLOUDFLARE_API_TOKEN, ENV.CLOUDFLARE_API_TOKEN);
   assert.equal("INTERNAL_API_TOKEN" in invocation.options.env, false);
+  assert.equal(invocation.options.env.WRANGLER_WRITE_LOGS, "false");
+  assert.equal(invocation.options.env.WRANGLER_SEND_METRICS, "false");
+  assert.deepEqual(invocation.options.stdio, ["ignore", "pipe", "pipe"]);
 });
+
+
+function deployOutput(exitCode, stdout = [], stderr = [], startError = false) {
+  return () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      for (const chunk of stdout) { child.stdout.emit("data", chunk); }
+      for (const chunk of stderr) { child.stderr.emit("data", chunk); }
+      if (startError) { child.emit("error", new Error("private-start-error")); }
+      child.emit("close", exitCode);
+    });
+    return child;
+  };
+}
+
+
+for (const [category, text] of [
+  ["network", "fetch failed ECONNRESET"], ["auth", "Authentication error"],
+  ["cpu", "Worker startup exceeded CPU time limit"], ["python_build", "Python build failed"],
+  ["compatibility", "Invalid compatibility date"], ["package", "npm ERR! package not found"],
+  ["config", "Invalid wrangler configuration"], ["unknown", "unclassified private-details"],
+]) {
+  test(`deploy診断は${category}の固定分類とCloudflare数値codeだけを返す`, async () => {
+    const result = await deployDedicatedWorker(loadE2eEnvironment(ENV), RUN_ID,
+      deployOutput(1, [Buffer.from(text)], [
+        "\u001b[31m[code: 100", "21]\u001b[0m [code: 10021] [code: 1234567] [code: -12]\n",
+        `Authorization: Bearer ${ENV.CLOUDFLARE_API_TOKEN} [code: 99999]\n`,
+        `private-canary https://private.invalid/private-path /private/path ${ENV.INTERNAL_API_TOKEN}\n`,
+      ]));
+    assert.deepEqual(result, { ok: false, status: 1, error: "wrangler_deploy_failed",
+      deployment_diagnostic: { cloudflare_error_codes: [10021], categories: [category], output_truncated: false } });
+    assert.ok(!JSON.stringify(result).includes("private"));
+    assert.ok(!JSON.stringify(result).includes(ENV.CLOUDFLARE_API_TOKEN));
+  });
+}
+
+
+test("deploy出力は末尾64KiBずつとcode8件へ制限し、成功出力を返さない", async () => {
+  const config = loadE2eEnvironment(ENV);
+  const codes = Array.from({ length: 12 }, (_, i) => `[code: ${10020 + i}]`).join(" ");
+  const result = await deployDedicatedWorker(config, RUN_ID, deployOutput(1,
+    [Buffer.alloc(1_000_000, 120), "Python build failed"],
+    ["private-canary".repeat(100_000), codes]));
+  assert.deepEqual(result.deployment_diagnostic, { cloudflare_error_codes: Array.from({ length: 8 }, (_, i) => 10020 + i),
+    categories: ["python_build"], output_truncated: true });
+  assert.ok(JSON.stringify(result).length < 512);
+  const success = await deployDedicatedWorker(config, RUN_ID,
+    deployOutput(0, ["private-stdout [code: 10021]"], ["private-stderr"]));
+  assert.deepEqual(success, { ok: true, status: 0, error: null });
+  const failedStart = await deployDedicatedWorker(config, RUN_ID, deployOutput(1, [], [], true));
+  assert.equal(failedStart.error, "wrangler_deploy_start_failed");
+  assert.ok(!JSON.stringify(failedStart).includes("private"));
+});
+
+
+test("deploy診断はMCPから監査JSONLとmanifestまで再検証し、生metadataを捨てる", async () => {
+  const runId = "E2E-20261110T000000Z-d1a90001";
+  const diagnostic = { cloudflare_error_codes: [10021], categories: ["cpu"], output_truncated: false };
+  await withClient({ env: ENV,
+    fetchImpl: async () => jsonResponse({ ok: true }),
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+    deployImpl: async (config, run) => ({ ...await deployDedicatedWorker(config, run,
+      deployOutput(1, [], ["startup CPU time limit [code: 10021] private-secret"])),
+      stdout: "private-stdout", stderr: "private-stderr", metadata: { url: "https://private.invalid" } }),
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+      run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+    } }));
+    assert.equal(result.error, "wrangler_deploy_failed");
+    assert.deepEqual(result.deployment_diagnostic, diagnostic);
+    const saved = await readAuditEntries(runId);
+    assert.deepEqual(saved.at(-1).deployment_diagnostic, diagnostic);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence", arguments: { run_id: runId } }));
+    assert.deepEqual(evidence.manifest.operations.at(-1).deployment_diagnostic, diagnostic);
+    assert.ok(!JSON.stringify([result, saved, evidence]).includes("private"));
+  });
+  await appendAuditEntry({ run_id: runId, tool: "deploy_e2e", target: "ie-event-bot-e2e", phase: "finish",
+    ok: false, error: "wrangler_deploy_failed", deployment_diagnostic: {
+      cloudflare_error_codes: [10021, "private-code", -1, 1234567, 1.5, 10021],
+      categories: ["cpu", "private-category", "cpu"], output_truncated: "private-value",
+      stderr: "private-secret", url: "https://private.invalid",
+    } });
+  assert.deepEqual((await readAuditEntries(runId)).at(-1).deployment_diagnostic, diagnostic);
+  await appendAuditEntry({ run_id: runId, tool: "trigger_sync", target: "google_sync", phase: "finish",
+    ok: false, error: "wrangler_deploy_failed", deployment_diagnostic: diagnostic });
+  assert.equal(Object.hasOwn((await readAuditEntries(runId)).at(-1), "deployment_diagnostic"), false);
+});
+
+
+test("code0のCLIから固定Worker URLとversionはhash、取消はbooleanだけを保持する", async () => {
+  const config = loadE2eEnvironment(ENV);
+  const id = "11111111-2222-4333-8444-555555555555";
+  const result = await deployDedicatedWorker(config, RUN_ID, deployOutput(0, [
+    `  ${ENV.E2E_WORKER_URL.toUpperCase()}/\nCurrent Version ID: ${id}\nprivate-secret`,
+  ]));
+  assert.deepEqual(result.deployment_diagnostic, { output_truncated: false, cli: {
+    worker_url_sha256: createHash("sha256").update(ENV.E2E_WORKER_URL).digest("hex"),
+    url_matches_expected: true, version_id_sha256: createHash("sha256").update(id).digest("hex"), cancelled: false,
+  } });
+  const cancelled = await deployDedicatedWorker(config, RUN_ID, deployOutput(0, ["Aborting deploy..."]));
+  assert.equal(cancelled.ok, true);
+  assert.equal(cancelled.deployment_diagnostic.cli.cancelled, true);
+  assert.equal(cancelled.deployment_diagnostic.cli.worker_url_sha256, null);
+  assert.ok(!JSON.stringify([result, cancelled]).includes("private"));
+  assert.ok(!JSON.stringify(result).includes(id));
+});
+
+
+test("公開version不一致時だけ固定CFのactive版をGETし安全な証跡を監査へ保存する", async () => {
+  const runId = "E2E-20261110T000000Z-d1a90002";
+  const id = "22222222-2222-4333-8444-555555555555";
+  const apiCalls = [];
+  await withClient({ env: ENV, delayImpl: async () => {},
+    repositoryMetadataImpl: async () => ({ git_sha: "c".repeat(40), dirty: false }),
+    deployImpl: async (config, run) => await deployDedicatedWorker(config, run,
+      deployOutput(0, ["https://ie-event-bot-e2e.other.workers.dev\nAborting deploy..."])),
+    fetchImpl: async (url, options) => {
+      if (!url.startsWith("https://api.cloudflare.com/")) {
+        return jsonResponse({ ok: true, worker_version: { present: true,
+          tag: "E2E-20260901T000000Z-abcdef01", id_sha256: "c".repeat(64) } });
+      }
+      apiCalls.push(url);
+      assert.ok(url.startsWith(`https://api.cloudflare.com/client/v4/accounts/${ENV.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/ie-event-bot-e2e/`));
+      assert.equal(options.method, "GET");
+      assert.equal(options.redirect, "error");
+      assert.deepEqual(options.headers, { Authorization: `Bearer ${ENV.CLOUDFLARE_API_TOKEN}` });
+      return jsonResponse({ success: true, result: url.endsWith("deployments?per_page=1")
+        ? { deployments: [{ versions: [{ version_id: id, percentage: 100 }] }] }
+        : { id, annotations: { "workers/tag": "private-old-tag", "workers/message": "private-message" },
+          metadata: { author_email: "private-email" }, resources: { bindings: [{ text: "private-secret" }] } } });
+    },
+  }, async client => {
+    const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+      run_id: runId, confirmation: `deploy:ie-event-bot-e2e:${runId}`,
+    } }));
+    assert.equal(result.status, 0);
+    assert.equal(result.error, "worker_version_propagation_timeout");
+    assert.equal(result.deployment_diagnostic.cli.url_matches_expected, false);
+    assert.equal(result.deployment_diagnostic.cli.cancelled, true);
+    assert.deepEqual(result.deployment_diagnostic.control_plane, { deployments_status: 200,
+      cloudflare_error_codes: [], complete: true, active_versions: [{ http_status: 200,
+        version_id_sha256: createHash("sha256").update(id).digest("hex"), expected_tag_match: false, traffic_percent: 100 }] });
+    assert.equal(apiCalls.length, 2);
+    const saved = await readAuditEntries(runId);
+    assert.deepEqual(saved.at(-1).deployment_diagnostic, result.deployment_diagnostic);
+    const evidence = parseToolResult(await client.callTool({ name: "collect_evidence", arguments: { run_id: runId } }));
+    assert.deepEqual(evidence.manifest.operations.at(-1).deployment_diagnostic, result.deployment_diagnostic);
+    assert.ok(!JSON.stringify([result, saved, evidence]).includes("private"));
+    assert.ok(!JSON.stringify([result, saved, evidence]).includes(id));
+  });
+});
+
+
+for (const failure of ["http", "invalid_id", "invalid_json", "network"]) {
+  test(`CF診断の${failure}は不完全を明示し任意pathや生エラーを残さない`, async () => {
+    const audit = [], calls = [];
+    await withClient({ env: ENV, delayImpl: async () => {}, auditImpl: async item => audit.push(item),
+      deployImpl: async () => ({ ok: true, status: 0 }), fetchImpl: async url => {
+        if (!url.startsWith("https://api.cloudflare.com/")) { return jsonResponse({ ok: true }); }
+        calls.push(url);
+        if (failure === "network") { throw new Error("private-network-token"); }
+        if (failure === "invalid_json") { return { status: 503, text: async () => "private-secret" }; }
+        if (failure === "invalid_id") {
+          return jsonResponse({ success: true, result: { deployments: [{ versions: [{ version_id: "../private-path", percentage: 100 }] }] } });
+        }
+        return jsonResponse({ success: false, errors: [{ code: 10000, message: "private-secret" }] }, 403);
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+      } }));
+      const cp = result.deployment_diagnostic.control_plane;
+      assert.equal(result.error, "worker_version_propagation_timeout");
+      assert.equal(calls.length, 1);
+      assert.equal(cp.complete, false);
+      assert.deepEqual(cp.active_versions, []);
+      assert.equal(cp.deployments_status, { http: 403, invalid_id: 200, invalid_json: 503, network: null }[failure]);
+      assert.deepEqual(cp.cloudflare_error_codes, failure === "http" ? [10000] : []);
+      assert.ok(!JSON.stringify([result, audit]).includes("private"));
+    });
+  });
+}
 
 
 test("公開ツールを12件に固定して任意URLや資源IDを受け取らない", async () => {
@@ -1350,13 +1538,18 @@ test("deploy_e2eは固定confirmation後もマスク済み結果だけを返す"
 test("deploy_e2eはrun ID tagの反映前に成功を返さない", async () => {
   const audit = [];
   let fetchCalls = 0;
+  let controlPlaneCalls = 0;
   let delayCalls = 0;
 
   await withClient(
     {
       env: ENV,
       deployImpl: async () => ({ ok: true, status: 0, error: null }),
-      fetchImpl: async () => {
+      fetchImpl: async url => {
+        if (url.startsWith("https://api.cloudflare.com/")) {
+          controlPlaneCalls += 1;
+          return jsonResponse({ success: false, errors: [{ code: 10000 }] }, 403);
+        }
         fetchCalls += 1;
         return jsonResponse({
           ok: true,
@@ -1389,6 +1582,8 @@ test("deploy_e2eはrun ID tagの反映前に成功を返さない", async () => 
       assert.equal(payload.version_verified, false);
       assert.equal(payload.verification_attempts, 20);
       assert.equal(fetchCalls, 20);
+      assert.equal(controlPlaneCalls, 1);
+      assert.equal(payload.deployment_diagnostic.control_plane.deployments_status, 403);
       assert.equal(delayCalls, 19);
       assert.deepEqual(audit.map((entry) => entry.phase), ["start", "finish"]);
       assert.equal(audit.at(-1).ok, false);

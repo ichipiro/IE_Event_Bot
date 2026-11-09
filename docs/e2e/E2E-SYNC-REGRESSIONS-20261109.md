@@ -59,6 +59,16 @@ Google変更がDiscordへ届く修正に合わせて、step 4・5の期待本文
 
 これらは専用Worker・専用資源の有限ケースであり、本番稼働、任意件数、自然発生障害、厳密に一度だけの反映、全地域KV整合性は保証しない。dedupe削除条件の詳細はローカル回帰で確認し、watch実E2Eの成功だけで期限切れ通常レコードの全条件を実環境検証済みとは扱わない。
 
+## E2E準備時のCalendar取得範囲
+
+all-sync・all-http・watch-sharedの新規runは、prepare開始時のUTC実時刻を`initial_cursor`へ一度だけ記録する。最初に`updatedMin`を付けず`showDeleted=false`でactive予定を全ページ確認し、古いactive予定も拒否する。HTTP失敗・不正応答・ページ循環は空扱いにしない。GuildとNotion DBの空確認も維持する。
+
+削除済み履歴のbaseline確認とall-httpの事前所有確認には、この固定cursorを通常差分取得へ渡す。通常処理の2分の重複範囲も含めて確認し、取得した未知の入力は拒否する。初期cursorは所有manifestで変更を禁止し、実処理の初期値も通常GoogleKVの書込み・hash・回収記録へ含める。保存直後の応答喪失でも所有runのcleanup対象にし、旧manifestのcursor欠落は従来の回収経路で扱う。
+
+fixtureの将来の開催日時はcursorに使わない。cursorはprepare時の実時刻、予定の変更時刻はGoogle APIの`updated`であり、準備中の新しい変更も同じ窓へ含める。過去の削除履歴を消したり100件上限を広げたりせず、初期窓外の古い削除履歴は今回の差分入力に含めない。直近履歴が100件を超えれば引き続き拒否する。通常コードと、full・matrix・boundaryなど他モードの初期full取得は変更しない。
+
+[初期cursorの回帰](../../tests/test_e2e_initial_cursor.py)では、古い削除履歴150件で旧実装の3モードが`google_sync_baseline_limit`となることを再現した。修正後は同じ履歴を保持した準備・dispatch・回収、古いactiveの拒否、100件上限、不変cursor、保存応答喪失、旧manifest回収とページ異常を確認する。
+
 ## 状態掃除の境界
 
 `gcal_msg:`の通常レコードだけを対象に、1操作あたり最大100件を読み、`gcal_gc:cursor`で次の範囲へ進む。50msは一覧取得後のループ内予算であり、storage I/Oを含む処理全体の厳密な時間上限ではない。
@@ -67,7 +77,8 @@ Google変更がDiscordへ届く修正に合わせて、step 4・5の期待本文
 
 ## 実行結果
 
-- ローカル最終回帰: Ruff・Pyright成功、Python 1,189件、Node 383件・Cron契約13件、E2E設定検査とE2E Workerのdry-runが成功。
-- 実E2E: 実行準備中。完了後に各run・commit・監査・回収結果を追記する。
+- ローカル最終回帰: Ruff・Pyright成功、Python 1,212件、Node 383件・Cron契約13件、E2E設定・機密情報混入・workflow検査、通常WorkerとE2E Workerのdry-runが成功。
+- 初回実E2E: [all-sync実行42620421858](https://github.com/lycanthr0pes/IE_Event_Bot_fork/actions/runs/42620421858)は、commit `18f2d76` のdeploy後、既存Calendarの削除履歴が100件を超え、`prepare_all`で`google_sync_baseline_limit`となった。今回runのowner保存・fixture作成前の停止であり、成功に数えない。全manifestはcleanで、artifact内の過去runの`passed`も今回の実績へ数えない。cleanupは`google_sync_run_mismatch`で旧runを保護した。マスク済み証跡は`test-results/sync-fixes-42620421858/verification.json`へ保存した。
+- 修正後の実E2E: 実行準備中。完了後に各run・commit・監査・回収結果を追記する。
 
 関連: [検証方法](../TESTING.md)、[バックエンド](../BACKEND.md)、[状態設計](../DB-SCHEMA.md)、[従来のE2E計画](E2E-PLAN.md)。

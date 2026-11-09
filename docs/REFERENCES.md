@@ -11,7 +11,7 @@
 | 全体概要、ルート、環境変数 | `README.md` |
 | エージェント指示 | `AGENTS.md` |
 | 開発規則 | `docs/DEVELOPMENT.md` |
-| Python バージョンと依存 | `pyproject.toml`、`workers/requirements.txt`、`README_ENV.md` |
+| Python バージョンと依存 | `pyproject.toml`、`workers/requirements.txt`、`docs/REQUIREMENTS.md` |
 | Node.js 要件と Wrangler | `package.json`、`package-lock.json` |
 | Worker、バインディング、変数、Cron | `workers/wrangler.jsonc` |
 | HTTP、認可、Cron | `workers/src/entry.py` |
@@ -34,8 +34,10 @@
 - `docs/Operations.md`: デプロイと運用
 - `docs/do-kv-design.md`: Durable Object と KV の責務分担
 - `docs/fork-upstream-workflow.md`: Fork と Upstream を使う Git 運用
+- `docs/work/WORKLOG.md`: ローカル作業履歴
+- `docs/work/AUTH.md`: 認証方式と保存先のローカル整理。認証情報の値は含めない
 
-先頭4文書は現行の `.gitignore` 対象であり、ローカル補足文書として存在する。クリーンなチェックアウトで必ず存在するとは限らないため、標準文書はこれらだけに依存しない。
+先頭4文書と `docs/work/` は `.gitignore` 対象のローカル補足資料である。クリーンなチェックアウトで必ず存在するとは限らないため、標準文書はこれらだけに依存しない。
 
 ## 外部の一次資料
 

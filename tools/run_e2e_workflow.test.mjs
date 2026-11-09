@@ -186,6 +186,32 @@ for (const stage of ["cleanup", "ready", "working"]) {
 }
 
 
+for (const failure of [null, "final", "nonwatch", "run", "version", "other_dirty", "service_dirty"]) {
+  test(`watch検証済みcheckpointの回収workflow: ${failure ?? "success"}`, async () => {
+    const { calls, callTool } = stateWorkflowFixture({
+      read_status: async () => ({ ok: true, mode: "e2e", orchestrated_writes_enabled: false,
+        worker_version: { tag: failure === "version" ? "other" : RUN_ID, id_sha256: "a".repeat(64) },
+        services: { notion: { dirty: failure === "service_dirty" } },
+        scenarios: {
+          google_sync: { present: true, dirty: true, run_id: failure === "run" ? "other" : RUN_ID,
+            stage: "verified", stages: failure === "nonwatch" ? {} : {
+              watch_shared_step_0: 200, watch_shared_step_3: failure === "final" ? 200 : undefined,
+            } },
+          discord_delta: { dirty: failure === "other_dirty" },
+        } }),
+      assert_external_state: async () => ({ ok: true, manifest: { outcome: "failed_clean" } }),
+    }, "google_sync");
+    if (failure) {
+      await assert.rejects(runGoogleSyncRecovery(callTool, RUN_ID), /google_sync_recovery_owner_mismatch/);
+      assert.deepEqual(calls.map(c => c.name), ["read_status"]);
+    } else {
+      assert.deepEqual(await runGoogleSyncRecovery(callTool, RUN_ID), { ok: true, recovered: "google_sync" });
+      assert.deepEqual(calls.map(c => c.name), ["read_status", "deploy_e2e", "cleanup_run", "assert_external_state", "preflight"]);
+    }
+  });
+}
+
+
 function stateWorkflowFixture(overrides = {}, scenario = "discord_state") {
   const calls = [];
   const callTool = async (name, args) => {

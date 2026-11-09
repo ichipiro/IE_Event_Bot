@@ -657,6 +657,13 @@ function sanitizeOperation(response, runId) {
 }
 
 
+export function isGoogleSyncRecoveryStage(owner) {
+  return ["working", "ready", "cleanup"].includes(owner?.stage) ||
+    (owner?.stage === "verified" && owner.stages?.watch_shared_step_0 === 200 &&
+      owner.stages?.watch_shared_step_3 !== 200);
+}
+
+
 function sanitizeManifest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { present: false, dirty: false, run_id: null };
@@ -1258,7 +1265,7 @@ export function createE2eMcpServer(options = {}) {
             const status = sanitizeStatus(response);
             const googleOwner = status.scenarios.google_sync;
             const googleRecovery = googleOwner?.dirty && googleOwner.run_id === runId &&
-              ["working", "ready", "cleanup"].includes(googleOwner.stage);
+              isGoogleSyncRecoveryStage(googleOwner);
             const target = googleRecovery ? "google_sync" : "discord_delta";
             const manifest = status.scenarios[target];
             if (!status.ok || status.mode !== "e2e" || !status.e2e_manifest_enabled ||

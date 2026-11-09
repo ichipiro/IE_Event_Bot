@@ -2055,6 +2055,38 @@ for (const stage of ["working", "ready", "cleanup"]) {
   });
 }
 
+for (const failure of [null, "final", "nonwatch", "run", "version", "other_dirty", "service_dirty"]) {
+  test(`watch検証済みcheckpointの再deploy: ${failure ?? "success"}`, async () => {
+    let reads = 0;
+    let deploys = 0;
+    await withClient({ env: ENV, auditImpl: async () => {},
+      deployImpl: async () => { deploys += 1; return { ok: true, status: 0 }; },
+      fetchImpl: async () => {
+        const status = redeployStatus();
+        status.scenarios = { google_sync: { present: true, dirty: true,
+          run_id: failure === "run" ? "E2E-20260901T000000Z-abcdef01" : RUN_ID,
+          stage: "verified", stages: failure === "nonwatch" ? {} : {
+            watch_shared_step_0: 200, watch_shared_step_3: failure === "final" ? 200 : undefined,
+          } } };
+        if (failure === "other_dirty") { status.scenarios.discord_delta = { dirty: true }; }
+        if (failure === "service_dirty") { status.services = { notion: { dirty: true } }; }
+        if (failure === "version") { status.worker_version.id_sha256 = "e".repeat(64); }
+        if (++reads >= 2) { status.worker_version.id_sha256 = "d".repeat(64); }
+        return jsonResponse(status);
+      },
+    }, async client => {
+      const result = parseToolResult(await client.callTool({ name: "deploy_e2e", arguments: {
+        run_id: RUN_ID, confirmation: `deploy:ie-event-bot-e2e:${RUN_ID}`,
+        previous_version_sha256: "c".repeat(64),
+      } }));
+      assert.equal(result.ok, !failure);
+      assert.equal(deploys, failure ? 0 : 1);
+      if (failure) { assert.equal(result.error, "redeploy_checkpoint_mismatch"); }
+      else { assert.equal(result.version_sha256, "d".repeat(64)); }
+    });
+  });
+}
+
 for (const mode of ["transient", "persistent", "transport", "other", "wrong_status"]) {
   test(`Google同期は書込み前のversion拒否だけ上限付き再送: ${mode}`, async () => {
     let requests = 0;
